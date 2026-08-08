@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic";
+import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { TENANT_ID, SESSION_ID } from "@/lib/constants";
+
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const MATCH_COUNT = 3;
+// Cosine similarity is roughly 0-1 for related text with this model; below
+// this, a match is more likely noise than something worth grounding on.
+const SIMILARITY_THRESHOLD = 0.3;
 
 const SYSTEM_PROMPT = `You are the first point of contact for a dental clinic, chatting with someone who reached out. Your job is lead generation and qualification — not closing a sale, not booking an appointment, and not directly convincing the patient of anything. Your job is to build genuine interest in the clinic, gather complete lead information, and guide the patient toward sending a photo for the dental team to assess.
 
@@ -13,6 +20,48 @@ Gather lead details in small, natural waves that follow the conversation rather 
 Frame the photo request as helping the dental team put together an accurate assessment for them, never as a bureaucratic requirement.
 
 Behavioral rules: ask only one question per message. Keep every reply to two or three short sentences. Never use markdown tables or bullet or numbered lists — write in plain conversational prose throughout. Never try to convince the patient to book or close, and never push — your role stops at building interest and gathering information. Once you have their name, contact info, and main concern, and ideally a photo, warmly close by letting them know the team will review their case and follow up, and stop actively asking questions from there.`;
+
+type KnowledgeMatch = {
+  id: string;
+  content: string;
+  category: string | null;
+  similarity: number;
+};
+
+// Embeds the user's message and looks up the most relevant knowledge_base
+// entries for this tenant. Returns null on any failure or when nothing
+// clears the similarity bar — callers should just proceed without context.
+async function getRelevantContext(query: string): Promise<string | null> {
+  try {
+    const embeddingResponse = await openai.embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: query,
+    });
+    const queryEmbedding = embeddingResponse.data[0].embedding;
+
+    const { data: matches, error } = await supabaseServer.rpc("match_knowledge_base", {
+      query_embedding: queryEmbedding,
+      match_tenant_id: TENANT_ID,
+      match_count: MATCH_COUNT,
+    });
+
+    if (error) {
+      console.error("Knowledge base retrieval failed:", error);
+      return null;
+    }
+
+    const relevant = ((matches ?? []) as KnowledgeMatch[]).filter(
+      (m) => m.similarity >= SIMILARITY_THRESHOLD
+    );
+
+    if (relevant.length === 0) return null;
+
+    return `Relevant information about the clinic:\n${relevant.map((m) => m.content).join("\n\n")}`;
+  } catch (err) {
+    console.error("Failed to generate embedding for retrieval:", err);
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   const { message, photoPath } = await req.json();
@@ -30,12 +79,15 @@ export async function POST(req: NextRequest) {
     ? [trimmedMessage, `[Photo attached: ${photoPath}]`].filter(Boolean).join("\n\n")
     : trimmedMessage;
 
-  const { data: history, error: historyError } = await supabaseServer
-    .from("conversations")
-    .select("role, content")
-    .eq("tenant_id", TENANT_ID)
-    .eq("session_id", SESSION_ID)
-    .order("created_at", { ascending: true });
+  const [{ data: history, error: historyError }, relevantContext] = await Promise.all([
+    supabaseServer
+      .from("conversations")
+      .select("role, content")
+      .eq("tenant_id", TENANT_ID)
+      .eq("session_id", SESSION_ID)
+      .order("created_at", { ascending: true }),
+    trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
+  ]);
 
   if (historyError) {
     console.error("Failed to fetch conversation history from Supabase:", historyError);
@@ -46,11 +98,15 @@ export async function POST(req: NextRequest) {
     content: row.content,
   }));
 
+  const systemForThisTurn = relevantContext
+    ? `${SYSTEM_PROMPT}\n\n${relevantContext}`
+    : SYSTEM_PROMPT;
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     output_config: { effort: "low" },
-    system: SYSTEM_PROMPT,
+    system: systemForThisTurn,
     messages: [...priorMessages, { role: "user", content: userContent }],
   });
 
