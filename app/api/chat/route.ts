@@ -63,6 +63,28 @@ async function getRelevantContext(query: string): Promise<string | null> {
   }
 }
 
+// Distinct knowledge_base categories available for this tenant (e.g.
+// "doctors", "technology", "guarantees"), so the assistant can proactively
+// offer relevant info rather than only answering when asked directly.
+async function getAvailableCategories(): Promise<string[]> {
+  const { data, error } = await supabaseServer
+    .from("knowledge_base")
+    .select("category")
+    .eq("tenant_id", TENANT_ID)
+    .not("category", "is", null);
+
+  if (error) {
+    console.error("Failed to fetch knowledge_base categories:", error);
+    return [];
+  }
+
+  const categories = new Set<string>();
+  for (const row of data ?? []) {
+    if (row.category) categories.add(row.category);
+  }
+  return Array.from(categories);
+}
+
 export async function POST(req: NextRequest) {
   const { message, photoPath } = await req.json();
 
@@ -79,15 +101,17 @@ export async function POST(req: NextRequest) {
     ? [trimmedMessage, `[Photo attached: ${photoPath}]`].filter(Boolean).join("\n\n")
     : trimmedMessage;
 
-  const [{ data: history, error: historyError }, relevantContext] = await Promise.all([
-    supabaseServer
-      .from("conversations")
-      .select("role, content")
-      .eq("tenant_id", TENANT_ID)
-      .eq("session_id", SESSION_ID)
-      .order("created_at", { ascending: true }),
-    trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
-  ]);
+  const [{ data: history, error: historyError }, relevantContext, categories] =
+    await Promise.all([
+      supabaseServer
+        .from("conversations")
+        .select("role, content")
+        .eq("tenant_id", TENANT_ID)
+        .eq("session_id", SESSION_ID)
+        .order("created_at", { ascending: true }),
+      trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
+      getAvailableCategories(),
+    ]);
 
   if (historyError) {
     console.error("Failed to fetch conversation history from Supabase:", historyError);
@@ -98,9 +122,22 @@ export async function POST(req: NextRequest) {
     content: row.content,
   }));
 
-  const systemForThisTurn = relevantContext
-    ? `${SYSTEM_PROMPT}\n\n${relevantContext}`
-    : SYSTEM_PROMPT;
+  // Category list drives proactive suggestions; RAG retrieval (above)
+  // answers specific questions in depth — both are optional additions
+  // layered onto the base system prompt.
+  const systemParts = [SYSTEM_PROMPT];
+
+  if (categories.length > 0) {
+    systemParts.push(
+      `You have information available about: ${categories.join(", ")}. Proactively and naturally offer to share one of these when it fits the conversation (e.g. "want to hear about our doctors' experience, or the guarantees we offer?"), rather than only answering if asked directly.`
+    );
+  }
+
+  if (relevantContext) {
+    systemParts.push(relevantContext);
+  }
+
+  const systemForThisTurn = systemParts.join("\n\n");
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
