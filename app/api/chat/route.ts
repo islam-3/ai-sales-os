@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic";
 import { supabaseServer } from "@/lib/supabase-server";
-
-// Fixed for now — real tenant/session resolution comes later.
-const TENANT_ID = "4bcf1436-9e03-4c4c-be67-a5404d322470";
-const SESSION_ID = "00000000-0000-0000-0000-000000000001";
+import { TENANT_ID, SESSION_ID } from "@/lib/constants";
 
 const SYSTEM_PROMPT = `You are the first point of contact for a dental clinic, chatting with someone who reached out. Your job is lead generation and qualification — not closing a sale, not booking an appointment, and not directly convincing the patient of anything. Your job is to build genuine interest in the clinic, gather complete lead information, and guide the patient toward sending a photo for the dental team to assess.
 
@@ -18,11 +15,20 @@ Frame the photo request as helping the dental team put together an accurate asse
 Behavioral rules: ask only one question per message. Keep every reply to two or three short sentences. Never use markdown tables or bullet or numbered lists — write in plain conversational prose throughout. Never try to convince the patient to book or close, and never push — your role stops at building interest and gathering information. Once you have their name, contact info, and main concern, and ideally a photo, warmly close by letting them know the team will review their case and follow up, and stop actively asking questions from there.`;
 
 export async function POST(req: NextRequest) {
-  const { message } = await req.json();
+  const { message, photoPath } = await req.json();
 
-  if (typeof message !== "string" || !message.trim()) {
-    return NextResponse.json({ error: "message is required" }, { status: 400 });
+  const trimmedMessage = typeof message === "string" ? message.trim() : "";
+  const hasPhoto = typeof photoPath === "string" && photoPath.length > 0;
+
+  if (!trimmedMessage && !hasPhoto) {
+    return NextResponse.json({ error: "message or photoPath is required" }, { status: 400 });
   }
+
+  // Combine typed text with a marker noting the photo, so the conversation
+  // record and Claude both see the same thing the user "said".
+  const userContent = hasPhoto
+    ? [trimmedMessage, `[Photo attached: ${photoPath}]`].filter(Boolean).join("\n\n")
+    : trimmedMessage;
 
   const { data: history, error: historyError } = await supabaseServer
     .from("conversations")
@@ -45,7 +51,7 @@ export async function POST(req: NextRequest) {
     max_tokens: 1024,
     output_config: { effort: "low" },
     system: SYSTEM_PROMPT,
-    messages: [...priorMessages, { role: "user", content: message }],
+    messages: [...priorMessages, { role: "user", content: userContent }],
   });
 
   if (response.stop_reason === "refusal") {
@@ -59,7 +65,7 @@ export async function POST(req: NextRequest) {
   const reply = textBlock?.type === "text" ? textBlock.text : "";
 
   const { error } = await supabaseServer.from("conversations").insert([
-    { tenant_id: TENANT_ID, session_id: SESSION_ID, role: "user", content: message },
+    { tenant_id: TENANT_ID, session_id: SESSION_ID, role: "user", content: userContent },
     { tenant_id: TENANT_ID, session_id: SESSION_ID, role: "assistant", content: reply },
   ]);
 
@@ -67,5 +73,54 @@ export async function POST(req: NextRequest) {
     console.error("Failed to save conversation to Supabase:", error);
   }
 
+  if (hasPhoto) {
+    await recordAttachment(photoPath);
+  }
+
   return NextResponse.json({ reply });
+}
+
+// Appends the photo's storage path to this session's lead_profile row,
+// creating the row first if one doesn't exist yet.
+async function recordAttachment(photoPath: string) {
+  const { data: existing, error: fetchError } = await supabaseServer
+    .from("lead_profile")
+    .select("id, qualification_data")
+    .eq("tenant_id", TENANT_ID)
+    .eq("session_id", SESSION_ID)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error("Failed to look up lead_profile:", fetchError);
+    return;
+  }
+
+  if (!existing) {
+    const { error: insertError } = await supabaseServer.from("lead_profile").insert({
+      tenant_id: TENANT_ID,
+      session_id: SESSION_ID,
+      qualification_data: { attachments: [photoPath] },
+    });
+
+    if (insertError) {
+      console.error("Failed to create lead_profile:", insertError);
+    }
+    return;
+  }
+
+  const qualificationData = (existing.qualification_data ?? {}) as Record<string, unknown>;
+  const attachments = Array.isArray(qualificationData.attachments)
+    ? (qualificationData.attachments as string[])
+    : [];
+
+  const { error: updateError } = await supabaseServer
+    .from("lead_profile")
+    .update({
+      qualification_data: { ...qualificationData, attachments: [...attachments, photoPath] },
+    })
+    .eq("id", existing.id);
+
+  if (updateError) {
+    console.error("Failed to update lead_profile:", updateError);
+  }
 }
