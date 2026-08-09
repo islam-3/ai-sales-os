@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
-import { TENANT_ID, SESSION_ID } from "@/lib/constants";
+import { TENANT_ID, isValidSessionId } from "@/lib/constants";
 
 const BUCKET = "lead-attachments";
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file");
+  const sessionId = formData.get("sessionId");
+
+  if (!isValidSessionId(sessionId)) {
+    return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+  }
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file is required" }, { status: 400 });
@@ -17,7 +22,7 @@ export async function POST(req: NextRequest) {
   }
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${TENANT_ID}/${SESSION_ID}/${Date.now()}-${safeName}`;
+  const path = `${TENANT_ID}/${sessionId}/${Date.now()}-${safeName}`;
 
   const { error } = await supabaseServer.storage.from(BUCKET).upload(path, file, {
     contentType: file.type,

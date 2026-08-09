@@ -8,16 +8,30 @@ type Message = {
 };
 
 export default function ChatPage() {
+  // One session_id per page load — generated fresh on mount, not persisted
+  // across reloads, so each visitor/conversation gets its own lead_profile
+  // row instead of sharing one.
+  const [sessionId] = useState(() => crypto.randomUUID());
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Focuses the text input on mount, and again every time it re-enables
+  // after a send completes, so the user can keep typing without clicking
+  // back into the box.
+  useEffect(() => {
+    if (!isLoading) {
+      inputRef.current?.focus();
+    }
+  }, [isLoading]);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -51,6 +65,7 @@ export default function ChatPage() {
       if (file) {
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("sessionId", sessionId);
 
         const uploadRes = await fetch("/api/upload", {
           method: "POST",
@@ -68,7 +83,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, photoPath }),
+        body: JSON.stringify({ message: trimmed, photoPath, sessionId }),
       });
 
       const data = await res.json();
@@ -172,6 +187,7 @@ export default function ChatPage() {
               📎
             </button>
             <input
+              ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}

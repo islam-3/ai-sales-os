@@ -3,7 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic";
 import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
-import { TENANT_ID, SESSION_ID } from "@/lib/constants";
+import { TENANT_ID, isValidSessionId } from "@/lib/constants";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -164,12 +164,12 @@ type LeadProfileRow = {
 };
 
 // Fetches this session's lead_profile row, or null if none exists yet.
-async function getLeadProfile(): Promise<LeadProfileRow | null> {
+async function getLeadProfile(sessionId: string): Promise<LeadProfileRow | null> {
   const { data, error } = await supabaseServer
     .from("lead_profile")
     .select("id, name, contact_info, qualification_data")
     .eq("tenant_id", TENANT_ID)
-    .eq("session_id", SESSION_ID)
+    .eq("session_id", sessionId)
     .maybeSingle();
 
   if (error) {
@@ -187,12 +187,15 @@ async function getLeadProfile(): Promise<LeadProfileRow | null> {
 // preserved unless the caller explicitly overwrites them. `name` and
 // `contact_info` are only set when provided — passing them as `undefined`
 // leaves the existing column value untouched rather than clearing it.
-async function upsertLeadProfile(updates: {
-  name?: string | null;
-  contact_info?: string | null;
-  qualification_data?: Record<string, unknown>;
-}) {
-  const existing = await getLeadProfile();
+async function upsertLeadProfile(
+  sessionId: string,
+  updates: {
+    name?: string | null;
+    contact_info?: string | null;
+    qualification_data?: Record<string, unknown>;
+  }
+) {
+  const existing = await getLeadProfile(sessionId);
 
   const mergedQualificationData = {
     ...(existing?.qualification_data ?? {}),
@@ -201,7 +204,7 @@ async function upsertLeadProfile(updates: {
 
   const row: Record<string, unknown> = {
     tenant_id: TENANT_ID,
-    session_id: SESSION_ID,
+    session_id: sessionId,
     qualification_data: mergedQualificationData,
   };
   if (updates.name !== undefined) row.name = updates.name;
@@ -232,7 +235,7 @@ function formatTranscript(turns: { role: string; content: string }[]): string {
 // by the caller — it must never delay the reply shown to the user. Every
 // failure path (API error, unparseable JSON) is caught and logged here so
 // the returned promise always resolves, never rejects.
-async function extractAndSaveLead(transcript: string) {
+async function extractAndSaveLead(sessionId: string, transcript: string) {
   try {
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
@@ -278,7 +281,7 @@ async function extractAndSaveLead(transcript: string) {
       }
     }
 
-    await upsertLeadProfile({
+    await upsertLeadProfile(sessionId, {
       name: extracted.name ?? undefined,
       contact_info: extracted.contact_info ?? undefined,
       qualification_data: qualificationUpdates,
@@ -289,7 +292,11 @@ async function extractAndSaveLead(transcript: string) {
 }
 
 export async function POST(req: NextRequest) {
-  const { message, photoPath } = await req.json();
+  const { message, photoPath, sessionId } = await req.json();
+
+  if (!isValidSessionId(sessionId)) {
+    return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+  }
 
   const trimmedMessage = typeof message === "string" ? message.trim() : "";
   const hasPhoto = typeof photoPath === "string" && photoPath.length > 0;
@@ -310,7 +317,7 @@ export async function POST(req: NextRequest) {
         .from("conversations")
         .select("role, content")
         .eq("tenant_id", TENANT_ID)
-        .eq("session_id", SESSION_ID)
+        .eq("session_id", sessionId)
         .order("created_at", { ascending: true }),
       trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
       getKnowledgeEntries(),
@@ -362,8 +369,8 @@ export async function POST(req: NextRequest) {
   const reply = textBlock?.type === "text" ? textBlock.text : "";
 
   const { error } = await supabaseServer.from("conversations").insert([
-    { tenant_id: TENANT_ID, session_id: SESSION_ID, role: "user", content: userContent },
-    { tenant_id: TENANT_ID, session_id: SESSION_ID, role: "assistant", content: reply },
+    { tenant_id: TENANT_ID, session_id: sessionId, role: "user", content: userContent },
+    { tenant_id: TENANT_ID, session_id: sessionId, role: "assistant", content: reply },
   ]);
 
   if (error) {
@@ -371,7 +378,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (hasPhoto) {
-    await recordAttachment(photoPath);
+    await recordAttachment(sessionId, photoPath);
   }
 
   // Fire the lead-extraction pass without awaiting it — it must not delay
@@ -384,21 +391,21 @@ export async function POST(req: NextRequest) {
     { role: "user", content: userContent },
     { role: "assistant", content: reply },
   ]);
-  void extractAndSaveLead(transcript);
+  void extractAndSaveLead(sessionId, transcript);
 
   return NextResponse.json({ reply });
 }
 
 // Appends the photo's storage path to this session's lead_profile row via
 // the shared upsert helper, creating the row first if one doesn't exist.
-async function recordAttachment(photoPath: string) {
-  const existing = await getLeadProfile();
+async function recordAttachment(sessionId: string, photoPath: string) {
+  const existing = await getLeadProfile(sessionId);
   const qualificationData = existing?.qualification_data ?? {};
   const attachments = Array.isArray(qualificationData.attachments)
     ? (qualificationData.attachments as string[])
     : [];
 
-  await upsertLeadProfile({
+  await upsertLeadProfile(sessionId, {
     qualification_data: { attachments: [...attachments, photoPath] },
   });
 }
