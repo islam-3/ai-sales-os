@@ -5,6 +5,7 @@ import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { TENANT_ID, SESSION_ID } from "@/lib/constants";
 
+const CHAT_MODEL = "claude-sonnet-4-6";
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MATCH_COUNT = 3;
 // Cosine similarity is roughly 0-1 for related text with this model; below
@@ -128,6 +129,165 @@ Here is the clinic's actual information, organized by category. Use these exact 
 ${categoryBlocks}`;
 }
 
+const LEAD_EXTRACTION_SYSTEM_PROMPT = `You extract structured lead information from a conversation between a dental clinic's chat assistant and a prospective patient. Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
+
+{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null}
+
+Only give a field a real value if it was actually mentioned somewhere in the transcript — use null for anything not yet known. Do not guess or infer beyond what was actually said.
+
+- "contact_info" is whatever the patient gave to be reached — a phone number, WhatsApp number, or email, whichever applies.
+- "priority" is what the patient said matters most to them, e.g. "quality and price" or "speed".
+- "duration_of_issue" is how long they've had the concern, e.g. "a few months", "since childhood".
+- "timeline" is when they're looking to move forward, e.g. "soon", "still exploring".
+- "travel_country" is the country they'd be traveling from, if mentioned.
+- "notes" is any other detail useful to the sales team that doesn't fit the fields above.
+
+Respond with the JSON object only.`;
+
+type ExtractedLead = {
+  name: string | null;
+  contact_info: string | null;
+  age: number | null;
+  main_concern: string | null;
+  priority: string | null;
+  duration_of_issue: string | null;
+  timeline: string | null;
+  travel_country: string | null;
+  notes: string | null;
+};
+
+type LeadProfileRow = {
+  id: string;
+  name: string | null;
+  contact_info: string | null;
+  qualification_data: Record<string, unknown> | null;
+};
+
+// Fetches this session's lead_profile row, or null if none exists yet.
+async function getLeadProfile(): Promise<LeadProfileRow | null> {
+  const { data, error } = await supabaseServer
+    .from("lead_profile")
+    .select("id, name, contact_info, qualification_data")
+    .eq("tenant_id", TENANT_ID)
+    .eq("session_id", SESSION_ID)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to look up lead_profile:", error);
+    return null;
+  }
+  return data;
+}
+
+// Creates or updates this session's lead_profile row — the one shared
+// upsert path for anything that needs to write to it (photo attachments,
+// extracted lead info, ...), so there's always exactly one row per
+// session_id. `qualification_data` is shallow-merged onto whatever's
+// already stored, so unrelated existing keys (like "attachments") are
+// preserved unless the caller explicitly overwrites them. `name` and
+// `contact_info` are only set when provided — passing them as `undefined`
+// leaves the existing column value untouched rather than clearing it.
+async function upsertLeadProfile(updates: {
+  name?: string | null;
+  contact_info?: string | null;
+  qualification_data?: Record<string, unknown>;
+}) {
+  const existing = await getLeadProfile();
+
+  const mergedQualificationData = {
+    ...(existing?.qualification_data ?? {}),
+    ...(updates.qualification_data ?? {}),
+  };
+
+  const row: Record<string, unknown> = {
+    tenant_id: TENANT_ID,
+    session_id: SESSION_ID,
+    qualification_data: mergedQualificationData,
+  };
+  if (updates.name !== undefined) row.name = updates.name;
+  if (updates.contact_info !== undefined) row.contact_info = updates.contact_info;
+
+  if (!existing) {
+    const { error } = await supabaseServer.from("lead_profile").insert(row);
+    if (error) console.error("Failed to create lead_profile:", error);
+    return;
+  }
+
+  const { error } = await supabaseServer.from("lead_profile").update(row).eq("id", existing.id);
+  if (error) console.error("Failed to update lead_profile:", error);
+}
+
+// Renders conversation turns as a plain-text transcript for the extraction
+// call — a single user turn describing the conversation, rather than
+// replaying it as actual multi-turn history (which would end on an
+// assistant message and risk being read as a continuation prompt).
+function formatTranscript(turns: { role: string; content: string }[]): string {
+  return turns
+    .map((t) => `${t.role === "assistant" ? "Assistant" : "User"}: ${t.content}`)
+    .join("\n\n");
+}
+
+// Runs a lightweight extraction call over the full conversation so far and
+// upserts whatever structured lead info it finds. Deliberately not awaited
+// by the caller — it must never delay the reply shown to the user. Every
+// failure path (API error, unparseable JSON) is caught and logged here so
+// the returned promise always resolves, never rejects.
+async function extractAndSaveLead(transcript: string) {
+  try {
+    const response = await anthropic.messages.create({
+      model: CHAT_MODEL,
+      max_tokens: 512,
+      output_config: { effort: "low" },
+      system: LEAD_EXTRACTION_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: transcript }],
+    });
+
+    const textBlock = response.content.find((block) => block.type === "text");
+    const rawText = textBlock?.type === "text" ? textBlock.text : "";
+    const jsonText = rawText
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
+    let extracted: Partial<ExtractedLead>;
+    try {
+      extracted = JSON.parse(jsonText);
+    } catch (parseErr) {
+      console.error("Failed to parse lead extraction JSON:", parseErr, "raw response:", rawText);
+      return;
+    }
+
+    // Only fields with a real (non-null) value this pass get written —
+    // a field the model didn't detect this time shouldn't erase a value
+    // that was already saved from an earlier, more complete transcript.
+    const qualificationUpdates: Record<string, unknown> = {};
+    const qualificationFields = [
+      "age",
+      "main_concern",
+      "priority",
+      "duration_of_issue",
+      "timeline",
+      "travel_country",
+      "notes",
+    ] as const;
+    for (const field of qualificationFields) {
+      const value = extracted[field];
+      if (value !== null && value !== undefined) {
+        qualificationUpdates[field] = value;
+      }
+    }
+
+    await upsertLeadProfile({
+      name: extracted.name ?? undefined,
+      contact_info: extracted.contact_info ?? undefined,
+      qualification_data: qualificationUpdates,
+    });
+  } catch (err) {
+    console.error("Lead extraction failed:", err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const { message, photoPath } = await req.json();
 
@@ -184,7 +344,7 @@ export async function POST(req: NextRequest) {
   const systemForThisTurn = systemParts.join("\n\n");
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: CHAT_MODEL,
     max_tokens: 1024,
     output_config: { effort: "low" },
     system: systemForThisTurn,
@@ -214,50 +374,31 @@ export async function POST(req: NextRequest) {
     await recordAttachment(photoPath);
   }
 
+  // Fire the lead-extraction pass without awaiting it — it must not delay
+  // the reply. Built from the same history already fetched plus this
+  // turn's two new messages, so it doesn't need another DB round trip.
+  // extractAndSaveLead() catches all of its own errors, so this can't
+  // produce an unhandled rejection.
+  const transcript = formatTranscript([
+    ...(history ?? []),
+    { role: "user", content: userContent },
+    { role: "assistant", content: reply },
+  ]);
+  void extractAndSaveLead(transcript);
+
   return NextResponse.json({ reply });
 }
 
-// Appends the photo's storage path to this session's lead_profile row,
-// creating the row first if one doesn't exist yet.
+// Appends the photo's storage path to this session's lead_profile row via
+// the shared upsert helper, creating the row first if one doesn't exist.
 async function recordAttachment(photoPath: string) {
-  const { data: existing, error: fetchError } = await supabaseServer
-    .from("lead_profile")
-    .select("id, qualification_data")
-    .eq("tenant_id", TENANT_ID)
-    .eq("session_id", SESSION_ID)
-    .maybeSingle();
-
-  if (fetchError) {
-    console.error("Failed to look up lead_profile:", fetchError);
-    return;
-  }
-
-  if (!existing) {
-    const { error: insertError } = await supabaseServer.from("lead_profile").insert({
-      tenant_id: TENANT_ID,
-      session_id: SESSION_ID,
-      qualification_data: { attachments: [photoPath] },
-    });
-
-    if (insertError) {
-      console.error("Failed to create lead_profile:", insertError);
-    }
-    return;
-  }
-
-  const qualificationData = (existing.qualification_data ?? {}) as Record<string, unknown>;
+  const existing = await getLeadProfile();
+  const qualificationData = existing?.qualification_data ?? {};
   const attachments = Array.isArray(qualificationData.attachments)
     ? (qualificationData.attachments as string[])
     : [];
 
-  const { error: updateError } = await supabaseServer
-    .from("lead_profile")
-    .update({
-      qualification_data: { ...qualificationData, attachments: [...attachments, photoPath] },
-    })
-    .eq("id", existing.id);
-
-  if (updateError) {
-    console.error("Failed to update lead_profile:", updateError);
-  }
+  await upsertLeadProfile({
+    qualification_data: { attachments: [...attachments, photoPath] },
+  });
 }
