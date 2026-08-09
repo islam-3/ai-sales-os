@@ -131,7 +131,7 @@ ${categoryBlocks}`;
 
 const LEAD_EXTRACTION_SYSTEM_PROMPT = `You extract structured lead information from a conversation between a dental clinic's chat assistant and a prospective patient. Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
 
-{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null}
+{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null, "ai_summary": string or null, "qualification_score": integer or null}
 
 Only give a field a real value if it was actually mentioned somewhere in the transcript — use null for anything not yet known. Do not guess or infer beyond what was actually said.
 
@@ -141,6 +141,8 @@ Only give a field a real value if it was actually mentioned somewhere in the tra
 - "timeline" is when they're looking to move forward, e.g. "soon", "still exploring".
 - "travel_country" is the country they'd be traveling from, if mentioned.
 - "notes" is any other detail useful to the sales team that doesn't fit the fields above.
+- "ai_summary" is a concise 2-3 sentence briefing written for a sales rep who hasn't read the conversation: who the customer is, what they want, their main concern or objection, and their timeline or intent. Write it fresh each time from the full transcript, not as a diff from a previous summary. Only null if there's genuinely nothing to summarize yet (e.g. the very first message).
+- "qualification_score" is an integer from 0 to 100 estimating how strong and ready this lead is, based on how complete their info is, how clearly they've expressed intent, any urgency they've shown, and how engaged they are in the conversation. Higher means a hotter lead. Only null if there's not yet enough conversation to judge.
 
 Respond with the JSON object only.`;
 
@@ -154,6 +156,8 @@ type ExtractedLead = {
   timeline: string | null;
   travel_country: string | null;
   notes: string | null;
+  ai_summary: string | null;
+  qualification_score: number | null;
 };
 
 type LeadProfileRow = {
@@ -184,14 +188,17 @@ async function getLeadProfile(sessionId: string): Promise<LeadProfileRow | null>
 // extracted lead info, ...), so there's always exactly one row per
 // session_id. `qualification_data` is shallow-merged onto whatever's
 // already stored, so unrelated existing keys (like "attachments") are
-// preserved unless the caller explicitly overwrites them. `name` and
-// `contact_info` are only set when provided — passing them as `undefined`
+// preserved unless the caller explicitly overwrites them. `name`,
+// `contact_info`, `ai_summary`, and `qualification_score` are dedicated
+// columns and are only set when provided — passing one as `undefined`
 // leaves the existing column value untouched rather than clearing it.
 async function upsertLeadProfile(
   sessionId: string,
   updates: {
     name?: string | null;
     contact_info?: string | null;
+    ai_summary?: string | null;
+    qualification_score?: number | null;
     qualification_data?: Record<string, unknown>;
   }
 ) {
@@ -209,6 +216,10 @@ async function upsertLeadProfile(
   };
   if (updates.name !== undefined) row.name = updates.name;
   if (updates.contact_info !== undefined) row.contact_info = updates.contact_info;
+  if (updates.ai_summary !== undefined) row.ai_summary = updates.ai_summary;
+  if (updates.qualification_score !== undefined) {
+    row.qualification_score = updates.qualification_score;
+  }
 
   if (!existing) {
     const { error } = await supabaseServer.from("lead_profile").insert(row);
@@ -281,9 +292,20 @@ async function extractAndSaveLead(sessionId: string, transcript: string) {
       }
     }
 
+    // A valid integer 0-100, clamped and rounded — anything else (wrong
+    // type, out of range, missing) is treated as "no score this pass"
+    // rather than writing a bad value to a constrained column.
+    const rawScore = extracted.qualification_score;
+    const qualificationScore =
+      typeof rawScore === "number" && Number.isFinite(rawScore)
+        ? Math.max(0, Math.min(100, Math.round(rawScore)))
+        : undefined;
+
     await upsertLeadProfile(sessionId, {
       name: extracted.name ?? undefined,
       contact_info: extracted.contact_info ?? undefined,
+      ai_summary: extracted.ai_summary ?? undefined,
+      qualification_score: qualificationScore,
       qualification_data: qualificationUpdates,
     });
   } catch (err) {
