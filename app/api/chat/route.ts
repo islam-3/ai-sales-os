@@ -21,7 +21,11 @@ Follow this checklist for every conversation, in order. This is a hard sequence,
 
 2. Share concern-relevant info first. Your first shared piece of clinic information must be whichever category is most relevant to their specific concern — not a generic fact, and not necessarily the first category in your list. If they mention missing teeth, bring up the lifetime implant guarantee or a doctor's experience with similar cases; if they mention discoloration, bring up whitening results or a relevant before/after story. This comes before any name or contact request.
 
-3. Work through every remaining category, one at a time — this explicitly includes clinic_overview (who the clinic is, their history and experience), which is just as mandatory as any other category, never optional and never skippable. After that first concern-driven share, continue through each of the other distinct categories available to you — one category per message, never combining two in the same message, and never repeating one you've already covered. After each one, ask a check-in question before continuing, but vary the style each time — never use the same sentence pattern twice in one conversation. Mix plain check-ins ("does that help answer things?") with ones that actually extract something useful: what matters most to them when choosing where to go, what concerns or hesitations they still have, or how they feel about the specific detail you just shared. Pace it like a real conversation, not a rapid-fire briefing. Somewhere in this stretch, also naturally weave in a question about their timeline, something like "are you looking to do this soon, or still exploring options?" — ask it once, and let it go if they don't answer directly. You are FORBIDDEN from asking for their phone number until every distinct category available to you — including clinic_overview — has been touched on at least once. This is a hard rule, not a suggestion.
+3. Work through every remaining category, one at a time — this explicitly includes clinic_overview (who the clinic is, their history and experience), which is just as mandatory as any other category, never optional and never skippable. After that first concern-driven share, continue through each of the other distinct categories available to you — one category per message, never combining two in the same message, and never repeating one you've already covered. When sharing information, you must use the specific facts, numbers, and details from the clinic information provided to you below — do not invent generic statements. If the clinic has been open 12 years and treated 5,000 patients from 30 countries, say that specifically, not "has been around for years."
+
+After each category, follow up using one of these four approaches. Cycle through them and never repeat the same one twice in a single conversation: (a) ask what matters most to them between two specific, concrete factors; (b) ask about a concern or hesitation they might have; (c) ask a factual clarifying question about their own situation — timeline, location, or prior experience; (d) simply acknowledge what you shared and move straight to the next topic, with no question at all. Never use the phrase pattern "does that give you more confidence," "does that put your mind at ease," or "does that help you feel [any feeling]" more than once total across the whole conversation.
+
+Pace it like a real conversation, not a rapid-fire briefing. Somewhere in this stretch, also naturally weave in a question about their timeline, something like "are you looking to do this soon, or still exploring options?" — ask it once, and let it go if they don't answer directly. You are FORBIDDEN from asking for their phone number until every distinct category available to you — including clinic_overview — has been touched on at least once. This is a hard rule, not a suggestion.
 
 4. Only once every category has been covered, move into contact details, in order: their name and age; then their WhatsApp number or best way to reach them; then, once you understand their concern, a photo of their teeth for the dental team to review. Never ask for two unrelated things in the same message.
 
@@ -75,27 +79,53 @@ async function getRelevantContext(query: string): Promise<string | null> {
   }
 }
 
-// Distinct knowledge_base categories available for this tenant (e.g.
-// "doctors", "technology", "guarantees"), so the assistant can proactively
-// offer relevant info rather than only answering when asked directly.
-async function getAvailableCategories(): Promise<string[]> {
+type KnowledgeEntry = { category: string; content: string };
+
+// Every knowledge_base row for this tenant that has a category, with its
+// full verbatim content — not just the category name. The checklist in
+// SYSTEM_PROMPT requires the assistant to use these exact facts rather
+// than inventing generic statements about a category.
+async function getKnowledgeEntries(): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("category")
+    .select("category, content")
     .eq("tenant_id", TENANT_ID)
     .not("category", "is", null)
     .order("category");
 
   if (error) {
-    console.error("Failed to fetch knowledge_base categories:", error);
+    console.error("Failed to fetch knowledge_base entries:", error);
     return [];
   }
 
-  const categories = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.category) categories.add(row.category);
+  return (data ?? []).filter(
+    (row): row is KnowledgeEntry => typeof row.category === "string" && row.category.length > 0
+  );
+}
+
+// Renders the fetched entries into a labeled, per-category block of
+// verbatim content plus the list of distinct category names — both get
+// appended to the system prompt for this turn.
+function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
+  if (entries.length === 0) return null;
+
+  const byCategory = new Map<string, string[]>();
+  for (const entry of entries) {
+    const existing = byCategory.get(entry.category) ?? [];
+    existing.push(entry.content);
+    byCategory.set(entry.category, existing);
   }
-  return Array.from(categories);
+
+  const categoryList = Array.from(byCategory.keys()).join(", ");
+  const categoryBlocks = Array.from(byCategory.entries())
+    .map(([category, contents]) => `[${category}]\n${contents.join("\n")}`)
+    .join("\n\n");
+
+  return `These are the distinct categories of clinic information available to you for this tenant: ${categoryList}. Per the checklist above, you must work through every one of these — one per message, with a follow-up after each — before asking for their phone number.
+
+Here is the clinic's actual information, organized by category. Use these exact facts, numbers, and details when you share information — never paraphrase them into something generic:
+
+${categoryBlocks}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -114,7 +144,7 @@ export async function POST(req: NextRequest) {
     ? [trimmedMessage, `[Photo attached: ${photoPath}]`].filter(Boolean).join("\n\n")
     : trimmedMessage;
 
-  const [{ data: history, error: historyError }, relevantContext, categories] =
+  const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
     await Promise.all([
       supabaseServer
         .from("conversations")
@@ -123,7 +153,7 @@ export async function POST(req: NextRequest) {
         .eq("session_id", SESSION_ID)
         .order("created_at", { ascending: true }),
       trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
-      getAvailableCategories(),
+      getKnowledgeEntries(),
     ]);
 
   if (historyError) {
@@ -135,16 +165,16 @@ export async function POST(req: NextRequest) {
     content: row.content,
   }));
 
-  // Category list is what the checklist in SYSTEM_PROMPT's step 3 refers
-  // to — the assistant must touch on every one of these before asking for
-  // a phone number. RAG retrieval (below) answers specific questions in
-  // depth; both are layered onto the base system prompt.
+  // The knowledge section carries both the category list (what the
+  // checklist in step 3 tracks coverage against) and the actual verbatim
+  // content per category, so the assistant has real facts to draw from
+  // instead of inventing generic statements. RAG retrieval (below) answers
+  // specific questions in depth; both layer onto the base system prompt.
   const systemParts = [SYSTEM_PROMPT];
 
-  if (categories.length > 0) {
-    systemParts.push(
-      `These are the distinct categories of clinic information available to you for this tenant: ${categories.join(", ")}. Per the checklist above, you must work through every one of these — one per message, with a check-in question after each — before asking for their phone number.`
-    );
+  const knowledgeSection = buildKnowledgeSection(knowledgeEntries);
+  if (knowledgeSection) {
+    systemParts.push(knowledgeSection);
   }
 
   if (relevantContext) {
