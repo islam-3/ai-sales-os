@@ -1,6 +1,18 @@
 import { supabaseServer } from "@/lib/supabase-server";
 import { TENANT_ID } from "@/lib/constants";
 import StatusDropdown from "./StatusDropdown";
+import {
+  CalendarIcon,
+  CameraIcon,
+  ChevronIcon,
+  ClockIcon,
+  ConcernIcon,
+  FlagIcon,
+  NoteIcon,
+  PhoneIcon,
+  PinIcon,
+  UserIcon,
+} from "./icons";
 
 // Always fetch fresh — this is a live CRM view, not something to cache,
 // and it needs to reflect status updates right after they happen.
@@ -28,24 +40,45 @@ type LeadProfile = {
   qualification_data: QualificationData | null;
 };
 
-const QUALIFICATION_FIELDS: { key: keyof QualificationData; label: string }[] = [
-  { key: "main_concern", label: "Main concern" },
-  { key: "priority", label: "Priority" },
-  { key: "timeline", label: "Timeline" },
-  { key: "travel_country", label: "Travel country" },
-  { key: "duration_of_issue", label: "Duration of issue" },
-  { key: "age", label: "Age" },
-  { key: "notes", label: "Notes" },
+const QUALIFICATION_FIELDS: {
+  key: keyof QualificationData;
+  label: string;
+  icon: typeof ConcernIcon;
+}[] = [
+  { key: "main_concern", label: "Main concern", icon: ConcernIcon },
+  { key: "priority", label: "Priority", icon: FlagIcon },
+  { key: "timeline", label: "Timeline", icon: ClockIcon },
+  { key: "travel_country", label: "Travel country", icon: PinIcon },
+  { key: "duration_of_issue", label: "Duration of issue", icon: CalendarIcon },
+  { key: "age", label: "Age", icon: UserIcon },
+  { key: "notes", label: "Notes", icon: NoteIcon },
 ];
 
-function scoreBadgeClasses(score: number | null) {
+function scoreTierClasses(score: number | null) {
   if (score !== null && score >= 70) {
-    return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400";
   }
   if (score !== null && score >= 40) {
-    return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300";
+    return "border-amber-500/30 bg-amber-500/10 text-amber-400";
   }
-  return "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60";
+  return "border-slate-700 bg-slate-800/60 text-slate-500";
+}
+
+function ScoreBadge({ score }: { score: number | null }) {
+  return (
+    <div className="flex shrink-0 flex-col items-center gap-1">
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-full border-2 text-base font-bold tabular-nums ${scoreTierClasses(
+          score
+        )}`}
+      >
+        {score ?? "–"}
+      </div>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        Score
+      </span>
+    </div>
+  );
 }
 
 function formatDate(value: string) {
@@ -56,106 +89,139 @@ function formatDate(value: string) {
 }
 
 export default async function DashboardPage() {
-  const { data, error } = await supabaseServer
-    .from("lead_profile")
-    .select(
-      "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
-    )
-    .eq("tenant_id", TENANT_ID)
-    .order("qualification_score", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  const [{ data: tenant }, { data: leadData, error }] = await Promise.all([
+    supabaseServer.from("tenants").select("business_name").eq("id", TENANT_ID).maybeSingle(),
+    supabaseServer
+      .from("lead_profile")
+      .select(
+        "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
+      )
+      .eq("tenant_id", TENANT_ID)
+      .order("qualification_score", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+  ]);
 
-  const leads = (data ?? []) as unknown as LeadProfile[];
+  const clinicName = tenant?.business_name || "Dental Clinic CRM";
+  const leads = (leadData ?? []) as unknown as LeadProfile[];
 
   return (
-    <div className="min-h-screen bg-white p-6 dark:bg-black">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="mb-6 text-xl font-semibold">Leads</h1>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+        <div className="mx-auto flex max-w-4xl items-center gap-2.5 px-6 py-4">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
+            {clinicName.charAt(0).toUpperCase()}
+          </div>
+          <span className="text-sm font-semibold text-slate-200">{clinicName}</span>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-4xl px-6 py-8">
+        <div className="mb-6 flex items-baseline gap-2.5">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-50">Leads</h1>
+          <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-sm font-medium text-slate-400">
+            {leads.length}
+          </span>
+        </div>
 
         {error && (
-          <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          <p className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
             Failed to load leads: {error.message}
           </p>
         )}
 
         {!error && leads.length === 0 && (
-          <p className="text-sm text-black/40 dark:text-white/40">No leads yet.</p>
+          <div className="rounded-xl border border-dashed border-slate-800 p-10 text-center">
+            <p className="text-sm text-slate-500">No leads yet.</p>
+          </div>
         )}
 
         <div className="flex flex-col gap-4">
           {leads.map((lead) => {
-            const qualificationEntries = QUALIFICATION_FIELDS.map(({ key, label }) => ({
-              label,
-              value: lead.qualification_data?.[key],
+            const qualificationEntries = QUALIFICATION_FIELDS.map((field) => ({
+              ...field,
+              value: lead.qualification_data?.[field.key],
             })).filter((e) => e.value !== undefined && e.value !== null && e.value !== "");
 
             const attachmentCount = lead.qualification_data?.attachments?.length ?? 0;
+            const hasDetails = qualificationEntries.length > 0 || attachmentCount > 0;
 
             return (
               <div
                 key={lead.id}
-                className="rounded-lg border border-black/10 p-4 dark:border-white/10"
+                className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-sm shadow-black/20 transition-colors hover:border-slate-700"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{lead.name || "Unknown"}</div>
-                    <div className="text-sm text-black/60 dark:text-white/60">
-                      {lead.contact_info || "No contact info yet"}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-semibold text-slate-50">
+                      {lead.name || <span className="italic text-slate-500">Unknown lead</span>}
+                    </h3>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      {lead.contact_info ? (
+                        <>
+                          <PhoneIcon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                          <span className="truncate text-sm text-slate-400">
+                            {lead.contact_info}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-sm italic text-slate-600">No contact info yet</span>
+                      )}
                     </div>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClasses(
-                      lead.qualification_score
-                    )}`}
-                    title="Qualification score"
-                  >
-                    {lead.qualification_score ?? "—"}
-                  </span>
+
+                  <ScoreBadge score={lead.qualification_score} />
                 </div>
 
                 {lead.ai_summary && (
-                  <p className="mt-3 rounded-md bg-black/5 p-3 text-sm dark:bg-white/5">
+                  <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/60 px-3.5 py-3 text-sm leading-relaxed text-slate-300">
                     {lead.ai_summary}
                   </p>
                 )}
 
-                <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-800 pt-3.5">
                   <StatusDropdown leadId={lead.id} initialStatus={lead.status} />
-                  <span className="text-xs text-black/40 dark:text-white/40">
-                    {formatDate(lead.created_at)}
-                  </span>
+                  <span className="text-xs text-slate-500">{formatDate(lead.created_at)}</span>
                 </div>
 
-                {(qualificationEntries.length > 0 || attachmentCount > 0) && (
-                  <details className="mt-3 text-sm">
-                    <summary className="cursor-pointer select-none text-black/60 dark:text-white/60">
-                      Details
+                {hasDetails && (
+                  <details className="group mt-3.5">
+                    <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-slate-400 marker:hidden [&::-webkit-details-marker]:hidden hover:text-slate-300">
+                      <ChevronIcon className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+                      Qualification details
                     </summary>
-                    <dl className="mt-2 flex flex-col gap-1">
-                      {qualificationEntries.map(({ label, value }) => (
-                        <div key={label} className="flex gap-2">
-                          <dt className="w-36 shrink-0 text-black/40 dark:text-white/40">
-                            {label}:
-                          </dt>
-                          <dd>{String(value)}</dd>
+                    <div className="mt-3 grid grid-cols-1 gap-4 rounded-lg border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-2">
+                      {qualificationEntries.map(({ key, label, icon: Icon, value }) => (
+                        <div key={key} className="flex items-start gap-2.5">
+                          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              {label}
+                            </div>
+                            <div className="text-sm text-slate-200">{String(value)}</div>
+                          </div>
                         </div>
                       ))}
                       {attachmentCount > 0 && (
-                        <div className="flex gap-2">
-                          <dt className="w-36 shrink-0 text-black/40 dark:text-white/40">
-                            Photos:
-                          </dt>
-                          <dd>{attachmentCount} attached</dd>
+                        <div className="flex items-start gap-2.5">
+                          <CameraIcon className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              Photos
+                            </div>
+                            <div className="text-sm text-slate-200">
+                              {attachmentCount} attached
+                            </div>
+                          </div>
                         </div>
                       )}
-                    </dl>
+                    </div>
                   </details>
                 )}
               </div>
             );
           })}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
