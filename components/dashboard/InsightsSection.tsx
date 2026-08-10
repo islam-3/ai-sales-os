@@ -13,7 +13,7 @@ export function InsightsSection({
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-sm font-medium text-slate-900">
+          <CardTitle className="text-sm font-medium text-foreground">
             Most Common Concerns &amp; Objections
           </CardTitle>
         </CardHeader>
@@ -24,7 +24,7 @@ export function InsightsSection({
 
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-sm font-medium text-slate-900">
+          <CardTitle className="text-sm font-medium text-foreground">
             Most Requested Services &amp; Treatments
           </CardTitle>
         </CardHeader>

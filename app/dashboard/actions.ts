@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase-server";
 
-const VALID_STATUSES = ["new", "contacted", "qualified", "converted"] as const;
+const VALID_STATUSES = ["new", "sent"] as const;
 type LeadStatus = (typeof VALID_STATUSES)[number];
 
 export async function updateLeadStatus(leadId: string, status: string) {

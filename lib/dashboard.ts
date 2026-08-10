@@ -2,29 +2,26 @@
 // dashboard. Kept free of Supabase calls / React so the KPI and insight
 // logic is easy to reason about and reuse across server components.
 
-export const STATUS_OPTIONS = ["new", "contacted", "qualified", "converted"] as const;
+// Two states only: "new" is the default — the lead hasn't been delivered
+// anywhere yet. "sent" means the business has marked it as sent/handled;
+// for now that's a manual toggle here, and will later be set automatically
+// once real CRM integrations (e.g. Bitrix24) are wired up.
+export const STATUS_OPTIONS = ["new", "sent"] as const;
 export type LeadStatus = (typeof STATUS_OPTIONS)[number];
 
+// Dark-theme-native: saturated color at low opacity for the fill, a
+// brighter tint for text, a subtle matching border — refined against a
+// near-black background rather than the pale light-mode pastel badges.
 export const STATUS_META: Record<LeadStatus, { label: string; dot: string; badge: string }> = {
   new: {
     label: "New",
-    dot: "bg-blue-500",
-    badge: "border-blue-200 bg-blue-50 text-blue-700",
+    dot: "bg-slate-400",
+    badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
   },
-  contacted: {
-    label: "Contacted",
-    dot: "bg-amber-500",
-    badge: "border-amber-200 bg-amber-50 text-amber-700",
-  },
-  qualified: {
-    label: "Qualified",
-    dot: "bg-purple-500",
-    badge: "border-purple-200 bg-purple-50 text-purple-700",
-  },
-  converted: {
-    label: "Converted",
-    dot: "bg-emerald-500",
-    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  sent: {
+    label: "Sent",
+    dot: "bg-emerald-400",
+    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
   },
 };
 
@@ -62,11 +59,11 @@ export function getScoreTier(score: number | null): ScoreTier {
   return "cold";
 }
 
-// Muted, Stripe-like tier colors — not saturated "traffic light" green/red.
+// Same translucent-wash treatment as STATUS_META, tuned for a dark card.
 export const SCORE_TIER_CLASSES: Record<ScoreTier, string> = {
-  hot: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  warm: "border-amber-200 bg-amber-50 text-amber-700",
-  cold: "border-slate-200 bg-slate-100 text-slate-500",
+  hot: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+  warm: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+  cold: "border-slate-500/30 bg-slate-500/10 text-slate-400",
 };
 
 export function formatDate(value: string): string {
@@ -109,7 +106,9 @@ export type DashboardKpis = {
   thisWeekCount: number;
   thisMonthCount: number;
   avgScore: number | null;
-  conversionRate: number;
+  // % of leads marked "sent" — the closest equivalent to the old
+  // "conversion rate" now that status is just new/sent, not a funnel.
+  sentRate: number;
   statusCounts: Record<LeadStatus, number>;
 };
 
@@ -142,14 +141,11 @@ export function computeKpis(leads: LeadProfile[]): DashboardKpis {
   let thisMonthCount = 0;
   let scoreSum = 0;
   let scoreCount = 0;
-  let convertedCount = 0;
+  let sentCount = 0;
 
-  const statusCounts: Record<LeadStatus, number> = {
-    new: 0,
-    contacted: 0,
-    qualified: 0,
-    converted: 0,
-  };
+  const statusCounts = Object.fromEntries(
+    STATUS_OPTIONS.map((status) => [status, 0])
+  ) as Record<LeadStatus, number>;
 
   for (const lead of leads) {
     const createdAt = new Date(lead.created_at);
@@ -162,7 +158,7 @@ export function computeKpis(leads: LeadProfile[]): DashboardKpis {
       scoreCount += 1;
     }
 
-    if (lead.status === "converted") convertedCount += 1;
+    if (lead.status === "sent") sentCount += 1;
     if (isLeadStatus(lead.status)) statusCounts[lead.status] += 1;
   }
 
@@ -172,7 +168,7 @@ export function computeKpis(leads: LeadProfile[]): DashboardKpis {
     thisWeekCount,
     thisMonthCount,
     avgScore: scoreCount > 0 ? Math.round(scoreSum / scoreCount) : null,
-    conversionRate: leads.length > 0 ? Math.round((convertedCount / leads.length) * 100) : 0,
+    sentRate: leads.length > 0 ? Math.round((sentCount / leads.length) * 100) : 0,
     statusCounts,
   };
 }

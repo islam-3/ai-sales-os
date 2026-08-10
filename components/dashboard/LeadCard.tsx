@@ -23,18 +23,20 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export function LeadCard({ lead }: { lead: LeadProfile }) {
   return (
-    <Card className="shadow-sm transition-shadow hover:shadow-md">
+    <Card className="shadow-sm transition-colors hover:border-slate-600/60">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold text-slate-900">
+            <h3 className="truncate text-base font-semibold text-foreground">
               {lead.name || <span className="italic text-muted-foreground">Unknown lead</span>}
             </h3>
             <div className="mt-1.5 flex items-center gap-1.5">
               {lead.contact_info ? (
                 <>
-                  <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="truncate text-sm text-slate-500">{lead.contact_info}</span>
+                  <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm text-muted-foreground">
+                    {lead.contact_info}
+                  </span>
                 </>
               ) : (
                 <span className="text-sm italic text-muted-foreground">No contact info yet</span>
@@ -46,7 +48,7 @@ export function LeadCard({ lead }: { lead: LeadProfile }) {
         </div>
 
         {lead.ai_summary && (
-          <p className="mt-4 rounded-lg border bg-slate-50/60 px-3.5 py-3 text-sm leading-relaxed text-slate-600">
+          <p className="mt-4 rounded-lg border bg-muted/40 px-3.5 py-3 text-sm leading-relaxed text-foreground/80">
             {lead.ai_summary}
           </p>
         )}

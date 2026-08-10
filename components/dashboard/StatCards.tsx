@@ -11,7 +11,7 @@ export function StatCards({ kpis }: { kpis: DashboardKpis }) {
           <Users className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-semibold tracking-tight text-slate-900">
+          <div className="text-2xl font-semibold tracking-tight text-foreground">
             {kpis.totalLeads}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -29,7 +29,7 @@ export function StatCards({ kpis }: { kpis: DashboardKpis }) {
           <Target className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-semibold tracking-tight text-slate-900">
+          <div className="text-2xl font-semibold tracking-tight text-foreground">
             {kpis.avgScore ?? "—"}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Out of 100</p>
@@ -39,15 +39,15 @@ export function StatCards({ kpis }: { kpis: DashboardKpis }) {
       <Card className="shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            Conversion Rate
+            Sent Rate
           </CardTitle>
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-semibold tracking-tight text-slate-900">
-            {kpis.conversionRate}%
+          <div className="text-2xl font-semibold tracking-tight text-foreground">
+            {kpis.sentRate}%
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Leads marked converted</p>
+          <p className="mt-1 text-xs text-muted-foreground">Leads marked sent</p>
         </CardContent>
       </Card>
 
@@ -63,7 +63,7 @@ export function StatCards({ kpis }: { kpis: DashboardKpis }) {
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[status].dot}`} />
                 {STATUS_META[status].label}
               </span>
-              <span className="font-medium text-slate-900">{kpis.statusCounts[status]}</span>
+              <span className="font-medium text-foreground">{kpis.statusCounts[status]}</span>
             </div>
           ))}
         </CardContent>

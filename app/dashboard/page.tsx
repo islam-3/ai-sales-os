@@ -40,18 +40,18 @@ export default async function DashboardPage() {
   const serviceEntries = getTopFrequent(leads.map((l) => l.qualification_data?.main_concern));
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="dark min-h-screen bg-background">
       <DashboardHeader clinicName={clinicName} />
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Leads <span className="font-medium text-muted-foreground">({leads.length})</span>
           </h1>
         </div>
 
         {error ? (
-          <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
             Failed to load leads: {error.message}
           </p>
         ) : (

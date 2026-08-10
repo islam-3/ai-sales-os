@@ -24,14 +24,14 @@ export function BarList({
           </span>
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
-              <span className="truncate text-sm text-slate-700">{entry.label}</span>
+              <span className="truncate text-sm text-foreground">{entry.label}</span>
               <span className="shrink-0 text-xs font-medium text-muted-foreground">
                 {entry.count}
               </span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-slate-900/70"
+                className="h-full rounded-full bg-blue-400/70"
                 style={{ width: `${Math.max(6, (entry.count / max) * 100)}%` }}
               />
             </div>

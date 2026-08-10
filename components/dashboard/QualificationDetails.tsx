@@ -33,30 +33,30 @@ export function QualificationDetails({ data }: { data: QualificationData | null 
 
   return (
     <details className="group mt-3.5">
-      <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-muted-foreground marker:hidden [&::-webkit-details-marker]:hidden hover:text-slate-700">
+      <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-muted-foreground marker:hidden [&::-webkit-details-marker]:hidden hover:text-foreground">
         <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
         Qualification details
       </summary>
-      <div className="mt-3 grid grid-cols-1 gap-4 rounded-lg border bg-slate-50/60 p-4 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
         {entries.map(({ key, label, icon: Icon, value }) => (
           <div key={key} className="flex items-start gap-2.5">
-            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {label}
               </div>
-              <div className="text-sm text-slate-700">{String(value)}</div>
+              <div className="text-sm text-foreground/80">{String(value)}</div>
             </div>
           </div>
         ))}
         {attachmentCount > 0 && (
           <div className="flex items-start gap-2.5">
-            <Camera className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <Camera className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Photos
               </div>
-              <div className="text-sm text-slate-700">{attachmentCount} attached</div>
+              <div className="text-sm text-foreground/80">{attachmentCount} attached</div>
             </div>
           </div>
         )}
