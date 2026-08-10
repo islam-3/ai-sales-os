@@ -9,19 +9,21 @@
 export const STATUS_OPTIONS = ["new", "sent"] as const;
 export type LeadStatus = (typeof STATUS_OPTIONS)[number];
 
-// Dark-theme-native: saturated color at low opacity for the fill, a
-// brighter tint for text, a subtle matching border — refined against a
-// near-black background rather than the pale light-mode pastel badges.
+// Monochrome, editorial palette — warm-toned neutrals (stone, not cool
+// slate) so the badges read as a deliberate warm accent against the
+// dashboard's cooler near-black structure. "New" is plain muted gray;
+// "Sent" gets a soft pale-gold tint as the one accent color in the whole
+// dashboard, signaling completion without resorting to a saturated hue.
 export const STATUS_META: Record<LeadStatus, { label: string; dot: string; badge: string }> = {
   new: {
     label: "New",
-    dot: "bg-slate-400",
-    badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+    dot: "bg-stone-500",
+    badge: "border-stone-500/25 bg-stone-500/10 text-stone-400",
   },
   sent: {
     label: "Sent",
-    dot: "bg-emerald-400",
-    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+    dot: "bg-amber-100",
+    badge: "border-amber-200/25 bg-amber-100/10 text-amber-100",
   },
 };
 
@@ -59,11 +61,13 @@ export function getScoreTier(score: number | null): ScoreTier {
   return "cold";
 }
 
-// Same translucent-wash treatment as STATUS_META, tuned for a dark card.
+// Grayscale by design — tiers are distinguished by brightness (and a
+// touch of warmth via the stone palette), never by hue. Hot is the
+// brightest/whitest, cold recedes into the card.
 export const SCORE_TIER_CLASSES: Record<ScoreTier, string> = {
-  hot: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-  warm: "border-amber-500/30 bg-amber-500/10 text-amber-400",
-  cold: "border-slate-500/30 bg-slate-500/10 text-slate-400",
+  hot: "border-stone-300/30 bg-stone-200/10 text-stone-50",
+  warm: "border-stone-400/20 bg-stone-400/10 text-stone-300",
+  cold: "border-stone-600/20 bg-stone-600/10 text-stone-500",
 };
 
 export function formatDate(value: string): string {
