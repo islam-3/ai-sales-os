@@ -31,7 +31,7 @@ export function BarList({
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-stone-300/60"
+                className="h-full rounded-full bg-zinc-300/60"
                 style={{ width: `${Math.max(6, (entry.count / max) * 100)}%` }}
               />
             </div>

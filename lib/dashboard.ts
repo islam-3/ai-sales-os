@@ -9,21 +9,21 @@
 export const STATUS_OPTIONS = ["new", "sent"] as const;
 export type LeadStatus = (typeof STATUS_OPTIONS)[number];
 
-// Monochrome, editorial palette — warm-toned neutrals (stone, not cool
-// slate) so the badges read as a deliberate warm accent against the
-// dashboard's cooler near-black structure. "New" is plain muted gray;
-// "Sent" gets a soft pale-gold tint as the one accent color in the whole
-// dashboard, signaling completion without resorting to a saturated hue.
+// Cool black-and-silver palette — zinc (neutral cool gray) as the base,
+// never warm stone/amber. "New" is a dim, muted mid-gray, receded into
+// the card. "Sent" is the one accent: a bright cool platinum/silver
+// (slate, not amber) that reads as a metallic shimmer via brightness
+// contrast, not a hue change.
 export const STATUS_META: Record<LeadStatus, { label: string; dot: string; badge: string }> = {
   new: {
     label: "New",
-    dot: "bg-stone-500",
-    badge: "border-stone-500/25 bg-stone-500/10 text-stone-400",
+    dot: "bg-zinc-500",
+    badge: "border-zinc-600/30 bg-zinc-500/10 text-zinc-400",
   },
   sent: {
     label: "Sent",
-    dot: "bg-amber-100",
-    badge: "border-amber-200/25 bg-amber-100/10 text-amber-100",
+    dot: "bg-slate-200",
+    badge: "border-slate-300/30 bg-slate-200/15 text-slate-100",
   },
 };
 
@@ -61,13 +61,13 @@ export function getScoreTier(score: number | null): ScoreTier {
   return "cold";
 }
 
-// Grayscale by design — tiers are distinguished by brightness (and a
-// touch of warmth via the stone palette), never by hue. Hot is the
-// brightest/whitest, cold recedes into the card.
+// Pure grayscale, cool-toned (zinc) — tiers are distinguished by
+// brightness only, never hue or warmth. Hot is the brightest/whitest,
+// cold recedes into the card.
 export const SCORE_TIER_CLASSES: Record<ScoreTier, string> = {
-  hot: "border-stone-300/30 bg-stone-200/10 text-stone-50",
-  warm: "border-stone-400/20 bg-stone-400/10 text-stone-300",
-  cold: "border-stone-600/20 bg-stone-600/10 text-stone-500",
+  hot: "border-zinc-300/30 bg-zinc-200/10 text-zinc-50",
+  warm: "border-zinc-400/20 bg-zinc-400/10 text-zinc-300",
+  cold: "border-zinc-600/20 bg-zinc-600/10 text-zinc-500",
 };
 
 export function formatDate(value: string): string {
