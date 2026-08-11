@@ -6,15 +6,14 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-// lib/openai.ts and lib/supabase-server.ts construct their clients at
-// module-load time from process.env — they must be imported *after*
-// dotenv has populated it, so these are dynamic imports rather than
-// static ones (static imports are hoisted and would run first).
-
-const EMBEDDING_MODEL = "text-embedding-3-small";
+// lib/embeddings.ts (via lib/openai.ts) and lib/supabase-server.ts
+// construct their clients at module-load time from process.env — they
+// must be imported *after* dotenv has populated it, so these are dynamic
+// imports rather than static ones (static imports are hoisted and would
+// run first).
 
 async function main() {
-  const { openai } = await import("../lib/openai");
+  const { generateEmbedding } = await import("../lib/embeddings");
   const { supabaseServer } = await import("../lib/supabase-server");
 
   const { data: rows, error } = await supabaseServer
@@ -39,11 +38,7 @@ async function main() {
 
   for (const row of rows) {
     try {
-      const response = await openai.embeddings.create({
-        model: EMBEDDING_MODEL,
-        input: row.content,
-      });
-      const embedding = response.data[0].embedding;
+      const embedding = await generateEmbedding(row.content);
 
       const { error: updateError } = await supabaseServer
         .from("knowledge_base")
