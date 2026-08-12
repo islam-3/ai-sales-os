@@ -2,9 +2,12 @@
 
 import { useState, useRef, useEffect, FormEvent, ChangeEvent } from "react";
 
+type MessageMedia = { url: string; type: string | null };
+
 type Message = {
   role: "user" | "assistant";
   content: string;
+  media?: MessageMedia | null;
 };
 
 export default function ChatPage() {
@@ -92,7 +95,10 @@ export default function ChatPage() {
         throw new Error(data.error || "Something went wrong");
       }
 
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply, media: data.media ?? null },
+      ]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -123,7 +129,7 @@ export default function ChatPage() {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
             >
               <div
                 className={`max-w-[80%] whitespace-pre-wrap rounded-lg px-4 py-2 text-sm ${
@@ -134,6 +140,27 @@ export default function ChatPage() {
               >
                 {msg.content}
               </div>
+
+              {/* Simple attachment rendering — not fully polished, just
+                  enough to actually show the media a reply references. */}
+              {msg.media && msg.media.type === "image" && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={msg.media.url}
+                  alt="Shared by the clinic"
+                  className="mt-1.5 max-w-[240px] rounded-lg border border-black/10 dark:border-white/10"
+                />
+              )}
+              {msg.media && msg.media.type === "video" && (
+                <a
+                  href={msg.media.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-black/10 px-3 py-1.5 text-xs text-black/70 hover:text-black dark:border-white/10 dark:text-white/70 dark:hover:text-white"
+                >
+                  🎥 View video
+                </a>
+              )}
             </div>
           ))}
 

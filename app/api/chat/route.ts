@@ -36,19 +36,58 @@ The point of steps 2 and 3 is for the patient to feel genuinely familiar with an
 
 Frame the photo request as helping the dental team put together an accurate assessment for them, never as a bureaucratic requirement.
 
-Behavioral rules: ask only one question per message. Keep every reply to two or three short sentences. Never use markdown tables or bullet or numbered lists — write in plain conversational prose throughout. Never try to convince the patient to book or close, and never push — your role stops at building interest and gathering information. Once you have their name, contact info, and main concern, and ideally a photo, warmly close by letting them know the team will review their case and follow up, and stop actively asking questions from there.`;
+Behavioral rules: ask only one question per message. Keep every reply to two or three short sentences. Never use markdown tables or bullet or numbered lists — write in plain conversational prose throughout. Never try to convince the patient to book or close, and never push — your role stops at building interest and gathering information. Once you have their name, contact info, and main concern, and ideally a photo, warmly close by letting them know the team will review their case and follow up, and stop actively asking questions from there.
+
+Some clinic information below comes with an attached photo or video, marked inline as (media available: image/video, url: ...). When you share a fact that has media attached, mention naturally that a photo or video exists and offer to show it — for example "I can show you a before-and-after photo of a similar case — want to see it?" — without stating the raw URL in your sentence. Only when you are actually sharing that media with them right now (because they asked to see it, or you're proactively including it with this message) end your message with the exact tag [[MEDIA:the-url]], copying the URL exactly as given below. Never invent, alter, or guess a URL, and never include this tag unless a real URL was given to you for the specific fact you're referencing. Include at most one such tag, and only at the very end of your message.`;
 
 type KnowledgeMatch = {
   id: string;
   content: string;
   category: string | null;
+  media_url: string | null;
+  media_type: string | null;
   similarity: number;
 };
+
+// A fact plus the (optional) media note appended the same way in both the
+// RAG context block and the full category dump, so the model sees one
+// consistent format regardless of which path surfaced the entry.
+function withMediaNote(content: string, mediaUrl: string | null, mediaType: string | null) {
+  return mediaUrl
+    ? `${content} (media available: ${mediaType ?? "file"}, url: ${mediaUrl})`
+    : content;
+}
+
+const MEDIA_TAG_PATTERN = /\[\[MEDIA:(\S+?)\]\]/g;
+
+// Strips every [[MEDIA:url]] tag from the reply and returns the cleaned
+// text plus the first tag whose URL was actually offered to the model this
+// turn (via the knowledge section or RAG matches, keyed in `knownMedia`) —
+// never trusts a URL the model might have invented or mangled.
+function extractMedia(
+  reply: string,
+  knownMedia: Map<string, string | null>
+): { cleaned: string; media: { url: string; type: string | null } | null } {
+  let media: { url: string; type: string | null } | null = null;
+  const cleaned = reply
+    .replace(MEDIA_TAG_PATTERN, (_match, url) => {
+      if (!media && knownMedia.has(url)) {
+        media = { url, type: knownMedia.get(url) ?? null };
+      }
+      return "";
+    })
+    .trim();
+  return { cleaned, media };
+}
 
 // Embeds the user's message and looks up the most relevant knowledge_base
 // entries for this tenant. Returns null on any failure or when nothing
 // clears the similarity bar — callers should just proceed without context.
-async function getRelevantContext(query: string): Promise<string | null> {
+// Also returns the raw matches' media so the caller can validate a
+// [[MEDIA:...]] tag against a real, provided URL.
+async function getRelevantContext(
+  query: string
+): Promise<{ text: string; media: { url: string; type: string | null }[] } | null> {
   try {
     const embeddingResponse = await openai.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -73,14 +112,26 @@ async function getRelevantContext(query: string): Promise<string | null> {
 
     if (relevant.length === 0) return null;
 
-    return `Relevant information about the clinic:\n${relevant.map((m) => m.content).join("\n\n")}`;
+    return {
+      text: `Relevant information about the clinic:\n${relevant
+        .map((m) => withMediaNote(m.content, m.media_url, m.media_type))
+        .join("\n\n")}`,
+      media: relevant
+        .filter((m): m is KnowledgeMatch & { media_url: string } => m.media_url !== null)
+        .map((m) => ({ url: m.media_url, type: m.media_type })),
+    };
   } catch (err) {
     console.error("Failed to generate embedding for retrieval:", err);
     return null;
   }
 }
 
-type KnowledgeEntry = { category: string; content: string };
+type KnowledgeEntry = {
+  category: string;
+  content: string;
+  media_url: string | null;
+  media_type: string | null;
+};
 
 // Every knowledge_base row for this tenant that has a category, with its
 // full verbatim content — not just the category name. The checklist in
@@ -89,7 +140,7 @@ type KnowledgeEntry = { category: string; content: string };
 async function getKnowledgeEntries(): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("category, content")
+    .select("category, content, media_url, media_type")
     .eq("tenant_id", TENANT_ID)
     .not("category", "is", null)
     .order("category");
@@ -113,7 +164,7 @@ function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const existing = byCategory.get(entry.category) ?? [];
-    existing.push(entry.content);
+    existing.push(withMediaNote(entry.content, entry.media_url, entry.media_type));
     byCategory.set(entry.category, existing);
   }
 
@@ -367,7 +418,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (relevantContext) {
-    systemParts.push(relevantContext);
+    systemParts.push(relevantContext.text);
   }
 
   const systemForThisTurn = systemParts.join("\n\n");
@@ -388,7 +439,19 @@ export async function POST(req: NextRequest) {
   }
 
   const textBlock = response.content.find((block) => block.type === "text");
-  const reply = textBlock?.type === "text" ? textBlock.text : "";
+  const rawReply = textBlock?.type === "text" ? textBlock.text : "";
+
+  // Only URLs actually offered to the model this turn are trusted — this
+  // guards against a hallucinated or mangled [[MEDIA:...]] tag ever
+  // reaching the patient.
+  const knownMedia = new Map<string, string | null>();
+  for (const entry of knowledgeEntries) {
+    if (entry.media_url) knownMedia.set(entry.media_url, entry.media_type);
+  }
+  for (const m of relevantContext?.media ?? []) {
+    knownMedia.set(m.url, m.type);
+  }
+  const { cleaned: reply, media } = extractMedia(rawReply, knownMedia);
 
   const { error } = await supabaseServer.from("conversations").insert([
     { tenant_id: TENANT_ID, session_id: sessionId, role: "user", content: userContent },
@@ -415,7 +478,7 @@ export async function POST(req: NextRequest) {
   ]);
   void extractAndSaveLead(sessionId, transcript);
 
-  return NextResponse.json({ reply });
+  return NextResponse.json({ reply, media });
 }
 
 // Appends the photo's storage path to this session's lead_profile row via

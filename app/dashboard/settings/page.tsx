@@ -13,7 +13,7 @@ export default async function SettingsPage() {
     supabaseServer.from("tenants").select("business_name").eq("id", TENANT_ID).maybeSingle(),
     supabaseServer
       .from("knowledge_base")
-      .select("id, category, content, embedding, created_at")
+      .select("id, category, content, embedding, media_url, media_type, created_at")
       .eq("tenant_id", TENANT_ID)
       .order("category", { ascending: true })
       .order("created_at", { ascending: false }),
@@ -26,6 +26,8 @@ export default async function SettingsPage() {
     category: row.category,
     content: row.content,
     hasEmbedding: row.embedding !== null,
+    mediaUrl: row.media_url ?? null,
+    mediaType: row.media_type === "image" || row.media_type === "video" ? row.media_type : null,
     created_at: row.created_at,
   }));
 
