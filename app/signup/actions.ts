@@ -48,6 +48,38 @@ async function insertTenantWithUniqueSlug(businessName: string, ownerUserId: str
   throw new Error("Could not generate a unique business slug. Please try a different name.");
 }
 
+// Read-only preview of the slug insertTenantWithUniqueSlug would assign
+// right now for this business name — same base-then--2,-3,... sequence,
+// just checked with a single SELECT instead of an INSERT-and-retry loop
+// (there's nothing to retry against yet since nothing is being written).
+// Called from the signup form as the user types, so they see their real
+// chat link slug before submitting rather than being surprised by it.
+//
+// This is inherently best-effort: another signup could take the same
+// slug between this preview and the real submit. That's fine — the
+// actual collision safety still comes from insertTenantWithUniqueSlug's
+// retry-on-unique-violation loop at signup time, not from this preview.
+export async function previewSlug(businessName: string): Promise<string> {
+  const base = slugify(businessName.trim());
+
+  const { data, error } = await supabaseServer.from("tenants").select("slug").like("slug", `${base}%`);
+
+  if (error) {
+    console.error("Failed to check slug availability for preview:", error);
+    return base;
+  }
+
+  const existingSlugs = new Set((data ?? []).map((row) => row.slug));
+  if (!existingSlugs.has(base)) return base;
+
+  for (let attempt = 1; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+    const candidate = `${base}-${attempt + 1}`;
+    if (!existingSlugs.has(candidate)) return candidate;
+  }
+
+  return base;
+}
+
 // Called right after a successful supabase.auth.signUp() on the client.
 // Creates the new tenant row for that user. If it fails, the auth user is
 // deleted so the signup isn't left half-done — the user can just try

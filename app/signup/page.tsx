@@ -1,13 +1,28 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { createTenantForNewUser } from "./actions";
+import { createTenantForNewUser, previewSlug } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+// Mirrors slugify() in ./actions.ts — used only as a last-resort local
+// fallback if the live availability check fails, so the preview never
+// gets stuck on "Checking…" forever. The real, authoritative slug is
+// always decided server-side at signup time either way.
+function slugifyForDisplay(businessName: string): string {
+  const base = businessName
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return base || "clinic";
+}
+
+const SLUG_CHECK_DEBOUNCE_MS = 500;
 
 export default function SignupPage() {
   const router = useRouter();
@@ -16,6 +31,49 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [origin, setOrigin] = useState("");
+  const [slugPreview, setSlugPreview] = useState<string | null>(null);
+  const [slugCheckFailed, setSlugCheckFailed] = useState(false);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  // Debounced live preview of the actual chat link slug, checked against
+  // real existing tenants — so a name that collides with one (like "Demo
+  // Clinic" already existing) visibly shows the -2 suffix before signup,
+  // instead of surprising the owner afterward.
+  useEffect(() => {
+    const trimmed = businessName.trim();
+    if (!trimmed) {
+      setSlugPreview(null);
+      setSlugCheckFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = setTimeout(async () => {
+      try {
+        const slug = await previewSlug(trimmed);
+        if (!cancelled) {
+          setSlugPreview(slug);
+          setSlugCheckFailed(false);
+        }
+      } catch (err) {
+        console.error("Slug preview failed:", err);
+        if (!cancelled) {
+          setSlugPreview(slugifyForDisplay(trimmed));
+          setSlugCheckFailed(true);
+        }
+      }
+    }, SLUG_CHECK_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [businessName]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -66,6 +124,21 @@ export default function SignupPage() {
               placeholder="e.g. Demo Dental Clinic"
               required
             />
+            {businessName.trim() && (
+              <p className="text-xs text-muted-foreground">
+                {slugPreview ? (
+                  <>
+                    Your chat link will be:{" "}
+                    <span className="font-medium text-foreground">
+                      {origin}/chat/{slugPreview}
+                    </span>
+                    {slugCheckFailed && " (availability not confirmed — checked again at signup)"}
+                  </>
+                ) : (
+                  "Checking chat link availability…"
+                )}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
