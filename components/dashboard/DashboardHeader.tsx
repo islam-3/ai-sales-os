@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LogoutButton } from "./LogoutButton";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Leads" },
@@ -39,6 +40,10 @@ export function DashboardHeader({ clinicName }: { clinicName: string }) {
             );
           })}
         </nav>
+
+        <div className="ml-auto">
+          <LogoutButton />
+        </div>
       </div>
     </header>
   );
