@@ -1,7 +1,7 @@
-import { supabaseServer } from "@/lib/supabase-server";
-import { TENANT_ID } from "@/lib/constants";
+import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { computeKpis, getTopFrequent, LeadProfile } from "@/lib/dashboard";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { ChatLinkCard } from "@/components/dashboard/ChatLinkCard";
 import { StatCards } from "@/components/dashboard/StatCards";
 import { InsightsSection } from "@/components/dashboard/InsightsSection";
 import { LeadsSection } from "@/components/dashboard/LeadsSection";
@@ -11,19 +11,31 @@ import { LeadsSection } from "@/components/dashboard/LeadsSection";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [{ data: tenant }, { data: leadData, error }] = await Promise.all([
-    supabaseServer.from("tenants").select("business_name").eq("id", TENANT_ID).maybeSingle(),
-    supabaseServer
-      .from("lead_profile")
-      .select(
-        "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
-      )
-      .eq("tenant_id", TENANT_ID)
-      .order("qualification_score", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-  ]);
+  const context = await getCurrentTenant();
 
-  const clinicName = tenant?.business_name || "Dental Clinic CRM";
+  // middleware.ts already keeps signed-out visitors away from /dashboard;
+  // this only fires if the session is somehow missing its tenant.
+  if (!context) {
+    return (
+      <div className="dark flex min-h-screen items-center justify-center bg-background px-4">
+        <p className="text-sm text-muted-foreground">
+          We couldn&apos;t find a clinic for your account. Please log in again.
+        </p>
+      </div>
+    );
+  }
+
+  const { supabase, tenantId, businessName, slug } = context;
+
+  const { data: leadData, error } = await supabase
+    .from("lead_profile")
+    .select(
+      "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
+    )
+    .eq("tenant_id", tenantId)
+    .order("qualification_score", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
   const leads = (leadData ?? []) as unknown as LeadProfile[];
 
   const kpis = computeKpis(leads);
@@ -41,9 +53,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="dark min-h-screen bg-background">
-      <DashboardHeader clinicName={clinicName} />
+      <DashboardHeader clinicName={businessName} />
 
       <main className="mx-auto max-w-6xl px-6 py-8">
+        <ChatLinkCard slug={slug} />
+
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Leads <span className="font-medium text-muted-foreground">({leads.length})</span>

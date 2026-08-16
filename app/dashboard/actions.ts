@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabaseServer } from "@/lib/supabase-server";
+import { getCurrentTenant } from "@/lib/dashboard-tenant";
 
 const VALID_STATUSES = ["new", "sent"] as const;
 type LeadStatus = (typeof VALID_STATUSES)[number];
@@ -11,10 +11,17 @@ export async function updateLeadStatus(leadId: string, status: string) {
     throw new Error(`Invalid status: ${status}`);
   }
 
-  const { error } = await supabaseServer
+  const context = await getCurrentTenant();
+  if (!context) {
+    throw new Error("You must be signed in to do this");
+  }
+  const { supabase, tenantId } = context;
+
+  const { error } = await supabase
     .from("lead_profile")
     .update({ status })
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .eq("tenant_id", tenantId);
 
   if (error) {
     console.error("Failed to update lead status:", error);
