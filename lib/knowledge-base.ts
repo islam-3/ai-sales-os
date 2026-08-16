@@ -1,11 +1,16 @@
 export type MediaType = "image" | "video";
 
+export type KnowledgeMedia = {
+  id: string;
+  url: string;
+  type: MediaType;
+};
+
 export type KnowledgeEntry = {
   id: string;
   category: string | null;
   content: string;
   hasEmbedding: boolean;
-  mediaUrl: string | null;
-  mediaType: MediaType | null;
+  media: KnowledgeMedia[];
   created_at: string;
 };

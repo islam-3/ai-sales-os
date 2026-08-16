@@ -18,7 +18,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { KnowledgeEntry } from "@/lib/knowledge-base";
-import { deleteKnowledgeEntry, updateKnowledgeEntry } from "@/app/dashboard/settings/actions";
+import {
+  deleteKnowledgeEntry,
+  removeKnowledgeMedia,
+  updateKnowledgeEntry,
+} from "@/app/dashboard/settings/actions";
 import { MediaThumb } from "./MediaThumb";
 
 export function KnowledgeEntryCard({
@@ -31,13 +35,28 @@ export function KnowledgeEntryCard({
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState(entry.content);
   const [category, setCategory] = useState(entry.category ?? "");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [removeMedia, setRemoveMedia] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // One object URL per pending new file, rebuilt whenever the list changes
+  // and always revoked on the way out so they don't leak.
+  const [previews, setPreviews] = useState<{ file: File; url: string }[]>([]);
+  useEffect(() => {
+    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    setPreviews(next);
+    return () => {
+      next.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+  }, [files]);
+
+  // Removing an already-saved media item happens immediately (its own
+  // server call), independent of the Save button — tracked per media id so
+  // several can be in flight without interfering with each other.
+  const [removingMediaIds, setRemovingMediaIds] = useState<Set<string>>(new Set());
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   // AlertDialogAction closes the dialog as soon as it's clicked (that's
   // its intended behavior), so a failed delete can't keep the dialog
@@ -45,25 +64,31 @@ export function KnowledgeEntryCard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
 
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const selected = e.target.files?.[0] ?? null;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(selected);
-    setPreviewUrl(selected ? URL.createObjectURL(selected) : null);
-    if (selected) setRemoveMedia(false);
+  function handleFilesChange(e: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    if (selected.length > 0) setFiles((prev) => [...prev, ...selected]);
+    e.target.value = "";
   }
 
-  function clearPendingFile() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setFile(null);
-    setPreviewUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  function removeFileAt(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleRemoveExistingMedia(mediaId: string) {
+    setMediaError(null);
+    setRemovingMediaIds((prev) => new Set(prev).add(mediaId));
+    try {
+      await removeKnowledgeMedia(mediaId);
+      // On success the parent re-fetches (revalidatePath) and this item
+      // simply stops appearing in entry.media once fresh props arrive.
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : "Failed to remove media");
+      setRemovingMediaIds((prev) => {
+        const next = new Set(prev);
+        next.delete(mediaId);
+        return next;
+      });
+    }
   }
 
   function handleSave() {
@@ -73,8 +98,7 @@ export function KnowledgeEntryCard({
     const formData = new FormData();
     formData.append("content", content);
     formData.append("category", category);
-    if (file) formData.append("file", file);
-    if (removeMedia && !file) formData.append("removeMedia", "1");
+    files.forEach((file) => formData.append("files", file));
 
     startTransition(async () => {
       try {
@@ -95,10 +119,10 @@ export function KnowledgeEntryCard({
   function handleCancel() {
     setContent(entry.content);
     setCategory(entry.category ?? "");
-    clearPendingFile();
-    setRemoveMedia(false);
+    setFiles([]);
     setError(null);
     setWarning(null);
+    setMediaError(null);
     setIsEditing(false);
   }
 
@@ -114,8 +138,6 @@ export function KnowledgeEntryCard({
   }
 
   if (isEditing) {
-    const showExistingMedia = entry.mediaUrl && entry.mediaType && !removeMedia && !file;
-
     return (
       <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-1.5">
@@ -137,61 +159,73 @@ export function KnowledgeEntryCard({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground">Photo or video (optional)</Label>
+          <Label className="text-xs text-muted-foreground">Photos or videos (optional)</Label>
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*,video/*"
-            onChange={handleFileChange}
+            multiple
+            onChange={handleFilesChange}
             className="hidden"
           />
 
-          {file ? (
-            <div className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2 text-xs text-muted-foreground">
-              {previewUrl && file.type.startsWith("image/") ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previewUrl} alt="" className="h-10 w-10 rounded object-cover" />
-              ) : (
-                <Video className="h-4 w-4 shrink-0" />
-              )}
-              <span className="max-w-[16rem] truncate">{file.name}</span>
-              <button
-                type="button"
-                onClick={clearPendingFile}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Remove selected file"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : showExistingMedia ? (
-            <div className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2">
-              <MediaThumb url={entry.mediaUrl!} type={entry.mediaType!} size="sm" />
-              <button
-                type="button"
-                onClick={() => setRemoveMedia(true)}
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                Remove
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-fit gap-1.5"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Paperclip className="h-3.5 w-3.5" />
-                {entry.mediaUrl ? "Replace file" : "Attach file"}
-              </Button>
-              {removeMedia && (
-                <span className="text-xs text-muted-foreground">Media will be removed</span>
-              )}
+          {entry.media.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {entry.media.map((m) => (
+                <div key={m.id} className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2">
+                  <MediaThumb url={m.url} type={m.type} size="sm" />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveExistingMedia(m.id)}
+                    disabled={removingMediaIds.has(m.id)}
+                    className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  >
+                    {removingMediaIds.has(m.id) ? "Removing…" : "Remove"}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
+
+          {previews.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {previews.map((p, i) => (
+                <div
+                  key={`${p.file.name}-${i}`}
+                  className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2 text-xs text-muted-foreground"
+                >
+                  {p.file.type.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.url} alt="" className="h-10 w-10 rounded object-cover" />
+                  ) : (
+                    <Video className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="max-w-[12rem] truncate">{p.file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFileAt(i)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${p.file.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit gap-1.5"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            {entry.media.length > 0 || previews.length > 0 ? "Attach more files" : "Attach files"}
+          </Button>
+
+          {mediaError && <p className="text-sm text-red-400">{mediaError}</p>}
         </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
@@ -224,8 +258,12 @@ export function KnowledgeEntryCard({
     <div className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 gap-3">
-          {entry.mediaUrl && entry.mediaType && (
-            <MediaThumb url={entry.mediaUrl} type={entry.mediaType} />
+          {entry.media.length > 0 && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {entry.media.map((m) => (
+                <MediaThumb key={m.id} url={m.url} type={m.type} />
+              ))}
+            </div>
           )}
           <div className="min-w-0 flex-1">
             <p className="whitespace-pre-wrap text-sm text-foreground/90">{entry.content}</p>
