@@ -10,7 +10,7 @@ type Message = {
   media?: MessageMedia | null;
 };
 
-export default function ChatPage() {
+export function ChatClient({ slug, businessName }: { slug: string; businessName: string }) {
   // One session_id per page load — generated fresh on mount, not persisted
   // across reloads, so each visitor/conversation gets its own lead_profile
   // row instead of sharing one.
@@ -69,6 +69,7 @@ export default function ChatPage() {
         const formData = new FormData();
         formData.append("file", file);
         formData.append("sessionId", sessionId);
+        formData.append("slug", slug);
 
         const uploadRes = await fetch("/api/upload", {
           method: "POST",
@@ -86,7 +87,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, photoPath, sessionId }),
+        body: JSON.stringify({ message: trimmed, photoPath, sessionId, slug }),
       });
 
       const data = await res.json();
@@ -115,7 +116,7 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen flex-col bg-white dark:bg-black">
       <header className="border-b border-black/10 p-4 dark:border-white/10">
-        <h1 className="text-lg font-semibold">Dental Clinic Assistant</h1>
+        <h1 className="text-lg font-semibold">{businessName}</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4">

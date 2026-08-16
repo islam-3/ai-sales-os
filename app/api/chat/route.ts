@@ -3,7 +3,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic";
 import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
-import { TENANT_ID, isValidSessionId } from "@/lib/constants";
+import { isValidSessionId } from "@/lib/constants";
+import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -40,22 +41,24 @@ Behavioral rules: ask only one question per message. Keep every reply to two or 
 
 Some clinic information below comes with an attached photo or video, marked inline as (media available: image/video, url: ...). When you share a fact that has media attached, mention naturally that a photo or video exists and offer to show it — for example "I can show you a before-and-after photo of a similar case — want to see it?" — without stating the raw URL in your sentence. Only when you are actually sharing that media with them right now (because they asked to see it, or you're proactively including it with this message) end your message with the exact tag [[MEDIA:the-url]], copying the URL exactly as given below. Never invent, alter, or guess a URL, and never include this tag unless a real URL was given to you for the specific fact you're referencing. Include at most one such tag, and only at the very end of your message.`;
 
+type EntryMedia = { url: string; type: string | null };
+
 type KnowledgeMatch = {
   id: string;
   content: string;
   category: string | null;
-  media_url: string | null;
-  media_type: string | null;
+  media: EntryMedia[];
   similarity: number;
 };
 
-// A fact plus the (optional) media note appended the same way in both the
-// RAG context block and the full category dump, so the model sees one
-// consistent format regardless of which path surfaced the entry.
-function withMediaNote(content: string, mediaUrl: string | null, mediaType: string | null) {
-  return mediaUrl
-    ? `${content} (media available: ${mediaType ?? "file"}, url: ${mediaUrl})`
-    : content;
+// A fact plus one (media available: ...) note per attached file, appended
+// the same way in both the RAG context block and the full category dump,
+// so the model sees one consistent format regardless of which path
+// surfaced the entry — and regardless of how many files it has.
+function withMediaNote(content: string, media: EntryMedia[]) {
+  if (!media || media.length === 0) return content;
+  const notes = media.map((m) => `(media available: ${m.type ?? "file"}, url: ${m.url})`).join(" ");
+  return `${content} ${notes}`;
 }
 
 const MEDIA_TAG_PATTERN = /\[\[MEDIA:(\S+?)\]\]/g;
@@ -86,8 +89,9 @@ function extractMedia(
 // Also returns the raw matches' media so the caller can validate a
 // [[MEDIA:...]] tag against a real, provided URL.
 async function getRelevantContext(
-  query: string
-): Promise<{ text: string; media: { url: string; type: string | null }[] } | null> {
+  query: string,
+  tenantId: string
+): Promise<{ text: string; media: EntryMedia[] } | null> {
   try {
     const embeddingResponse = await openai.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -97,7 +101,7 @@ async function getRelevantContext(
 
     const { data: matches, error } = await supabaseServer.rpc("match_knowledge_base", {
       query_embedding: queryEmbedding,
-      match_tenant_id: TENANT_ID,
+      match_tenant_id: tenantId,
       match_count: MATCH_COUNT,
     });
 
@@ -114,11 +118,9 @@ async function getRelevantContext(
 
     return {
       text: `Relevant information about the clinic:\n${relevant
-        .map((m) => withMediaNote(m.content, m.media_url, m.media_type))
+        .map((m) => withMediaNote(m.content, m.media ?? []))
         .join("\n\n")}`,
-      media: relevant
-        .filter((m): m is KnowledgeMatch & { media_url: string } => m.media_url !== null)
-        .map((m) => ({ url: m.media_url, type: m.media_type })),
+      media: relevant.flatMap((m) => m.media ?? []),
     };
   } catch (err) {
     console.error("Failed to generate embedding for retrieval:", err);
@@ -129,19 +131,18 @@ async function getRelevantContext(
 type KnowledgeEntry = {
   category: string;
   content: string;
-  media_url: string | null;
-  media_type: string | null;
+  media: EntryMedia[];
 };
 
 // Every knowledge_base row for this tenant that has a category, with its
 // full verbatim content — not just the category name. The checklist in
 // SYSTEM_PROMPT requires the assistant to use these exact facts rather
 // than inventing generic statements about a category.
-async function getKnowledgeEntries(): Promise<KnowledgeEntry[]> {
+async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("category, content, media_url, media_type")
-    .eq("tenant_id", TENANT_ID)
+    .select("category, content, knowledge_base_media(media_url, media_type)")
+    .eq("tenant_id", tenantId)
     .not("category", "is", null)
     .order("category");
 
@@ -150,9 +151,19 @@ async function getKnowledgeEntries(): Promise<KnowledgeEntry[]> {
     return [];
   }
 
-  return (data ?? []).filter(
-    (row): row is KnowledgeEntry => typeof row.category === "string" && row.category.length > 0
-  );
+  return (data ?? [])
+    .filter(
+      (row): row is typeof row & { category: string } =>
+        typeof row.category === "string" && row.category.length > 0
+    )
+    .map((row) => ({
+      category: row.category,
+      content: row.content,
+      media: (row.knowledge_base_media ?? []).map((m) => ({
+        url: m.media_url,
+        type: m.media_type,
+      })),
+    }));
 }
 
 // Renders the fetched entries into a labeled, per-category block of
@@ -164,7 +175,7 @@ function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const existing = byCategory.get(entry.category) ?? [];
-    existing.push(withMediaNote(entry.content, entry.media_url, entry.media_type));
+    existing.push(withMediaNote(entry.content, entry.media));
     byCategory.set(entry.category, existing);
   }
 
@@ -219,11 +230,11 @@ type LeadProfileRow = {
 };
 
 // Fetches this session's lead_profile row, or null if none exists yet.
-async function getLeadProfile(sessionId: string): Promise<LeadProfileRow | null> {
+async function getLeadProfile(sessionId: string, tenantId: string): Promise<LeadProfileRow | null> {
   const { data, error } = await supabaseServer
     .from("lead_profile")
     .select("id, name, contact_info, qualification_data")
-    .eq("tenant_id", TENANT_ID)
+    .eq("tenant_id", tenantId)
     .eq("session_id", sessionId)
     .maybeSingle();
 
@@ -245,6 +256,7 @@ async function getLeadProfile(sessionId: string): Promise<LeadProfileRow | null>
 // leaves the existing column value untouched rather than clearing it.
 async function upsertLeadProfile(
   sessionId: string,
+  tenantId: string,
   updates: {
     name?: string | null;
     contact_info?: string | null;
@@ -253,7 +265,7 @@ async function upsertLeadProfile(
     qualification_data?: Record<string, unknown>;
   }
 ) {
-  const existing = await getLeadProfile(sessionId);
+  const existing = await getLeadProfile(sessionId, tenantId);
 
   const mergedQualificationData = {
     ...(existing?.qualification_data ?? {}),
@@ -261,7 +273,7 @@ async function upsertLeadProfile(
   };
 
   const row: Record<string, unknown> = {
-    tenant_id: TENANT_ID,
+    tenant_id: tenantId,
     session_id: sessionId,
     qualification_data: mergedQualificationData,
   };
@@ -292,12 +304,12 @@ function formatTranscript(turns: { role: string; content: string }[]): string {
     .join("\n\n");
 }
 
-// Runs a lightweight extraction call over the full conversation so far and
+// Runs a lightweight extraction pass over the full conversation so far and
 // upserts whatever structured lead info it finds. Deliberately not awaited
 // by the caller — it must never delay the reply shown to the user. Every
 // failure path (API error, unparseable JSON) is caught and logged here so
 // the returned promise always resolves, never rejects.
-async function extractAndSaveLead(sessionId: string, transcript: string) {
+async function extractAndSaveLead(sessionId: string, tenantId: string, transcript: string) {
   try {
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
@@ -352,7 +364,7 @@ async function extractAndSaveLead(sessionId: string, transcript: string) {
         ? Math.max(0, Math.min(100, Math.round(rawScore)))
         : undefined;
 
-    await upsertLeadProfile(sessionId, {
+    await upsertLeadProfile(sessionId, tenantId, {
       name: extracted.name ?? undefined,
       contact_info: extracted.contact_info ?? undefined,
       ai_summary: extracted.ai_summary ?? undefined,
@@ -365,7 +377,17 @@ async function extractAndSaveLead(sessionId: string, transcript: string) {
 }
 
 export async function POST(req: NextRequest) {
-  const { message, photoPath, sessionId } = await req.json();
+  const { message, photoPath, sessionId, slug } = await req.json();
+
+  if (typeof slug !== "string" || slug.trim().length === 0) {
+    return NextResponse.json({ error: "slug is required" }, { status: 400 });
+  }
+
+  const tenant = await resolveTenantBySlug(slug.trim());
+  if (!tenant) {
+    return NextResponse.json({ error: "Unknown chat link" }, { status: 404 });
+  }
+  const tenantId = tenant.id;
 
   if (!isValidSessionId(sessionId)) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
@@ -389,11 +411,11 @@ export async function POST(req: NextRequest) {
       supabaseServer
         .from("conversations")
         .select("role, content")
-        .eq("tenant_id", TENANT_ID)
+        .eq("tenant_id", tenantId)
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true }),
-      trimmedMessage ? getRelevantContext(trimmedMessage) : Promise.resolve(null),
-      getKnowledgeEntries(),
+      trimmedMessage ? getRelevantContext(trimmedMessage, tenantId) : Promise.resolve(null),
+      getKnowledgeEntries(tenantId),
     ]);
 
   if (historyError) {
@@ -446,7 +468,7 @@ export async function POST(req: NextRequest) {
   // reaching the patient.
   const knownMedia = new Map<string, string | null>();
   for (const entry of knowledgeEntries) {
-    if (entry.media_url) knownMedia.set(entry.media_url, entry.media_type);
+    for (const m of entry.media) knownMedia.set(m.url, m.type);
   }
   for (const m of relevantContext?.media ?? []) {
     knownMedia.set(m.url, m.type);
@@ -454,8 +476,8 @@ export async function POST(req: NextRequest) {
   const { cleaned: reply, media } = extractMedia(rawReply, knownMedia);
 
   const { error } = await supabaseServer.from("conversations").insert([
-    { tenant_id: TENANT_ID, session_id: sessionId, role: "user", content: userContent },
-    { tenant_id: TENANT_ID, session_id: sessionId, role: "assistant", content: reply },
+    { tenant_id: tenantId, session_id: sessionId, role: "user", content: userContent },
+    { tenant_id: tenantId, session_id: sessionId, role: "assistant", content: reply },
   ]);
 
   if (error) {
@@ -463,7 +485,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (hasPhoto) {
-    await recordAttachment(sessionId, photoPath);
+    await recordAttachment(sessionId, tenantId, photoPath);
   }
 
   // Fire the lead-extraction pass without awaiting it — it must not delay
@@ -476,21 +498,21 @@ export async function POST(req: NextRequest) {
     { role: "user", content: userContent },
     { role: "assistant", content: reply },
   ]);
-  void extractAndSaveLead(sessionId, transcript);
+  void extractAndSaveLead(sessionId, tenantId, transcript);
 
   return NextResponse.json({ reply, media });
 }
 
 // Appends the photo's storage path to this session's lead_profile row via
 // the shared upsert helper, creating the row first if one doesn't exist.
-async function recordAttachment(sessionId: string, photoPath: string) {
-  const existing = await getLeadProfile(sessionId);
+async function recordAttachment(sessionId: string, tenantId: string, photoPath: string) {
+  const existing = await getLeadProfile(sessionId, tenantId);
   const qualificationData = existing?.qualification_data ?? {};
   const attachments = Array.isArray(qualificationData.attachments)
     ? (qualificationData.attachments as string[])
     : [];
 
-  await upsertLeadProfile(sessionId, {
+  await upsertLeadProfile(sessionId, tenantId, {
     qualification_data: { attachments: [...attachments, photoPath] },
   });
 }

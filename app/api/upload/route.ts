@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
-import { TENANT_ID, isValidSessionId } from "@/lib/constants";
+import { isValidSessionId } from "@/lib/constants";
+import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 
 const BUCKET = "lead-attachments";
 
@@ -8,6 +9,16 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file");
   const sessionId = formData.get("sessionId");
+  const slug = formData.get("slug");
+
+  if (typeof slug !== "string" || slug.trim().length === 0) {
+    return NextResponse.json({ error: "slug is required" }, { status: 400 });
+  }
+
+  const tenant = await resolveTenantBySlug(slug.trim());
+  if (!tenant) {
+    return NextResponse.json({ error: "Unknown chat link" }, { status: 404 });
+  }
 
   if (!isValidSessionId(sessionId)) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
@@ -22,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${TENANT_ID}/${sessionId}/${Date.now()}-${safeName}`;
+  const path = `${tenant.id}/${sessionId}/${Date.now()}-${safeName}`;
 
   const { error } = await supabaseServer.storage.from(BUCKET).upload(path, file, {
     contentType: file.type,
