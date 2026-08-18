@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createTenantForNewUser, previewSlug } from "./actions";
+import { INDUSTRY_SUGGESTIONS } from "@/lib/tenant-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,7 @@ const SLUG_CHECK_DEBOUNCE_MS = 500;
 export default function SignupPage() {
   const router = useRouter();
   const [businessName, setBusinessName] = useState("");
+  const [industry, setIndustry] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export default function SignupPage() {
         return;
       }
 
-      await createTenantForNewUser(userId, businessName);
+      await createTenantForNewUser(userId, businessName, industry);
 
       router.push("/dashboard");
     } catch (err) {
@@ -105,7 +107,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="dark flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
         <h1 className="text-xl font-bold tracking-tight text-foreground">Create your account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -142,6 +144,28 @@ export default function SignupPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="industry" className="text-xs text-muted-foreground">
+              Industry
+            </Label>
+            <Input
+              id="industry"
+              list="signup-industry-suggestions"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              placeholder="e.g. Dental clinic"
+              required
+            />
+            <datalist id="signup-industry-suggestions">
+              {INDUSTRY_SUGGESTIONS.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              Sets how your AI assistant introduces your business. You can change it later.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="email" className="text-xs text-muted-foreground">
               Email
             </Label>
@@ -172,7 +196,7 @@ export default function SignupPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
 
           <Button type="submit" disabled={isSubmitting} className="mt-2">
             {isSubmitting ? "Creating account…" : "Create account"}

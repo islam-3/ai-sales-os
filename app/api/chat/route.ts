@@ -5,6 +5,7 @@ import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isValidSessionId } from "@/lib/constants";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
+import { buildSystemPrompt } from "@/lib/business-prompt";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -12,34 +13,6 @@ const MATCH_COUNT = 3;
 // Cosine similarity is roughly 0-1 for related text with this model; below
 // this, a match is more likely noise than something worth grounding on.
 const SIMILARITY_THRESHOLD = 0.3;
-
-const SYSTEM_PROMPT = `You are the first point of contact for a dental clinic, chatting with someone who reached out. Your job is lead generation and qualification — not closing a sale, not booking an appointment, and not directly convincing the patient of anything. Your job is to build genuine interest in the clinic, gather complete lead information, and guide the patient toward sending a photo for the dental team to assess.
-
-Open by sparking interest, not by questioning. Start the conversation with something specific and inviting about the clinic — experienced doctors, modern technology, successful cases, that kind of thing — so the patient gets curious about the clinic itself before you ask them anything.
-
-Follow this checklist for every conversation, in order. This is a hard sequence, not a suggestion — do not skip ahead out of habit or an urge to collect contact details quickly. Mentally track which step you're on and which categories you've already covered as you go.
-
-1. Learn their main concern. Once they've engaged with your opening, ask naturally about what's bringing them in. Don't move to step 2 until you understand it.
-
-2. Share concern-relevant info first. Your first shared piece of clinic information must be whichever category is most relevant to their specific concern — not a generic fact, and not necessarily the first category in your list. If they mention missing teeth, bring up the lifetime implant guarantee or a doctor's experience with similar cases; if they mention discoloration, bring up whitening results or a relevant before/after story. This comes before any name or contact request.
-
-3. Work through every remaining category, one at a time — this explicitly includes clinic_overview (who the clinic is, their history and experience), which is just as mandatory as any other category, never optional and never skippable. After that first concern-driven share, continue through each of the other distinct categories available to you — one category per message, never combining two in the same message, and never repeating one you've already covered. When sharing information, you must use the specific facts, numbers, and details from the clinic information provided to you below — do not invent generic statements. If the clinic has been open 12 years and treated 5,000 patients from 30 countries, say that specifically, not "has been around for years."
-
-After each category, ask a follow-up that requires more than a one-word answer. FORBIDDEN: any question that can be fully answered with "yes," "sure," "no," or a nod — this includes phrasing like "Does that matter to you?", "Does that sound good?", "Does that give you confidence?", or "Would that help?". Before sending any message that shares clinic info, check yourself: does my follow-up question require more than a one-word answer? If not, rewrite it using one of these patterns, rotating through them and never repeating the same one twice in one conversation: a choice between options ("Is it mainly the front teeth, or is it spread across your mouth?"); a timeframe or number ("How long have you been dealing with this?" or "How many teeth are we talking about?"); a location or logistics fact ("Are you looking to travel for this, or is there a local option you're considering too?"); a priority or preference ("Between getting this done quickly versus getting the absolute best long-term result, which matters more to you?"); or a concern or hesitation ("Is there anything about the process that's been holding you back so far?"). You can also simply acknowledge what you shared and move straight to the next topic with no question at all — that's always a valid alternative to asking something forgettable.
-
-Pace it like a real conversation, not a rapid-fire briefing. Somewhere in this stretch, also naturally weave in a question about their timeline, something like "are you looking to do this soon, or still exploring options?" — ask it once, and let it go if they don't answer directly. You are FORBIDDEN from asking for their phone number until every distinct category available to you — including clinic_overview — has been touched on at least once. This is a hard rule, not a suggestion.
-
-4. Only once every category has been covered, move into contact details, in order: their name and age; then their WhatsApp number or best way to reach them; then, once you understand their concern, a photo of their teeth for the dental team to review. Never ask for two unrelated things in the same message.
-
-Exception: if the customer explicitly and directly asks to skip ahead — for example "just give me your number" or "how do I book" — you may honor that and move into contact details early. Even then, briefly offer once, something like "before that, want to know about [a category you haven't covered]?" — then respect whatever they say next and don't insist further.
-
-The point of steps 2 and 3 is for the patient to feel genuinely familiar with and interested in this specific clinic by the time you ask for contact details — not like they just filled out a lead form. Treat this as more important than the instinct to move quickly toward getting their number.
-
-Frame the photo request as helping the dental team put together an accurate assessment for them, never as a bureaucratic requirement.
-
-Behavioral rules: ask only one question per message. Keep every reply to two or three short sentences. Never use markdown tables or bullet or numbered lists — write in plain conversational prose throughout. Never try to convince the patient to book or close, and never push — your role stops at building interest and gathering information. Once you have their name, contact info, and main concern, and ideally a photo, warmly close by letting them know the team will review their case and follow up, and stop actively asking questions from there.
-
-Some clinic information below comes with an attached photo or video, marked inline as (media available: image/video, url: ...). When you share a fact that has media attached, mention naturally that a photo or video exists and offer to show it — for example "I can show you a before-and-after photo of a similar case — want to see it?" — without stating the raw URL in your sentence. Only when you are actually sharing that media with them right now (because they asked to see it, or you're proactively including it with this message) end your message with the exact tag [[MEDIA:the-url]], copying the URL exactly as given below. Never invent, alter, or guess a URL, and never include this tag unless a real URL was given to you for the specific fact you're referencing. Include at most one such tag, and only at the very end of your message.`;
 
 type EntryMedia = { url: string; type: string | null };
 
@@ -117,7 +90,7 @@ async function getRelevantContext(
     if (relevant.length === 0) return null;
 
     return {
-      text: `Relevant information about the clinic:\n${relevant
+      text: `Relevant information about the business:\n${relevant
         .map((m) => withMediaNote(m.content, m.media ?? []))
         .join("\n\n")}`,
       media: relevant.flatMap((m) => m.media ?? []),
@@ -135,8 +108,8 @@ type KnowledgeEntry = {
 };
 
 // Every knowledge_base row for this tenant that has a category, with its
-// full verbatim content — not just the category name. The checklist in
-// SYSTEM_PROMPT requires the assistant to use these exact facts rather
+// full verbatim content — not just the category name. The checklist in the
+// behaviour prompt requires the assistant to use these exact facts rather
 // than inventing generic statements about a category.
 async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
@@ -184,22 +157,23 @@ function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
     .map(([category, contents]) => `[${category}]\n${contents.join("\n")}`)
     .join("\n\n");
 
-  return `These are the distinct categories of clinic information available to you for this tenant: ${categoryList}. Per the checklist above, you must work through every one of these — one per message, with a follow-up after each — before asking for their phone number.
+  return `These are the distinct categories of information available to you about this business: ${categoryList}. Per the checklist above, you must work through every one of these — one per message, with a follow-up after each — before asking for their phone number.
 
-Here is the clinic's actual information, organized by category. Use these exact facts, numbers, and details when you share information — never paraphrase them into something generic:
+Here is the business's actual information, organized by category. Use these exact facts, numbers, and details when you share information — never paraphrase them into something generic:
 
 ${categoryBlocks}`;
 }
 
-const LEAD_EXTRACTION_SYSTEM_PROMPT = `You extract structured lead information from a conversation between a dental clinic's chat assistant and a prospective patient. Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
+const LEAD_EXTRACTION_SYSTEM_PROMPT = `You extract structured lead information from a conversation between a business's chat assistant and a prospective customer. Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
 
 {"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null, "ai_summary": string or null, "qualification_score": integer or null}
 
 Only give a field a real value if it was actually mentioned somewhere in the transcript — use null for anything not yet known. Do not guess or infer beyond what was actually said.
 
-- "contact_info" is whatever the patient gave to be reached — a phone number, WhatsApp number, or email, whichever applies.
-- "priority" is what the patient said matters most to them, e.g. "quality and price" or "speed".
-- "duration_of_issue" is how long they've had the concern, e.g. "a few months", "since childhood".
+- "contact_info" is whatever they gave to be reached — a phone number, WhatsApp number, or email, whichever applies.
+- "main_concern" is what they need or want help with — the reason they got in touch.
+- "priority" is what they said matters most to them, e.g. "quality and price" or "speed".
+- "duration_of_issue" is how long they've had the need or problem, e.g. "a few months", "for years". Null if it doesn't apply to this kind of business.
 - "timeline" is when they're looking to move forward, e.g. "soon", "still exploring".
 - "travel_country" is the country they'd be traveling from, if mentioned.
 - "notes" is any other detail useful to the sales team that doesn't fit the fields above.
@@ -427,12 +401,24 @@ export async function POST(req: NextRequest) {
     content: row.content,
   }));
 
-  // The knowledge section carries both the category list (what the
+  // Built per request from this tenant's own identity, so the assistant
+  // knows which business it represents and adopts the persona its industry
+  // implies. This replaces a hardcoded dental-clinic prompt that gave every
+  // tenant the same vertical regardless of what they actually were.
+  //
+  // The knowledge section then carries both the category list (what the
   // checklist in step 3 tracks coverage against) and the actual verbatim
   // content per category, so the assistant has real facts to draw from
   // instead of inventing generic statements. RAG retrieval (below) answers
   // specific questions in depth; both layer onto the base system prompt.
-  const systemParts = [SYSTEM_PROMPT];
+  const systemParts = [
+    buildSystemPrompt({
+      businessName: tenant.businessName,
+      industry: tenant.industry,
+      description: tenant.description,
+      settings: tenant.settings,
+    }),
+  ];
 
   const knowledgeSection = buildKnowledgeSection(knowledgeEntries);
   if (knowledgeSection) {
@@ -465,7 +451,7 @@ export async function POST(req: NextRequest) {
 
   // Only URLs actually offered to the model this turn are trusted — this
   // guards against a hallucinated or mangled [[MEDIA:...]] tag ever
-  // reaching the patient.
+  // reaching the visitor.
   const knownMedia = new Map<string, string | null>();
   for (const entry of knowledgeEntries) {
     for (const m of entry.media) knownMedia.set(m.url, m.type);

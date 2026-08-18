@@ -1,8 +1,12 @@
 import { supabaseServer } from "./supabase-server";
+import { parseTenantSettings, type TenantSettings } from "./tenant-settings";
 
 export type ResolvedTenant = {
   id: string;
   businessName: string;
+  industry: string | null;
+  description: string | null;
+  settings: TenantSettings;
 };
 
 // Looks up a tenant by its public slug — the one shared lookup used by
@@ -17,7 +21,7 @@ export type ResolvedTenant = {
 export async function resolveTenantBySlug(slug: string): Promise<ResolvedTenant | null> {
   const { data, error } = await supabaseServer
     .from("tenants")
-    .select("id, business_name")
+    .select("id, business_name, industry, description, settings")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -27,5 +31,11 @@ export async function resolveTenantBySlug(slug: string): Promise<ResolvedTenant 
   }
   if (!data) return null;
 
-  return { id: data.id, businessName: data.business_name };
+  return {
+    id: data.id,
+    businessName: data.business_name,
+    industry: data.industry ?? null,
+    description: data.description ?? null,
+    settings: parseTenantSettings(data.settings),
+  };
 }

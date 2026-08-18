@@ -21,7 +21,11 @@ function slugify(businessName: string): string {
 // the tenants.slug unique constraint (and retrying on 23505) rather than a
 // check-then-insert, so two concurrent signups with the same business name
 // can't both "pass" a pre-check and then collide anyway.
-async function insertTenantWithUniqueSlug(businessName: string, ownerUserId: string) {
+async function insertTenantWithUniqueSlug(
+  businessName: string,
+  industry: string | null,
+  ownerUserId: string
+) {
   const base = slugify(businessName);
 
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
@@ -32,6 +36,7 @@ async function insertTenantWithUniqueSlug(businessName: string, ownerUserId: str
       .insert({
         business_name: businessName,
         slug,
+        industry,
         owner_user_id: ownerUserId,
       })
       .select("id")
@@ -87,7 +92,8 @@ export async function previewSlug(businessName: string): Promise<string> {
 // account that has no tenant.
 export async function createTenantForNewUser(
   ownerUserId: string,
-  businessName: string
+  businessName: string,
+  industry?: string
 ): Promise<{ ok: true }> {
   const trimmedName = businessName.trim();
   if (!trimmedName) {
@@ -95,7 +101,9 @@ export async function createTenantForNewUser(
   }
 
   try {
-    await insertTenantWithUniqueSlug(trimmedName, ownerUserId);
+    // Captured at signup so a tenant is never live with a null industry —
+    // the chat assistant derives its whole persona from it.
+    await insertTenantWithUniqueSlug(trimmedName, industry?.trim() || null, ownerUserId);
   } catch (err) {
     console.error("Failed to create tenant for new user, rolling back auth user:", err);
     const { error: deleteError } = await supabaseServer.auth.admin.deleteUser(ownerUserId);
