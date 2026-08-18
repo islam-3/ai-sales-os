@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import {
   Calendar,
   Camera,
@@ -10,6 +13,7 @@ import {
   FileText,
 } from "lucide-react";
 import { QualificationData } from "@/lib/dashboard";
+import { LeadPhotos } from "./LeadPhotos";
 
 const FIELDS: { key: keyof QualificationData; label: string; icon: typeof Stethoscope }[] = [
   { key: "main_concern", label: "Main concern", icon: Stethoscope },
@@ -21,7 +25,19 @@ const FIELDS: { key: keyof QualificationData; label: string; icon: typeof Stetho
   { key: "notes", label: "Notes", icon: FileText },
 ];
 
-export function QualificationDetails({ data }: { data: QualificationData | null }) {
+export function QualificationDetails({
+  leadId,
+  data,
+}: {
+  leadId: string;
+  data: QualificationData | null;
+}) {
+  // <details> keeps its children mounted while collapsed, so without
+  // tracking open state every lead on the page would sign and fetch its
+  // photos immediately. Mounting LeadPhotos only once opened keeps the
+  // signing genuinely on demand.
+  const [isOpen, setIsOpen] = useState(false);
+
   const entries = FIELDS.map((field) => ({
     ...field,
     value: data?.[field.key],
@@ -32,7 +48,10 @@ export function QualificationDetails({ data }: { data: QualificationData | null 
   if (entries.length === 0 && attachmentCount === 0) return null;
 
   return (
-    <details className="group mt-3.5">
+    <details
+      className="group mt-3.5"
+      onToggle={(e) => setIsOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="flex cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-muted-foreground marker:hidden [&::-webkit-details-marker]:hidden hover:text-foreground">
         <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
         Qualification details
@@ -50,13 +69,18 @@ export function QualificationDetails({ data }: { data: QualificationData | null 
           </div>
         ))}
         {attachmentCount > 0 && (
-          <div className="flex items-start gap-2.5">
+          // Spans the full width — thumbnails need more room than the
+          // two-column text fields.
+          <div className="flex items-start gap-2.5 sm:col-span-2">
             <Camera className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Photos
+            <div className="min-w-0 flex-1">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Photos{" "}
+                <span className="font-normal normal-case tracking-normal">
+                  ({attachmentCount})
+                </span>
               </div>
-              <div className="text-sm text-foreground/80">{attachmentCount} attached</div>
+              {isOpen && <LeadPhotos leadId={leadId} count={attachmentCount} />}
             </div>
           </div>
         )}
