@@ -1,3 +1,4 @@
+import type { User } from "@supabase/supabase-js";
 import { createSessionClient, type SessionClient } from "./supabase-session";
 
 export type DashboardContext = {
@@ -5,6 +6,12 @@ export type DashboardContext = {
   tenantId: string;
   businessName: string;
   slug: string;
+  /**
+   * The signed-in Auth user. Returned here because getCurrentTenant()
+   * already fetches it to resolve the tenant — the profile page needs the
+   * email and user_metadata, and this saves a second round trip.
+   */
+  user: User;
 };
 
 // Resolves the tenant owned by the currently signed-in user, replacing
@@ -36,5 +43,11 @@ export async function getCurrentTenant(): Promise<DashboardContext | null> {
 
   if (error || !tenant) return null;
 
-  return { supabase, tenantId: tenant.id, businessName: tenant.business_name, slug: tenant.slug };
+  return {
+    supabase,
+    tenantId: tenant.id,
+    businessName: tenant.business_name,
+    slug: tenant.slug,
+    user,
+  };
 }
