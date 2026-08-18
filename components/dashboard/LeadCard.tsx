@@ -23,7 +23,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export function LeadCard({ lead }: { lead: LeadProfile }) {
   return (
-    <Card className="shadow-sm transition-colors hover:border-slate-600/60">
+    <Card className="shadow-sm transition-colors hover:border-foreground/20">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -58,7 +58,7 @@ export function LeadCard({ lead }: { lead: LeadProfile }) {
           <span className="text-xs text-muted-foreground">{formatDate(lead.created_at)}</span>
         </div>
 
-        <QualificationDetails data={lead.qualification_data} />
+        <QualificationDetails leadId={lead.id} data={lead.qualification_data} />
       </CardContent>
     </Card>
   );

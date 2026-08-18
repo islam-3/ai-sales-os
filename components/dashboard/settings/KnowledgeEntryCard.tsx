@@ -225,10 +225,10 @@ export function KnowledgeEntryCard({
             {entry.media.length > 0 || previews.length > 0 ? "Attach more files" : "Attach files"}
           </Button>
 
-          {mediaError && <p className="text-sm text-red-400">{mediaError}</p>}
+          {mediaError && <p className="text-sm text-destructive">{mediaError}</p>}
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
         {warning && (
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -316,7 +316,7 @@ export function KnowledgeEntryCard({
       </div>
 
       {deleteError && (
-        <p className="mt-3 flex items-center gap-1.5 border-t pt-3 text-sm text-red-400">
+        <p className="mt-3 flex items-center gap-1.5 border-t pt-3 text-sm text-destructive">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           {deleteError}
           {isDeleting && " (retrying…)"}

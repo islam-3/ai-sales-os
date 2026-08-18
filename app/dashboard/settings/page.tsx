@@ -1,6 +1,6 @@
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { KnowledgeEntry } from "@/lib/knowledge-base";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { KnowledgeBaseManager } from "@/components/dashboard/settings/KnowledgeBaseManager";
 
 // Always fetch fresh — content edited here should be immediately visible,
@@ -14,11 +14,9 @@ export default async function SettingsPage() {
   // this only fires if the session is somehow missing its tenant.
   if (!context) {
     return (
-      <div className="dark flex min-h-screen items-center justify-center bg-background px-4">
-        <p className="text-sm text-muted-foreground">
-          We couldn&apos;t find a clinic for your account. Please log in again.
-        </p>
-      </div>
+      <DashboardMessage>
+        We couldn&apos;t find a clinic for your account. Please log in again.
+      </DashboardMessage>
     );
   }
 
@@ -50,28 +48,23 @@ export default async function SettingsPage() {
   }));
 
   return (
-    <div className="dark min-h-screen bg-background">
-      <DashboardHeader clinicName={businessName} />
-
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Knowledge Base{" "}
-            <span className="font-medium text-muted-foreground">({entries.length})</span>
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Facts about the clinic your chat assistant can draw on when talking to leads.
-          </p>
-        </div>
-
-        {error ? (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
-            Failed to load knowledge base: {error.message}
-          </p>
-        ) : (
-          <KnowledgeBaseManager entries={entries} />
-        )}
-      </main>
-    </div>
+    <DashboardShell
+      clinicName={businessName}
+      title={
+        <>
+          Knowledge Base{" "}
+          <span className="font-normal text-muted-foreground">({entries.length})</span>
+        </>
+      }
+      description="Facts about the clinic your chat assistant can draw on when talking to leads."
+    >
+      {error ? (
+        <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-card-p text-sm text-destructive">
+          Failed to load knowledge base: {error.message}
+        </p>
+      ) : (
+        <KnowledgeBaseManager entries={entries} />
+      )}
+    </DashboardShell>
   );
 }

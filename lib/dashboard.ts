@@ -9,21 +9,21 @@
 export const STATUS_OPTIONS = ["new", "sent"] as const;
 export type LeadStatus = (typeof STATUS_OPTIONS)[number];
 
-// Cool black-and-silver palette — zinc (neutral cool gray) as the base,
-// never warm stone/amber. "New" is a dim, muted mid-gray, receded into
-// the card. "Sent" is the one accent: a bright cool platinum/silver
-// (slate, not amber) that reads as a metallic shimmer via brightness
-// contrast, not a hue change.
+// Built from semantic design tokens rather than fixed palette shades, so
+// these read correctly in both light and dark — the previous zinc/slate
+// literals were tuned for a dark card and washed out on a light one.
+// Colour here carries meaning: "new" is a neutral, un-acted-on state;
+// "sent" has been handled, so it takes the success token.
 export const STATUS_META: Record<LeadStatus, { label: string; dot: string; badge: string }> = {
   new: {
     label: "New",
-    dot: "bg-zinc-500",
-    badge: "border-zinc-600/30 bg-zinc-500/10 text-zinc-400",
+    dot: "bg-muted-foreground",
+    badge: "border-border bg-muted text-muted-foreground",
   },
   sent: {
     label: "Sent",
-    dot: "bg-slate-200",
-    badge: "border-slate-300/30 bg-slate-200/15 text-slate-100",
+    dot: "bg-success",
+    badge: "border-success/30 bg-success/10 text-success",
   },
 };
 
@@ -61,13 +61,13 @@ export function getScoreTier(score: number | null): ScoreTier {
   return "cold";
 }
 
-// Pure grayscale, cool-toned (zinc) — tiers are distinguished by
-// brightness only, never hue or warmth. Hot is the brightest/whitest,
-// cold recedes into the card.
+// Semantic tokens again, for the same reason as STATUS_META: a lead
+// score is a heat scale, so it maps onto success / warning / neutral
+// rather than fixed grey shades that only worked on a dark card.
 export const SCORE_TIER_CLASSES: Record<ScoreTier, string> = {
-  hot: "border-zinc-300/30 bg-zinc-200/10 text-zinc-50",
-  warm: "border-zinc-400/20 bg-zinc-400/10 text-zinc-300",
-  cold: "border-zinc-600/20 bg-zinc-600/10 text-zinc-500",
+  hot: "border-success/30 bg-success/10 text-success",
+  warm: "border-warning/30 bg-warning/10 text-warning",
+  cold: "border-border bg-muted text-muted-foreground",
 };
 
 export function formatDate(value: string): string {

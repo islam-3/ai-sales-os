@@ -161,7 +161,7 @@ export function AddEntryForm({
         </Button>
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       {warning && (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />

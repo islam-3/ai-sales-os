@@ -1,6 +1,6 @@
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { computeKpis, getTopFrequent, LeadProfile } from "@/lib/dashboard";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { ChatLinkCard } from "@/components/dashboard/ChatLinkCard";
 import { StatCards } from "@/components/dashboard/StatCards";
 import { InsightsSection } from "@/components/dashboard/InsightsSection";
@@ -17,11 +17,9 @@ export default async function DashboardPage() {
   // this only fires if the session is somehow missing its tenant.
   if (!context) {
     return (
-      <div className="dark flex min-h-screen items-center justify-center bg-background px-4">
-        <p className="text-sm text-muted-foreground">
-          We couldn&apos;t find a clinic for your account. Please log in again.
-        </p>
-      </div>
+      <DashboardMessage>
+        We couldn&apos;t find a clinic for your account. Please log in again.
+      </DashboardMessage>
     );
   }
 
@@ -52,30 +50,26 @@ export default async function DashboardPage() {
   const serviceEntries = getTopFrequent(leads.map((l) => l.qualification_data?.main_concern));
 
   return (
-    <div className="dark min-h-screen bg-background">
-      <DashboardHeader clinicName={businessName} />
-
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <ChatLinkCard slug={slug} />
-
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Leads <span className="font-medium text-muted-foreground">({leads.length})</span>
-          </h1>
+    <DashboardShell
+      clinicName={businessName}
+      title={
+        <>
+          Leads <span className="font-normal text-muted-foreground">({leads.length})</span>
+        </>
+      }
+      headerSlot={<ChatLinkCard slug={slug} />}
+    >
+      {error ? (
+        <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-card-p text-sm text-destructive">
+          Failed to load leads: {error.message}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-section-y">
+          <StatCards kpis={kpis} />
+          <InsightsSection concernEntries={concernEntries} serviceEntries={serviceEntries} />
+          <LeadsSection leads={leads} />
         </div>
-
-        {error ? (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
-            Failed to load leads: {error.message}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-8">
-            <StatCards kpis={kpis} />
-            <InsightsSection concernEntries={concernEntries} serviceEntries={serviceEntries} />
-            <LeadsSection leads={leads} />
-          </div>
-        )}
-      </main>
-    </div>
+      )}
+    </DashboardShell>
   );
 }
