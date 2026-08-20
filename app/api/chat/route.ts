@@ -6,10 +6,77 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { isValidSessionId } from "@/lib/constants";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { buildSystemPrompt } from "@/lib/business-prompt";
+import { recordUsage } from "@/lib/usage";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
+
+// Lead extraction runs on a smaller model than the conversation itself.
+// It's a constrained task — read a transcript, fill a fixed JSON schema —
+// with no requirement to write well, which is what Sonnet is being paid
+// for on the reply. The reply model is deliberately unchanged.
+const LEAD_EXTRACTION_MODEL = "claude-haiku-4-5-20251001";
+
+// Extraction used to run on every single message, re-reading the whole
+// transcript each time — measured at ~41% of total conversation cost and
+// growing with every turn. It doesn't need to: lead_profile only has to
+// be current by the time an owner opens the dashboard, and upsert merges
+// non-null fields, so a skipped run loses nothing permanently — the next
+// run re-reads the full transcript and recovers it.
+//
+// The trigger below is a compromise between cost and never losing the
+// data that matters:
+//   • turns 1-2 always run, so a name and stated need appear on the
+//     dashboard almost immediately rather than after a delay;
+//   • any message that looks like it carries contact details always
+//     runs, so a phone number or email can never be stranded by a
+//     conversation that stops right after it is given;
+//   • otherwise every 3rd turn.
+//
+// Residual risk, stated plainly: if a conversation ends on a turn that
+// isn't extracted, non-contact detail from that final turn only (e.g. a
+// revised timeline) is missed. Everything earlier is still captured,
+// because each run re-reads the entire transcript.
+const LEAD_EXTRACTION_EVERY_N_TURNS = 3;
+const CONTACT_HINT =
+  /\d{6,}|\+\d[\d\s().-]{5,}|@[\w.-]+\.\w{2,}|\bwhats\s?app\b|\be-?mail\b|\bcall me\b|\breach me\b|\bmy number\b/i;
+
+function shouldExtractLead(userTurnNumber: number, userMessage: string): boolean {
+  if (userTurnNumber <= 2) return true;
+  if (CONTACT_HINT.test(userMessage)) return true;
+  return userTurnNumber % LEAD_EXTRACTION_EVERY_N_TURNS === 0;
+}
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MATCH_COUNT = 3;
+
+// ─────────────────────────────────────────────────────────────────────
+// TEMPORARY: RAG retrieval is switched off, deliberately.
+//
+// Every categorised knowledge_base row for the tenant is already sent in
+// full on every turn (see getKnowledgeEntries + buildKnowledgeSection).
+// RAG then selected its top matches from that same table, so the block it
+// added was verbatim duplication of text already in the prompt —
+// measured at 3/3 matches for Demo Clinic — costing ~150 extra input
+// tokens per turn and telling the model nothing new.
+//
+// RE-ENABLE THIS when the knowledge base grows large enough that sending
+// it wholesale stops being practical. At that point the relationship
+// inverts: retrieval becomes the primary mechanism and the full dump
+// should be dropped instead. Roughly, revisit once a tenant exceeds a few
+// dozen entries — Demo Clinic's 8 entries cost ~460 tokens, so ~80
+// entries would add ~4,600 tokens to every single turn.
+//
+// Safe only while BOTH remain true:
+//   1. the full dump is still being sent, and
+//   2. every knowledge_base row has a category — the dump filters on
+//      `category is not null` while match_knowledge_base does not, so a
+//      null-category row would be reachable ONLY via RAG and would
+//      silently vanish from the prompt. The settings form requires a
+//      category, and a check confirmed zero such rows exist.
+//
+// The retrieval code below is intact and unmodified; only this flag gates
+// its use.
+const RAG_RETRIEVAL_ENABLED = false;
+// ─────────────────────────────────────────────────────────────────────
 // Cosine similarity is roughly 0-1 for related text with this model; below
 // this, a match is more likely noise than something worth grounding on.
 const SIMILARITY_THRESHOLD = 0.3;
@@ -63,7 +130,8 @@ function extractMedia(
 // [[MEDIA:...]] tag against a real, provided URL.
 async function getRelevantContext(
   query: string,
-  tenantId: string
+  tenantId: string,
+  sessionId: string
 ): Promise<{ text: string; media: EntryMedia[] } | null> {
   try {
     const embeddingResponse = await openai.embeddings.create({
@@ -71,6 +139,18 @@ async function getRelevantContext(
       input: query,
     });
     const queryEmbedding = embeddingResponse.data[0].embedding;
+
+    // Not awaited: cost tracking must never add latency to a reply the
+    // visitor is waiting on. recordUsage never rejects.
+    void recordUsage({
+      tenantId,
+      sessionId,
+      callType: "rag_embedding",
+      provider: "openai",
+      model: EMBEDDING_MODEL,
+      // Embeddings bill on prompt tokens only; there is no output side.
+      tokens: { inputTokens: embeddingResponse.usage?.prompt_tokens ?? 0 },
+    });
 
     const { data: matches, error } = await supabaseServer.rpc("match_knowledge_base", {
       query_embedding: queryEmbedding,
@@ -285,12 +365,31 @@ function formatTranscript(turns: { role: string; content: string }[]): string {
 // the returned promise always resolves, never rejects.
 async function extractAndSaveLead(sessionId: string, tenantId: string, transcript: string) {
   try {
+    // No output_config here: Haiku 4.5 rejects the `effort` parameter
+    // outright with a 400, unlike Sonnet. Extraction is a short,
+    // schema-constrained task, so there is nothing to tune down anyway.
     const response = await anthropic.messages.create({
-      model: CHAT_MODEL,
+      model: LEAD_EXTRACTION_MODEL,
       max_tokens: 512,
-      output_config: { effort: "low" },
       system: LEAD_EXTRACTION_SYSTEM_PROMPT,
       messages: [{ role: "user", content: transcript }],
+    });
+
+    // This whole function already runs after the HTTP response is sent,
+    // so awaiting here costs the visitor nothing — and awaiting means the
+    // row is written before the serverless invocation can be frozen.
+    await recordUsage({
+      tenantId,
+      sessionId,
+      callType: "lead_extraction",
+      provider: "anthropic",
+      model: LEAD_EXTRACTION_MODEL,
+      tokens: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+        cacheWriteInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+      },
     });
 
     const textBlock = response.content.find((block) => block.type === "text");
@@ -388,7 +487,12 @@ export async function POST(req: NextRequest) {
         .eq("tenant_id", tenantId)
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true }),
-      trimmedMessage ? getRelevantContext(trimmedMessage, tenantId) : Promise.resolve(null),
+      // Skipping this also skips the OpenAI embedding call it makes,
+      // removing a network round trip from the critical path — the
+      // visitor is waiting on this request.
+      RAG_RETRIEVAL_ENABLED && trimmedMessage
+        ? getRelevantContext(trimmedMessage, tenantId, sessionId)
+        : Promise.resolve(null),
       getKnowledgeEntries(tenantId),
     ]);
 
@@ -411,7 +515,7 @@ export async function POST(req: NextRequest) {
   // content per category, so the assistant has real facts to draw from
   // instead of inventing generic statements. RAG retrieval (below) answers
   // specific questions in depth; both layer onto the base system prompt.
-  const systemParts = [
+  const staticParts = [
     buildSystemPrompt({
       businessName: tenant.businessName,
       industry: tenant.industry,
@@ -422,21 +526,58 @@ export async function POST(req: NextRequest) {
 
   const knowledgeSection = buildKnowledgeSection(knowledgeEntries);
   if (knowledgeSection) {
-    systemParts.push(knowledgeSection);
+    staticParts.push(knowledgeSection);
   }
+
+  // Split into cached and uncached blocks rather than one string.
+  //
+  // Everything above is stable: the identity block only changes when the
+  // owner edits their business details, and the knowledge section only
+  // when they edit an entry — neither changes between turns of a
+  // conversation, and both are byte-identical across every visitor to the
+  // same tenant. Marking the end of it with cache_control means it's
+  // charged in full once and read back at a fraction of the price on
+  // every subsequent turn inside the cache window.
+  //
+  // The block text is assembled so the concatenation is byte-for-byte
+  // what the single joined string used to be — the leading "\n\n" on the
+  // RAG block replaces the separator that .join("\n\n") used to add. The
+  // model therefore sees exactly the same prompt as before; only the
+  // billing changes.
+  const systemBlocks: Anthropic.TextBlockParam[] = [
+    {
+      type: "text",
+      text: staticParts.join("\n\n"),
+      cache_control: { type: "ephemeral" },
+    },
+  ];
 
   if (relevantContext) {
-    systemParts.push(relevantContext.text);
+    systemBlocks.push({ type: "text", text: `\n\n${relevantContext.text}` });
   }
-
-  const systemForThisTurn = systemParts.join("\n\n");
 
   const response = await anthropic.messages.create({
     model: CHAT_MODEL,
     max_tokens: 1024,
     output_config: { effort: "low" },
-    system: systemForThisTurn,
+    system: systemBlocks,
     messages: [...priorMessages, { role: "user", content: userContent }],
+  });
+
+  // Recorded before the refusal check below, because a refusal is still a
+  // billed call — excluding it would understate real spend.
+  void recordUsage({
+    tenantId,
+    sessionId,
+    callType: "chat_reply",
+    provider: "anthropic",
+    model: CHAT_MODEL,
+    tokens: {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+    },
   });
 
   if (response.stop_reason === "refusal") {
@@ -479,12 +620,21 @@ export async function POST(req: NextRequest) {
   // turn's two new messages, so it doesn't need another DB round trip.
   // extractAndSaveLead() catches all of its own errors, so this can't
   // produce an unhandled rejection.
-  const transcript = formatTranscript([
-    ...(history ?? []),
-    { role: "user", content: userContent },
-    { role: "assistant", content: reply },
-  ]);
-  void extractAndSaveLead(sessionId, tenantId, transcript);
+  //
+  // Gated by shouldExtractLead (see the constants at the top) so it no
+  // longer runs on every message. A skipped turn is recovered by the next
+  // run, which re-reads the whole transcript from scratch.
+  const priorUserTurns = (history ?? []).filter((row) => row.role === "user").length;
+  const userTurnNumber = priorUserTurns + 1;
+
+  if (shouldExtractLead(userTurnNumber, userContent)) {
+    const transcript = formatTranscript([
+      ...(history ?? []),
+      { role: "user", content: userContent },
+      { role: "assistant", content: reply },
+    ]);
+    void extractAndSaveLead(sessionId, tenantId, transcript);
+  }
 
   return NextResponse.json({ reply, media });
 }
