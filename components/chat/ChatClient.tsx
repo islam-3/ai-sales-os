@@ -130,6 +130,7 @@ export function ChatClient({ slug, businessName }: { slug: string; businessName:
         { role: "assistant", content: data.reply, media: data.media ?? null },
       ]);
     } catch (err) {
+      console.error("Chat request failed:", err);
       setMessages((prev) => [
         ...prev,
         {
