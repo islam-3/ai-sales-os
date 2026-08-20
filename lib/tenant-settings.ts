@@ -24,6 +24,18 @@ export type TenantSettings = {
   service_area?: string;
   /** Currency prices are quoted in, e.g. "USD", "EUR", "TRY". */
   currency?: string;
+  /**
+   * Getting-started checklist state. Only the parts that can't be
+   * derived from real data live here — whether the owner has completed
+   * their business info or added a knowledge entry is read from those
+   * tables directly, so it can never drift out of sync.
+   */
+  onboarding?: {
+    /** Set when the owner copies or opens their chat link. */
+    chat_link_copied?: boolean;
+    /** Set when the owner hides the checklist early; sticky thereafter. */
+    dismissed?: boolean;
+  };
 };
 
 function asString(value: unknown): string | undefined {
@@ -87,6 +99,16 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
 
   const currency = asString(root.currency);
   if (currency) parsed.currency = currency;
+
+  const onboarding = asObject(root.onboarding);
+  const chatLinkCopied = onboarding.chat_link_copied === true;
+  const dismissed = onboarding.dismissed === true;
+  if (chatLinkCopied || dismissed) {
+    parsed.onboarding = {
+      ...(chatLinkCopied && { chat_link_copied: true }),
+      ...(dismissed && { dismissed: true }),
+    };
+  }
 
   return parsed;
 }

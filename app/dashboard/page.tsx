@@ -1,7 +1,10 @@
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { computeKpis, getTopFrequent, LeadProfile } from "@/lib/dashboard";
+import { parseTenantSettings } from "@/lib/tenant-settings";
+import { getOnboardingState } from "@/lib/onboarding";
 import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { ChatLinkCard } from "@/components/dashboard/ChatLinkCard";
+import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
 import { StatCards } from "@/components/dashboard/StatCards";
 import { InsightsSection } from "@/components/dashboard/InsightsSection";
 import { LeadsSection } from "@/components/dashboard/LeadsSection";
@@ -25,14 +28,37 @@ export default async function DashboardPage() {
 
   const { supabase, tenantId, businessName, slug } = context;
 
-  const { data: leadData, error } = await supabase
-    .from("lead_profile")
-    .select(
-      "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
-    )
-    .eq("tenant_id", tenantId)
-    .order("qualification_score", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  // Fetched alongside the leads rather than in series — the checklist
+  // renders above the fold, so it shouldn't add a round trip to the
+  // page's time-to-first-byte.
+  const [
+    { data: leadData, error },
+    { data: tenantRow },
+    { count: knowledgeEntryCount },
+  ] = await Promise.all([
+    supabase
+      .from("lead_profile")
+      .select(
+        "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
+      )
+      .eq("tenant_id", tenantId)
+      .order("qualification_score", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase.from("tenants").select("industry, description, settings").eq("id", tenantId).maybeSingle(),
+    // head:true fetches the count without pulling any rows back.
+    supabase
+      .from("knowledge_base")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId),
+  ]);
+
+  const settings = parseTenantSettings(tenantRow?.settings);
+  const onboarding = getOnboardingState({
+    industry: tenantRow?.industry ?? null,
+    description: tenantRow?.description ?? null,
+    knowledgeEntryCount: knowledgeEntryCount ?? 0,
+    settings,
+  });
 
   const leads = (leadData ?? []) as unknown as LeadProfile[];
 
@@ -57,7 +83,15 @@ export default async function DashboardPage() {
           Leads <span className="font-normal text-muted-foreground">({leads.length})</span>
         </>
       }
-      headerSlot={<ChatLinkCard slug={slug} />}
+      headerSlot={
+        <>
+          {onboarding.visible && <OnboardingChecklist state={onboarding} />}
+          <ChatLinkCard
+            slug={slug}
+            trackFirstUse={settings.onboarding?.chat_link_copied !== true}
+          />
+        </>
+      }
     >
       {error ? (
         <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-card-p text-sm text-destructive">
