@@ -143,7 +143,7 @@ export async function createKnowledgeEntry(formData: FormData): Promise<SaveResu
   let embedding: number[] | null = null;
   let embeddingFailed = false;
   try {
-    embedding = await generateEmbedding(content);
+    embedding = await generateEmbedding(content, tenantId);
   } catch (err) {
     console.error("Failed to generate embedding for new knowledge_base entry:", err);
     embeddingFailed = true;
@@ -183,7 +183,7 @@ export async function updateKnowledgeEntry(id: string, formData: FormData): Prom
 
   let embeddingFailed = false;
   try {
-    updates.embedding = await generateEmbedding(content);
+    updates.embedding = await generateEmbedding(content, tenantId);
   } catch (err) {
     console.error("Failed to generate embedding for updated knowledge_base entry:", err);
     embeddingFailed = true;
