@@ -19,6 +19,10 @@ export function ChatClient({ slug, businessName }: { slug: string; businessName:
   const [input, setInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Session-scoped on purpose: consent is tied to this conversation, not
+  // remembered across visits, so a returning visitor is asked again.
+  const [photoConsentGiven, setPhotoConsentGiven] = useState(false);
+  const [showPhotoConsent, setShowPhotoConsent] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +48,31 @@ export function ChatClient({ slug, businessName }: { slug: string; businessName:
   function clearSelectedFile() {
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // Photos get an explicit confirmation that plain text messages don't.
+  // A photo sent to a clinic, alongside a described symptom, can amount to
+  // health data — a special category under GDPR that needs affirmative
+  // consent rather than a notice the visitor may never read. Gating the
+  // upload rather than the whole conversation puts that step exactly where
+  // the sensitive data enters, without a wall in front of every visitor.
+  //
+  // Asked once per session: repeating it on every attachment would train
+  // people to dismiss it without reading.
+  function handleAttachClick() {
+    if (photoConsentGiven) {
+      fileInputRef.current?.click();
+      return;
+    }
+    setShowPhotoConsent(true);
+  }
+
+  function acceptPhotoConsent() {
+    setPhotoConsentGiven(true);
+    setShowPhotoConsent(false);
+    // Opened on the next tick so the dialog has closed first — clicking a
+    // hidden file input while a dialog is unmounting is unreliable.
+    setTimeout(() => fileInputRef.current?.click(), 0);
   }
 
   async function handleSend(e: FormEvent) {
@@ -207,7 +236,7 @@ export function ChatClient({ slug, businessName }: { slug: string; businessName:
             />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleAttachClick}
               disabled={isLoading}
               className="rounded-lg border border-black/10 px-3 py-2 text-sm disabled:opacity-50 dark:border-white/10"
               aria-label="Attach photo"
@@ -231,8 +260,84 @@ export function ChatClient({ slug, businessName }: { slug: string; businessName:
               Send
             </button>
           </div>
+
+          {/* Standing notice rather than a blocking modal: the visitor
+              chose to message this business, so that their message reaches
+              it is proportionate to state plainly and keep visible. */}
+          <p className="text-center text-xs leading-relaxed text-black/50 dark:text-white/50">
+            Messages and photos you share are collected and sent to {businessName} to handle your
+            enquiry.{" "}
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-black/80 dark:hover:text-white/80"
+            >
+              Privacy Policy
+            </a>
+            {" · "}
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-black/80 dark:hover:text-white/80"
+            >
+              Terms
+            </a>
+          </p>
         </div>
       </form>
+
+      {showPhotoConsent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="photo-consent-title"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-black/10 bg-white p-5 shadow-lg dark:border-white/10 dark:bg-neutral-900">
+            <h2
+              id="photo-consent-title"
+              className="text-base font-semibold text-black dark:text-white"
+            >
+              Before you share a photo
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-black/70 dark:text-white/70">
+              Your photo will be stored and shared with {businessName} so their team can assess
+              your enquiry. Depending on what it shows, a photo may reveal health-related
+              information about you.
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-black/70 dark:text-white/70">
+              You can continue the conversation without sharing one. See our{" "}
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2"
+              >
+                Privacy Policy
+              </a>{" "}
+              for how photos are stored and how to request deletion.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPhotoConsent(false)}
+                className="rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={acceptPhotoConsent}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white"
+              >
+                I understand — choose photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
