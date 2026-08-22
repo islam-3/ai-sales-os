@@ -13,7 +13,8 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Leads" },
   { href: "/dashboard/business", label: "Business" },
   { href: "/dashboard/settings", label: "Settings" },
-  { href: "/dashboard/profile", label: "Profile", startsGroup: true },
+  { href: "/dashboard/billing", label: "Plan", startsGroup: true },
+  { href: "/dashboard/profile", label: "Profile" },
 ];
 
 export function DashboardHeader({ clinicName }: { clinicName: string }) {

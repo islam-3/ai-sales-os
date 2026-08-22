@@ -2,9 +2,11 @@ import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { computeKpis, getTopFrequent, LeadProfile } from "@/lib/dashboard";
 import { parseTenantSettings } from "@/lib/tenant-settings";
 import { getOnboardingState } from "@/lib/onboarding";
+import { getSubscriptionState, TENANT_SUBSCRIPTION_COLUMNS } from "@/lib/subscription";
 import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { ChatLinkCard } from "@/components/dashboard/ChatLinkCard";
 import { OnboardingChecklist } from "@/components/dashboard/OnboardingChecklist";
+import { UsageBanner } from "@/components/dashboard/UsageBanner";
 import { StatCards } from "@/components/dashboard/StatCards";
 import { InsightsSection } from "@/components/dashboard/InsightsSection";
 import { LeadsSection } from "@/components/dashboard/LeadsSection";
@@ -44,7 +46,11 @@ export default async function DashboardPage() {
       .eq("tenant_id", tenantId)
       .order("qualification_score", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false }),
-    supabase.from("tenants").select("industry, description, settings").eq("id", tenantId).maybeSingle(),
+    supabase
+      .from("tenants")
+      .select(`industry, description, settings, ${TENANT_SUBSCRIPTION_COLUMNS}`)
+      .eq("id", tenantId)
+      .maybeSingle(),
     // head:true fetches the count without pulling any rows back.
     supabase
       .from("knowledge_base")
@@ -58,6 +64,19 @@ export default async function DashboardPage() {
     description: tenantRow?.description ?? null,
     knowledgeEntryCount: knowledgeEntryCount ?? 0,
     settings,
+  });
+
+  // Derived from the tenant row already fetched above, so the banner
+  // costs no extra query. Falls back to a trialing shape if the row is
+  // somehow missing rather than throwing on the dashboard's main view.
+  const subscription = getSubscriptionState({
+    plan_id: tenantRow?.plan_id ?? null,
+    subscription_status: tenantRow?.subscription_status ?? null,
+    trial_started_at: tenantRow?.trial_started_at ?? null,
+    trial_ends_at: tenantRow?.trial_ends_at ?? null,
+    current_period_start: tenantRow?.current_period_start ?? null,
+    current_period_end: tenantRow?.current_period_end ?? null,
+    current_period_conversations: tenantRow?.current_period_conversations ?? null,
   });
 
   const leads = (leadData ?? []) as unknown as LeadProfile[];
@@ -85,6 +104,7 @@ export default async function DashboardPage() {
       }
       headerSlot={
         <>
+          <UsageBanner state={subscription} />
           {onboarding.visible && <OnboardingChecklist state={onboarding} />}
           <ChatLinkCard
             slug={slug}

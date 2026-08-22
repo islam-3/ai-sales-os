@@ -7,6 +7,7 @@ import { isValidSessionId } from "@/lib/constants";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
+import { recordConversationStart } from "@/lib/conversation-metering";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -613,6 +614,20 @@ export async function POST(req: NextRequest) {
 
   if (hasPhoto) {
     await recordAttachment(sessionId, tenantId, photoPath);
+  }
+
+  // Meter this session as one conversation. `history.length === 0` means
+  // it's the visitor's first message, but that check is only an
+  // optimisation to skip an RPC on later turns — the real guarantee is
+  // the unique (tenant_id, session_id) constraint inside the function, so
+  // two simultaneous first messages still count once.
+  //
+  // Not awaited, and never allowed to throw: metering is a billing
+  // concern, and a visitor must not wait on it or see a conversation fail
+  // because of it. Worst case is an undercount, which is the right way to
+  // be wrong.
+  if ((history ?? []).length === 0) {
+    void recordConversationStart(tenantId, sessionId);
   }
 
   // Fire the lead-extraction pass without awaiting it — it must not delay
