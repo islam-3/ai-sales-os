@@ -451,7 +451,7 @@ async function extractAndSaveLead(sessionId: string, tenantId: string, transcrip
 }
 
 export async function POST(req: NextRequest) {
-  const { message, photoPath, sessionId, slug } = await req.json();
+  const { message, photoPath, sessionId, slug, openingMessage } = await req.json();
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
     return NextResponse.json({ error: "slug is required" }, { status: 400 });
@@ -480,6 +480,18 @@ export async function POST(req: NextRequest) {
     ? [trimmedMessage, `[Photo attached: ${photoPath}]`].filter(Boolean).join("\n\n")
     : trimmedMessage;
 
+  // The proactive greeting the visitor was shown on page load. It is
+  // deliberately NOT written when the page renders — a stored assistant
+  // row would make history non-empty, and conversation metering keys off
+  // an empty history, so persisting it early would stop conversations
+  // being counted at all. Instead the client sends it back with the first
+  // message and it's stored here, alongside that message, once the
+  // visitor has actually engaged.
+  const greeting =
+    typeof openingMessage === "string" && openingMessage.trim().length > 0
+      ? openingMessage.trim()
+      : null;
+
   const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
     await Promise.all([
       supabaseServer
@@ -501,10 +513,18 @@ export async function POST(req: NextRequest) {
     console.error("Failed to fetch conversation history from Supabase:", historyError);
   }
 
-  const priorMessages: Anthropic.MessageParam[] = (history ?? []).map((row) => ({
+  const storedMessages: Anthropic.MessageParam[] = (history ?? []).map((row) => ({
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
   }));
+
+  // On the first turn the greeting isn't in the database yet, so it's
+  // prepended here — otherwise the model has no idea it already said
+  // hello and opens by greeting the visitor a second time.
+  const priorMessages: Anthropic.MessageParam[] =
+    storedMessages.length === 0 && greeting
+      ? [{ role: "assistant", content: greeting }]
+      : storedMessages;
 
   // Built per request from this tenant's own identity, so the assistant
   // knows which business it represents and adopts the persona its industry
@@ -603,10 +623,18 @@ export async function POST(req: NextRequest) {
   }
   const { cleaned: reply, media } = extractMedia(rawReply, knownMedia);
 
-  const { error } = await supabaseServer.from("conversations").insert([
+  // Written in order: the greeting (first turn only) precedes the
+  // visitor's message so the stored transcript reads the way the
+  // conversation actually happened.
+  const rowsToInsert = [
+    ...((history ?? []).length === 0 && greeting
+      ? [{ tenant_id: tenantId, session_id: sessionId, role: "assistant", content: greeting }]
+      : []),
     { tenant_id: tenantId, session_id: sessionId, role: "user", content: userContent },
     { tenant_id: tenantId, session_id: sessionId, role: "assistant", content: reply },
-  ]);
+  ];
+
+  const { error } = await supabaseServer.from("conversations").insert(rowsToInsert);
 
   if (error) {
     console.error("Failed to save conversation to Supabase:", error);

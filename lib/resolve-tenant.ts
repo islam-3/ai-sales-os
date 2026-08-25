@@ -7,6 +7,10 @@ export type ResolvedTenant = {
   industry: string | null;
   description: string | null;
   settings: TenantSettings;
+  /** Public Storage URL of the tenant's logo, or null if none uploaded. */
+  logoUrl: string | null;
+  /** Raw stored value; callers run it through resolveBrandColor(). */
+  brandColor: string | null;
 };
 
 // Looks up a tenant by its public slug — the one shared lookup used by
@@ -21,7 +25,7 @@ export type ResolvedTenant = {
 export async function resolveTenantBySlug(slug: string): Promise<ResolvedTenant | null> {
   const { data, error } = await supabaseServer
     .from("tenants")
-    .select("id, business_name, industry, description, settings")
+    .select("id, business_name, industry, description, settings, logo_url, brand_color")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -37,5 +41,7 @@ export async function resolveTenantBySlug(slug: string): Promise<ResolvedTenant 
     industry: data.industry ?? null,
     description: data.description ?? null,
     settings: parseTenantSettings(data.settings),
+    logoUrl: data.logo_url ?? null,
+    brandColor: data.brand_color ?? null,
   };
 }

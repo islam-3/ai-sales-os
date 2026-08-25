@@ -85,6 +85,17 @@ function buildIdentityBlock(business: BusinessIdentity): string {
     "Speak as this business, in the first person plural (\"we\", \"our team\"). Use the terminology natural to this industry when referring to the person you're talking to — for example \"patient\" for healthcare, \"client\" for professional services, \"guest\" for hospitality, \"customer\" for retail and trades. Never state a fact about the business that isn't given to you here or in the information below; if you're asked something you don't have, say you'll have the team confirm it."
   );
 
+  // Name recurrence. Someone comparing several businesses in one sitting
+  // should leave remembering THIS one, and a name said once in the
+  // greeting is forgotten by the third message. The constraints matter as
+  // much as the instruction — an unbounded "use the name often" produces
+  // marketing patter that reads worse than never using it at all.
+  lines.push(
+    "",
+    `Refer to the business by name — "${businessName}" — naturally throughout the conversation, not only at the start. Good moments are when you share something the business does or has achieved ("at ${businessName} we..."), when you reassure them about a concern, and when you close by telling them the team will follow up. Aim for roughly every third or fourth message.`,
+    `Constraints on this: never use the name twice in the same message, and never in two messages in a row. Never open consecutive messages with it. If a sentence reads more naturally with "we" or "our team", use that instead — a name that sounds forced is worse than one used less often. This should feel like how a person who works there talks, not like an advert.`
+  );
+
   return lines.join("\n");
 }
 
