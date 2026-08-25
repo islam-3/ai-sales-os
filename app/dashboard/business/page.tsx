@@ -2,6 +2,7 @@ import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { parseTenantSettings } from "@/lib/tenant-settings";
 import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { BusinessIdentityForm } from "@/components/dashboard/business/BusinessIdentityForm";
+import { BrandingForm } from "@/components/dashboard/business/BrandingForm";
 import { LocationContactForm } from "@/components/dashboard/business/LocationContactForm";
 import { OperationsForm } from "@/components/dashboard/business/OperationsForm";
 
@@ -26,7 +27,7 @@ export default async function BusinessPage() {
   // own tenant exactly like every other dashboard query.
   const { data: tenant, error } = await supabase
     .from("tenants")
-    .select("business_name, industry, description, settings")
+    .select("business_name, industry, description, settings, logo_url, brand_color")
     .eq("id", tenantId)
     .maybeSingle();
 
@@ -52,6 +53,11 @@ export default async function BusinessPage() {
           initialBusinessName={tenant.business_name ?? ""}
           initialIndustry={tenant.industry ?? ""}
           initialDescription={tenant.description ?? ""}
+        />
+        <BrandingForm
+          businessName={tenant.business_name ?? ""}
+          initialLogoUrl={tenant.logo_url ?? null}
+          initialBrandColor={tenant.brand_color ?? null}
         />
         <LocationContactForm initial={settings} />
         <OperationsForm initial={settings} />

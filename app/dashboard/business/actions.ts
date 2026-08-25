@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { parseTenantSettings, type TenantSettings } from "@/lib/tenant-settings";
+import { supabaseServer } from "@/lib/supabase-server";
+import { isValidBrandColor } from "@/lib/branding";
 
 export type BusinessIdentityInput = {
   businessName: string;
@@ -74,4 +76,125 @@ export async function updateBusinessSettings(patch: TenantSettings): Promise<voi
   }
 
   revalidatePath("/dashboard/business");
+}
+
+// ── Brand identity: logo + colour ────────────────────────────────────────
+
+const BRANDING_BUCKET = "business-media";
+// Logos are small by nature; anything larger is a photo uploaded by
+// mistake and would only slow the public chat page down.
+const MAX_LOGO_BYTES = 4 * 1024 * 1024;
+
+// Same reasoning as uploadKnowledgeMedia in settings/actions.ts: Storage
+// is governed by its own policy system on storage.objects, separate from
+// the public.* RLS policies. No Storage policies exist for this bucket
+// yet, so the service_role client is what actually works here. Ownership
+// is still enforced — getCurrentTenant() resolves the tenant from the
+// signed-in user, and the path is namespaced by that tenant id.
+function logoStoragePath(url: string): string | null {
+  const marker = `/object/public/${BRANDING_BUCKET}/`;
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+// Best-effort removal of a superseded logo. A failure here is logged and
+// swallowed: an orphaned file in the bucket is untidy, but failing the
+// whole save because cleanup didn't work would be worse for the owner.
+async function removeLogoObject(url: string | null | undefined): Promise<void> {
+  if (!url) return;
+  const path = logoStoragePath(url);
+  if (!path) return;
+
+  const { error } = await supabaseServer.storage.from(BRANDING_BUCKET).remove([path]);
+  if (error) {
+    console.error("Failed to remove previous logo from Storage:", error);
+  }
+}
+
+export type BrandingResult = { logoUrl: string | null; brandColor: string | null };
+
+// Saves the logo and/or brand colour. Both are optional and independent:
+// an owner can set a colour with no logo, a logo with no colour, or clear
+// either one back to the default.
+export async function updateBusinessBranding(formData: FormData): Promise<BrandingResult> {
+  const context = await getCurrentTenant();
+  if (!context) throw new Error("You must be signed in to do this");
+  const { supabase, tenantId } = context;
+
+  const { data: current, error: readError } = await supabase
+    .from("tenants")
+    .select("logo_url, brand_color")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (readError || !current) {
+    console.error("Failed to read current branding:", readError);
+    throw new Error("Failed to save your brand settings");
+  }
+
+  const removeLogo = formData.get("removeLogo") === "true";
+  const file = formData.get("logo");
+  const rawColor = String(formData.get("brandColor") ?? "").trim();
+
+  // An empty colour field means "use the default", stored as null rather
+  // than as the default's literal hex — so if the default ever changes,
+  // every tenant who never chose a colour follows it.
+  let brandColor: string | null = null;
+  if (rawColor) {
+    const normalised = rawColor.toUpperCase();
+    if (!isValidBrandColor(normalised)) {
+      throw new Error("Brand colour must be a 6-digit hex value, like #1D4ED8.");
+    }
+    brandColor = normalised;
+  }
+
+  let logoUrl: string | null = current.logo_url ?? null;
+
+  if (removeLogo) {
+    await removeLogoObject(current.logo_url);
+    logoUrl = null;
+  } else if (file instanceof File && file.size > 0) {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Your logo must be an image file.");
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      throw new Error("That logo is too large — please keep it under 4MB.");
+    }
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "logo";
+    const path = `${tenantId}/branding/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabaseServer.storage
+      .from(BRANDING_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (uploadError) {
+      console.error("Failed to upload logo:", uploadError);
+      throw new Error("Failed to upload the logo. Please try again.");
+    }
+
+    const { data } = supabaseServer.storage.from(BRANDING_BUCKET).getPublicUrl(path);
+
+    // Only remove the old file after the new one is safely stored, so a
+    // failed upload never leaves the tenant with no logo at all.
+    await removeLogoObject(current.logo_url);
+    logoUrl = data.publicUrl;
+  }
+
+  const { error } = await supabase
+    .from("tenants")
+    .update({ logo_url: logoUrl, brand_color: brandColor })
+    .eq("id", tenantId);
+
+  if (error) {
+    console.error("Failed to update branding:", error);
+    throw new Error("Failed to save your brand settings");
+  }
+
+  revalidatePath("/dashboard/business");
+  // The public chat page renders both of these.
+  revalidatePath("/chat", "layout");
+
+  return { logoUrl, brandColor };
 }
