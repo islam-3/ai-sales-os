@@ -203,9 +203,9 @@ export function ChatClient({
   const canSend = !isLoading && (input.trim().length > 0 || selectedFile !== null);
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-neutral-50">
+    <div className="flex min-h-[100dvh] flex-col bg-white">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md">
+      <header className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white">
         <div className="mx-auto flex w-full max-w-2xl items-center gap-3 px-4 py-3">
           <div
             className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold"
@@ -298,7 +298,7 @@ export function ChatClient({
 
       {/* ── Composer ────────────────────────────────────────────────── */}
       <div
-        className="sticky bottom-0 z-20 border-t border-neutral-200/80 bg-white/95 backdrop-blur-md"
+        className="sticky bottom-0 z-20 border-t border-neutral-200/80 bg-white"
         // Keeps the input clear of the iPhone home indicator. Without
         // this the send button sits underneath it and is hard to tap.
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -327,7 +327,7 @@ export function ChatClient({
           )}
 
           {selectedPreview && (
-            <div className="mb-2 flex w-fit items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-1.5 pr-2.5">
+            <div className="mb-2 flex w-fit items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-100 p-1.5 pr-2.5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={selectedPreview}
@@ -377,7 +377,7 @@ export function ChatClient({
               disabled={isLoading}
               // 16px minimum: anything smaller makes iOS Safari zoom the
               // whole page in when the field is focused.
-              className="h-11 min-w-0 flex-1 rounded-full border border-neutral-200 bg-neutral-50 px-4 text-[16px] text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-neutral-300 focus:bg-white disabled:opacity-60"
+              className="h-11 min-w-0 flex-1 rounded-full border border-neutral-200 bg-neutral-100 px-4 text-[16px] text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-neutral-300 focus:bg-white disabled:opacity-60"
             />
 
             <button
@@ -499,7 +499,7 @@ function Bubble({
         className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed shadow-sm sm:max-w-[75%] ${
           isUser
             ? "rounded-br-md"
-            : "rounded-bl-md border border-neutral-200/70 bg-white text-neutral-800"
+            : "rounded-bl-md border border-neutral-200/70 bg-neutral-100 text-neutral-800"
         }`}
         style={isUser ? { backgroundColor: brandColor, color: onBrand } : undefined}
       >
@@ -514,7 +514,7 @@ function Bubble({
 function TypingIndicator() {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-neutral-200/70 bg-white px-4 py-3.5 shadow-sm">
+      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-neutral-200/70 bg-neutral-100 px-4 py-3.5 shadow-sm">
         {[0, 150, 300].map((delay) => (
           <span
             key={delay}

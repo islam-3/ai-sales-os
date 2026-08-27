@@ -305,8 +305,8 @@ export function BrandingForm({
                 {businessName || "Your business"}
               </span>
             </div>
-            <div className="flex flex-col gap-2 bg-neutral-50 p-3">
-              <div className="max-w-[75%] self-start rounded-2xl rounded-bl-md bg-white px-3 py-2 text-xs text-neutral-800 shadow-sm">
+            <div className="flex flex-col gap-2 bg-white p-3">
+              <div className="max-w-[75%] self-start rounded-2xl rounded-bl-md border border-neutral-200/70 bg-neutral-100 px-3 py-2 text-xs text-neutral-800 shadow-sm">
                 Hi! How can we help you today?
               </div>
               <div

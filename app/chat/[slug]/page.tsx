@@ -51,7 +51,7 @@ export default async function ChatPage({ params }: { params: { slug: string } })
 
   if (!tenant) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-neutral-50 px-6 text-center">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-white px-6 text-center">
         <p className="text-base font-semibold text-neutral-900">This chat link isn&apos;t valid</p>
         <p className="mt-1.5 text-sm text-neutral-500">
           Please double-check the link you were given.
