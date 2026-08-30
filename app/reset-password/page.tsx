@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -179,8 +180,13 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-naroxe-base px-4 py-10">
+      <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-sm">
+        <div className="flex flex-col items-center">
+          <Logo size="lg" className="text-naroxe-ink" />
+        </div>
+
+        <div className="mt-8">
         {status === "verifying" && (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -193,24 +199,29 @@ export default function ResetPasswordPage() {
             <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
               <AlertTriangle className="h-5 w-5 text-destructive" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
+            <h1 className="text-base font-semibold tracking-tight text-foreground">
               This link doesn&apos;t work
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">{linkError}</p>
-            <Button asChild className="mt-6 w-full">
+            <Button
+              asChild
+              className="mt-6 w-full bg-naroxe-ink text-naroxe-base hover:bg-naroxe-ink/90"
+            >
               <Link href="/forgot-password">Request a new link</Link>
             </Button>
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              <Link href="/login" className="font-medium text-foreground hover:underline">
-                Back to log in
-              </Link>
-            </p>
+            <div className="mt-7 border-t border-naroxe-silver/60 pt-5">
+              <p className="text-center text-sm text-muted-foreground">
+                <Link href="/login" className="font-medium text-foreground hover:underline">
+                  Back to log in
+                </Link>
+              </p>
+            </div>
           </>
         )}
 
         {status === "ready" && (
           <>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Set a new password</h1>
+            <h1 className="text-base font-semibold tracking-tight text-foreground">Set a new password</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Choose a new password for your account.
             </p>
@@ -249,13 +260,28 @@ export default function ResetPasswordPage() {
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <Button type="submit" disabled={isSubmitting} className="mt-2">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="mt-2 bg-naroxe-ink text-naroxe-base hover:bg-naroxe-ink/90"
+              >
                 {isSubmitting ? "Updating…" : "Update password"}
               </Button>
             </form>
           </>
         )}
+        </div>
       </div>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground hover:underline">
+          Privacy
+        </Link>
+        {" · "}
+        <Link href="/terms" className="hover:text-foreground hover:underline">
+          Terms
+        </Link>
+      </p>
     </div>
   );
 }

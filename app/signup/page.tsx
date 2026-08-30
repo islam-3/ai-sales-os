@@ -4,6 +4,7 @@ import { useState, useEffect, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { Logo } from "@/components/brand/Logo";
 import { createTenantForNewUser, previewSlug } from "./actions";
 import { INDUSTRY_SUGGESTIONS } from "@/lib/tenant-settings";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ function slugifyForDisplay(businessName: string): string {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return base || "clinic";
+  return base || "business";
 }
 
 const SLUG_CHECK_DEBOUNCE_MS = 500;
@@ -107,12 +108,24 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
-        <h1 className="text-xl font-bold tracking-tight text-foreground">Create your account</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Set up your clinic to start using the dashboard.
-        </p>
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-naroxe-base px-4 py-10">
+      <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-sm">
+        {/* Same lockup as /login. No tagline here, deliberately: this card
+            already carries four fields plus the live chat-link preview,
+            and someone on this page has decided to sign up — a pitch line
+            would only push the first field further down on a phone. */}
+        <div className="flex flex-col items-center">
+          <Logo size="lg" className="text-naroxe-ink" />
+        </div>
+
+        <div className="mt-8">
+          <h1 className="text-base font-semibold tracking-tight text-foreground">
+            Create your account
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Set up your business to start using the dashboard.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -123,7 +136,7 @@ export default function SignupPage() {
               id="business-name"
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
-              placeholder="e.g. Demo Dental Clinic"
+              placeholder="Your business name"
               required
             />
             {businessName.trim() && (
@@ -198,18 +211,34 @@ export default function SignupPage() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <Button type="submit" disabled={isSubmitting} className="mt-2">
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="mt-2 bg-naroxe-ink text-naroxe-base hover:bg-naroxe-ink/90"
+          >
             {isSubmitting ? "Creating account…" : "Create account"}
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link href="/login" className="font-medium text-foreground hover:underline">
-            Log in
-          </Link>
-        </p>
+        <div className="mt-7 border-t border-naroxe-silver/60 pt-5">
+          <p className="text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link href="/login" className="font-medium text-foreground hover:underline">
+              Log in
+            </Link>
+          </p>
+        </div>
       </div>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground hover:underline">
+          Privacy
+        </Link>
+        {" · "}
+        <Link href="/terms" className="hover:text-foreground hover:underline">
+          Terms
+        </Link>
+      </p>
     </div>
   );
 }

@@ -47,6 +47,17 @@
     --brand: 221 83% 53%;
     --brand-foreground: 0 0% 100%;
 
+    /* --- Naroxe brand -----------------------------------------------
+       The platform's own identity, kept in its own namespace and
+       deliberately separate from --brand above (the blue used for
+       links, focus and selection app-wide). Reusing that name would
+       silently restyle every page rather than just the branded ones.
+
+       Source values: navy #16243A, silver #C9CDD2, base #F7F7F5. */
+    --naroxe-ink: 217 45% 16%;
+    --naroxe-silver: 213 9% 81%;
+    --naroxe-base: 60 11% 96%;
+
     /* --- Lines & focus -------------------------------------------- */
     --border: 214 18% 90%;
     --input: 214 18% 90%;
@@ -125,6 +136,16 @@
     /* Lighter blue so it stays legible against a dark surface. */
     --brand: 213 94% 68%;
     --brand-foreground: 224 20% 10%;
+
+    /* Naroxe navy is #16243A — against the dark page background it is
+       two very dark colours on top of each other and the monogram
+       essentially disappears. The ink inverts to near-white here, and
+       silver steps down so a hairline doesn't glare on a dark surface.
+       The base becomes the page background, so branded pages share the
+       same surface as the rest of the dark theme. */
+    --naroxe-ink: 210 15% 96%;
+    --naroxe-silver: 220 10% 34%;
+    --naroxe-base: 224 20% 7%;
 
     --border: 220 14% 18%;
     --input: 220 14% 18%;

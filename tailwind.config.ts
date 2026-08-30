@@ -53,6 +53,13 @@ const config: Config = {
           DEFAULT: "hsl(var(--brand) / <alpha-value>)",
           foreground: "hsl(var(--brand-foreground) / <alpha-value>)",
         },
+        // Naroxe platform identity. Separate from `brand` above, which
+        // is the app-wide blue for links and focus.
+        naroxe: {
+          ink: "hsl(var(--naroxe-ink) / <alpha-value>)",
+          silver: "hsl(var(--naroxe-silver) / <alpha-value>)",
+          base: "hsl(var(--naroxe-base) / <alpha-value>)",
+        },
         success: {
           DEFAULT: "hsl(var(--success) / <alpha-value>)",
           foreground: "hsl(var(--success-foreground) / <alpha-value>)",

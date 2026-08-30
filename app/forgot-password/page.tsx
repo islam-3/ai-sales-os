@@ -4,6 +4,7 @@ import { useState, FormEvent } from "react";
 import Link from "next/link";
 import { MailCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,14 +61,19 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-naroxe-base px-4 py-10">
+      <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-sm">
+        <div className="flex flex-col items-center">
+          <Logo size="lg" className="text-naroxe-ink" />
+        </div>
+
+        <div className="mt-8">
         {sent ? (
           <>
             <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-success/10">
               <MailCheck className="h-5 w-5 text-success" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Check your email</h1>
+            <h1 className="text-base font-semibold tracking-tight text-foreground">Check your email</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               If an account exists for <span className="font-medium text-foreground">{email}</span>,
               we&apos;ve sent a link to reset your password. The link expires after a short while.
@@ -89,7 +95,7 @@ export default function ForgotPasswordPage() {
           </>
         ) : (
           <>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">Reset your password</h1>
+            <h1 className="text-base font-semibold tracking-tight text-foreground">Reset your password</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Enter your email and we&apos;ll send you a link to set a new password.
             </p>
@@ -112,20 +118,37 @@ export default function ForgotPasswordPage() {
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              <Button type="submit" disabled={isSubmitting} className="mt-2">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="mt-2 bg-naroxe-ink text-naroxe-base hover:bg-naroxe-ink/90"
+              >
                 {isSubmitting ? "Sending…" : "Send reset link"}
               </Button>
             </form>
 
-            <p className="mt-6 text-center text-sm text-muted-foreground">
-              Remembered it?{" "}
-              <Link href="/login" className="font-medium text-foreground hover:underline">
-                Log in
-              </Link>
-            </p>
+            <div className="mt-7 border-t border-naroxe-silver/60 pt-5">
+              <p className="text-center text-sm text-muted-foreground">
+                Remembered it?{" "}
+                <Link href="/login" className="font-medium text-foreground hover:underline">
+                  Log in
+                </Link>
+              </p>
+            </div>
           </>
         )}
+        </div>
       </div>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground hover:underline">
+          Privacy
+        </Link>
+        {" · "}
+        <Link href="/terms" className="hover:text-foreground hover:underline">
+          Terms
+        </Link>
+      </p>
     </div>
   );
 }

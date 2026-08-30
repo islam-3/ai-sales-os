@@ -5,9 +5,15 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Logo } from "@/components/brand/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+// The front door to the product, so it carries the Naroxe identity rather
+// than presenting a bare form. Restrained on purpose: navy is the only
+// colour with any weight, silver appears exactly once as a hairline, and
+// everything else is surface, type and space.
 
 function LoginForm() {
   const router = useRouter();
@@ -41,9 +47,20 @@ function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
-      <h1 className="text-xl font-bold tracking-tight text-foreground">Log in</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Welcome back — sign in to continue.</p>
+    <div className="w-full max-w-sm rounded-2xl border bg-card p-8 shadow-sm">
+      {/* Identity block. Centred and given real space beneath it — the
+          brand is the first thing read, then the task. */}
+      <div className="flex flex-col items-center text-center">
+        <Logo size="lg" className="text-naroxe-ink" />
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          Turn curious visitors into ready buyers.
+        </p>
+      </div>
+
+      <div className="mt-8">
+        <h1 className="text-base font-semibold tracking-tight text-foreground">Log in</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Welcome back.</p>
+      </div>
 
       {justReset && (
         <p className="mt-4 flex items-start gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success">
@@ -52,7 +69,7 @@ function LoginForm() {
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email" className="text-xs text-muted-foreground">
             Email
@@ -93,30 +110,55 @@ function LoginForm() {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button type="submit" disabled={isSubmitting} className="mt-2">
+        {/* Navy rather than the default ink button: on the one page that
+            carries the brand, the primary action should be the brand
+            colour. In dark mode the token inverts to near-white, which is
+            what the rest of the dark theme's solid buttons already do. */}
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className="mt-2 bg-naroxe-ink text-naroxe-base hover:bg-naroxe-ink/90"
+        >
           {isSubmitting ? "Logging in…" : "Log in"}
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="font-medium text-foreground hover:underline">
-          Sign up
-        </Link>
-      </p>
+      {/* The single use of silver: a hairline that separates the form from
+          the way out of it, without adding another border colour. */}
+      <div className="mt-7 border-t border-naroxe-silver/60 pt-5">
+        <p className="text-center text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="font-medium text-foreground hover:underline">
+            Sign up
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-naroxe-base px-4 py-10">
       {/* useSearchParams() needs a Suspense boundary in the App Router,
           otherwise the whole route opts out of static rendering and
-          `next build` warns about it. */}
-      <Suspense fallback={<div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm" />}>
+          `next build` warns about it. The fallback matches the card's
+          footprint so the page doesn't jump when the form arrives. */}
+      <Suspense
+        fallback={<div className="h-[30rem] w-full max-w-sm rounded-2xl border bg-card shadow-sm" />}
+      >
         <LoginForm />
       </Suspense>
+
+      <p className="mt-6 text-xs text-muted-foreground">
+        <Link href="/privacy" className="hover:text-foreground hover:underline">
+          Privacy
+        </Link>
+        {" · "}
+        <Link href="/terms" className="hover:text-foreground hover:underline">
+          Terms
+        </Link>
+      </p>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Menu, X } from "lucide-react";
 import { LogoutButton } from "./LogoutButton";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NAV_LINKS } from "@/lib/dashboard-nav";
+import { Logo } from "@/components/brand/Logo";
 
 // Mobile navigation drawer, shown below `md` in place of the horizontal
 // top nav.
@@ -96,6 +97,14 @@ export function MobileNav({ clinicName }: { clinicName: string }) {
           <div className="flex flex-col gap-1 border-t p-3">
             <ThemeToggle variant="row" />
             <LogoutButton className="h-9 w-full justify-start px-3" />
+          </div>
+
+          {/* The platform brand, where mobile actually has room for it.
+              Muted and small: this is an attribution beneath the owner's
+              own tools, not a second headline competing with the business
+              name at the top of the drawer. */}
+          <div className="border-t px-4 py-3.5">
+            <Logo size="sm" className="text-muted-foreground" />
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

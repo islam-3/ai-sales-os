@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "./LogoutButton";
 import { MobileNav } from "./MobileNav";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Logo } from "@/components/brand/Logo";
 import { NAV_LINKS } from "@/lib/dashboard-nav";
 
 // Two layouts from one header.
@@ -31,13 +32,37 @@ export function DashboardHeader({ clinicName }: { clinicName: string }) {
             where the panel appears. */}
         <MobileNav clinicName={clinicName} />
 
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
-            {clinicName.charAt(0).toUpperCase()}
+        {/* Platform brand, then the tenant's own. Grouped together with a
+            single gap so the hairline gets equal space on both sides —
+            nesting them under the header's own gap would have left it
+            12px from the mark and 24px from the tenant.
+
+            The monogram only, never the wordmark: on this page Naroxe is
+            chrome and the business is the subject, so the mark sits at
+            20px against the tenant's 32px badge and bold name. Both brand
+            elements are hidden below md — the far-left slot there belongs
+            to the hamburger, and adding a third item at 375px is how the
+            header overflowed in the first place. Mobile gets the full
+            lockup in the drawer footer instead. */}
+        <div className="flex min-w-0 items-center gap-3">
+          <Logo
+            variant="mark"
+            size="lg"
+            className="hidden shrink-0 text-naroxe-ink md:block"
+          />
+          <span
+            aria-hidden
+            className="hidden h-5 w-px shrink-0 bg-naroxe-silver/70 md:block"
+          />
+
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
+              {clinicName.charAt(0).toUpperCase()}
+            </div>
+            <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+              {clinicName}
+            </span>
           </div>
-          <span className="truncate text-sm font-semibold tracking-tight text-foreground">
-            {clinicName}
-          </span>
         </div>
 
         {/* Desktop navigation — unchanged from the original layout. */}
