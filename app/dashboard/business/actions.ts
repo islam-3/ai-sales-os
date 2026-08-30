@@ -112,7 +112,11 @@ async function removeLogoObject(url: string | null | undefined): Promise<void> {
   }
 }
 
-export type BrandingResult = { logoUrl: string | null; brandColor: string | null };
+export type BrandingResult = {
+  logoUrl: string | null;
+  brandColor: string | null;
+  chatTheme: "light" | "dark";
+};
 
 // Saves the logo and/or brand colour. Both are optional and independent:
 // an owner can set a colour with no logo, a logo with no colour, or clear
@@ -182,9 +186,30 @@ export async function updateBusinessBranding(formData: FormData): Promise<Brandi
     logoUrl = data.publicUrl;
   }
 
+  const rawTheme = String(formData.get("chatTheme") ?? "light");
+  const chatTheme: "light" | "dark" = rawTheme === "dark" ? "dark" : "light";
+
+  // Read-modify-write on the jsonb column so the other settings cards
+  // (location, contact, hours, onboarding) aren't clobbered by this save.
+  const { data: currentSettings, error: settingsReadError } = await supabase
+    .from("tenants")
+    .select("settings")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (settingsReadError || !currentSettings) {
+    console.error("Failed to read current settings:", settingsReadError);
+    throw new Error("Failed to save your brand settings");
+  }
+
+  const mergedSettings = parseTenantSettings({
+    ...parseTenantSettings(currentSettings.settings),
+    chat_theme: chatTheme,
+  });
+
   const { error } = await supabase
     .from("tenants")
-    .update({ logo_url: logoUrl, brand_color: brandColor })
+    .update({ logo_url: logoUrl, brand_color: brandColor, settings: mergedSettings })
     .eq("id", tenantId);
 
   if (error) {
@@ -196,5 +221,5 @@ export async function updateBusinessBranding(formData: FormData): Promise<Brandi
   // The public chat page renders both of these.
   revalidatePath("/chat", "layout");
 
-  return { logoUrl, brandColor };
+  return { logoUrl, brandColor, chatTheme };
 }

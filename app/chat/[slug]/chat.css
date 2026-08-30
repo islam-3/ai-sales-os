@@ -1,0 +1,879 @@
+/* ============================================================
+   PUBLIC VISITOR CHAT — implementation of the design handoff.
+
+   Everything is scoped under .nx-chat so none of it can reach the
+   dashboard, which keeps its own token system in globals.css.
+
+   Themes are selected per tenant with data-theme on the chat root
+   (the handoff notes element-level scoping is supported), NOT by
+   the visitor's OS preference — the business chooses how its own
+   customer-facing page looks.
+
+   One cohesive surface, no banding: the header and composer are the
+   SAME background colour as the thread at 78-90% alpha with a
+   backdrop-filter, never a different hex.
+
+   Tenant-specific values (--nx-brand and friends) are injected
+   inline on the root by buildChatPalette() in lib/branding.ts.
+   ============================================================ */
+
+.nx-chat {
+  /* spacing scale */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 10px;
+  --sp-5: 12px;
+  --sp-6: 14px;
+  --sp-7: 16px;
+  --sp-8: 24px;
+
+  /* radii */
+  --r-bubble: 20px;
+  --r-tail: 7px;
+  --r-avatar-hdr: 13px;
+  --r-avatar-msg: 9px;
+  --r-avatar-hero: 18px;
+  --r-input: 22px;
+  --r-pill: 999px;
+
+  /* type */
+  --fs-msg: 15px;
+  --lh-msg: 1.5;
+  --ls-msg: -0.006em;
+  --fs-title: 15px;
+  --ls-title: -0.015em;
+  --fs-status: 12px;
+  --fs-meta: 11px;
+  --fs-chip: 13px;
+  --fs-greet: 23px;
+  --lh-greet: 1.24;
+  --ls-greet: -0.032em;
+  --fs-greet-sub: 14px;
+
+  /* geometry */
+  --nx-col: 100%;             /* content column; widened at md and up */
+  --bubble-max: 264px;
+  --gap-msg: 16px;
+  --gap-stack: 8px;
+  --pad-bubble: 12px 15px;
+  --meta-indent-bot: 36px;
+  --meta-indent-user: 6px;
+}
+
+/* ---------- tokens: LIGHT ---------- */
+.nx-chat[data-theme="light"] {
+  --surface: #f7f8f8;
+  --surface-alpha: rgba(247, 248, 248, 0.85);
+  --bubble-bot: #ffffff;
+  --bubble-bot-brd: none;
+  --input-bg: #ffffff;
+  --input-brd: rgba(20, 26, 25, 0.08);
+  --text: #141a19;
+  --text-2: #6c7573;
+  --text-3: #a2a8a6;
+  --hairline: rgba(20, 26, 25, 0.06);
+  --hairline-strong: rgba(20, 26, 25, 0.07);
+  --hover-veil: rgba(20, 26, 25, 0.06);
+  --online: #3f9d7a;
+
+  --chip-bg: #ffffff;
+  --chip-brd: rgba(20, 26, 25, 0.1);
+  --chip-shadow: 0 2px 8px rgba(20, 26, 25, 0.05);
+  --chip-shadow-hv: 0 8px 18px rgba(20, 26, 25, 0.09);
+
+  --sh-bot: 0 8px 22px rgba(20, 26, 25, 0.08), 0 1px 2px rgba(20, 26, 25, 0.05);
+  --sh-image: 0 10px 28px rgba(20, 26, 25, 0.12), 0 1px 2px rgba(20, 26, 25, 0.06);
+  --sh-hero: 0 8px 22px rgba(20, 26, 25, 0.07);
+  --sh-input: 0 2px 12px rgba(20, 26, 25, 0.06);
+  --sh-dialog: 0 24px 60px rgba(20, 26, 25, 0.22);
+  --scrim: rgba(20, 26, 25, 0.5);
+}
+
+/* ---------- tokens: DARK ----------
+   Depth on near-black comes from hairline borders and elevation, NOT
+   from shadow opacity — a shadow reads as nothing against #0D1112. */
+.nx-chat[data-theme="dark"] {
+  --surface: #0d1112;
+  --surface-alpha: rgba(13, 17, 18, 0.78);
+  --bubble-bot: #171c1d;
+  --bubble-bot-brd: 1px solid rgba(255, 255, 255, 0.07);
+  --input-bg: rgba(255, 255, 255, 0.055);
+  --input-brd: rgba(255, 255, 255, 0.09);
+  --text: #ecefee;
+  --text-2: #8b9694;
+  --text-3: #6e7877;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.08);
+  --hover-veil: rgba(255, 255, 255, 0.07);
+  --online: #4dbe96;
+
+  --chip-bg: rgba(255, 255, 255, 0.045);
+  --chip-brd: rgba(255, 255, 255, 0.09);
+  --chip-shadow: none;
+  --chip-shadow-hv: none;
+
+  --sh-bot: 0 10px 26px rgba(0, 0, 0, 0.45);
+  --sh-image: 0 14px 34px rgba(0, 0, 0, 0.55);
+  --sh-hero: 0 10px 26px rgba(0, 0, 0, 0.5);
+  --sh-input: none;
+  --sh-dialog: 0 24px 60px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- shell ---------- */
+.nx-chat {
+  /* dvh, not vh: iOS Safari's collapsing URL bar makes vh taller than
+     the visible viewport, which pushes the composer off-screen. */
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--nx-font-sans, ui-sans-serif, system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+.nx-chat *,
+.nx-chat *::before,
+.nx-chat *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- header ---------- */
+.nx-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex: none;
+  padding: calc(env(safe-area-inset-top, 0px) + var(--sp-5)) var(--sp-7) var(--sp-5);
+  background: var(--surface-alpha);
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  border-bottom: 1px solid var(--hairline);
+}
+/* The bar itself stays edge to edge so its blurred surface and hairline
+   read as chrome across the whole window; only what sits in it is
+   constrained to the column. Centring the bar instead would leave bare
+   surface either side of a floating panel. */
+.nx-header__inner {
+  width: 100%;
+  max-width: var(--nx-col);
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+}
+.nx-avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-avatar-hdr);
+  background: var(--nx-brand);
+  color: var(--nx-on-brand);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  box-shadow: var(--nx-sh-avatar);
+  overflow: hidden;
+}
+.nx-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nx-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-name {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-status);
+  color: var(--text-2);
+  min-width: 0;
+}
+.nx-status span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx-dot-online {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--online);
+  animation: nx-pulse 2.6s ease-in-out infinite;
+}
+
+/* ---------- thread ---------- */
+.nx-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2) var(--sp-7) 18px;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+/* The scroll container spans the window — a scrollbar hugging a centred
+   column looks detached — while the messages inside it are centred. */
+.nx-thread__inner {
+  width: 100%;
+  max-width: var(--nx-col);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-msg);
+}
+.nx-thread::-webkit-scrollbar {
+  width: 0;
+}
+
+/* greeting — carries the screen when the thread is otherwise empty */
+.nx-greeting {
+  padding: var(--sp-8) var(--sp-1) var(--sp-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  animation: nx-fade 520ms ease both;
+}
+.nx-greeting__mark {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-avatar-hero);
+  background: var(--bubble-bot);
+  border: var(--bubble-bot-brd);
+  box-shadow: var(--sh-hero);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--nx-brand-mark);
+}
+.nx-greeting__mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nx-greeting__title {
+  margin: 0;
+  font-size: var(--fs-greet);
+  font-weight: 500;
+  letter-spacing: var(--ls-greet);
+  line-height: var(--lh-greet);
+  text-wrap: pretty;
+}
+.nx-greeting__sub {
+  margin: 0;
+  font-size: var(--fs-greet-sub);
+  line-height: 1.55;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+/* starter chips */
+.nx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-1) var(--sp-2);
+}
+.nx-chip {
+  font-family: inherit;
+  font-size: var(--fs-chip);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--nx-chip-fg);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-brd);
+  border-radius: var(--r-pill);
+  padding: 9px var(--sp-6);
+  cursor: pointer;
+  box-shadow: var(--chip-shadow);
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease,
+    border-color 160ms ease;
+}
+.nx-chip:hover {
+  background: var(--nx-chip-bg-hv);
+  box-shadow: var(--chip-shadow-hv);
+  transform: translateY(-1px);
+}
+.nx-chip:active {
+  transform: translateY(0);
+}
+.nx-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+/* ---------- messages ---------- */
+.nx-msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  animation: nx-msg-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.nx-msg__row {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-end;
+}
+.nx-msg--bot .nx-msg__row {
+  justify-content: flex-start;
+}
+.nx-msg--user .nx-msg__row {
+  justify-content: flex-end;
+}
+.nx-msg__avatar {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 2px;
+  border-radius: var(--r-avatar-msg);
+  background: var(--bubble-bot);
+  border: 1px solid var(--hairline-strong);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--nx-brand-mark);
+}
+.nx-msg__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nx-msg__stack {
+  max-width: var(--bubble-max);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+  min-width: 0;
+}
+
+.nx-bubble {
+  padding: var(--pad-bubble);
+  font-size: var(--fs-msg);
+  line-height: var(--lh-msg);
+  letter-spacing: var(--ls-msg);
+  text-wrap: pretty;
+  border-radius: var(--r-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nx-msg--bot .nx-bubble {
+  background: var(--bubble-bot);
+  color: var(--text);
+  border: var(--bubble-bot-brd);
+  box-shadow: var(--sh-bot);
+  border-bottom-left-radius: var(--r-tail);
+}
+.nx-msg--user .nx-bubble {
+  background: var(--nx-brand);
+  color: var(--nx-on-brand);
+  box-shadow: var(--nx-sh-user);
+  border-bottom-right-radius: var(--r-tail);
+}
+
+/* tappable image bubble */
+.nx-bubble--image {
+  padding: 0;
+  overflow: hidden;
+  line-height: 0;
+  cursor: pointer;
+  border: 0;
+  background: var(--bubble-bot);
+  box-shadow: var(--sh-image);
+  border-radius: var(--r-bubble);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  display: block;
+  width: 100%;
+}
+.nx-msg--bot .nx-bubble--image {
+  border-bottom-left-radius: var(--r-tail);
+}
+.nx-msg--user .nx-bubble--image {
+  border-bottom-right-radius: var(--r-tail);
+}
+.nx-bubble--image:hover {
+  transform: scale(1.015);
+}
+.nx-bubble--image img,
+.nx-bubble--image video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.nx-msg__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+.nx-msg--bot .nx-msg__meta {
+  justify-content: flex-start;
+  padding-left: var(--meta-indent-bot);
+}
+.nx-msg--user .nx-msg__meta {
+  justify-content: flex-end;
+  padding-right: var(--meta-indent-user);
+}
+
+/* ---------- typing indicator ---------- */
+.nx-typing {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-end;
+  animation: nx-msg-in 300ms ease both;
+}
+.nx-typing__bubble {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: var(--sp-6) var(--sp-7);
+  background: var(--bubble-bot);
+  border: var(--bubble-bot-brd);
+  border-radius: var(--r-bubble);
+  border-bottom-left-radius: var(--r-tail);
+  box-shadow: var(--sh-bot);
+}
+.nx-typing__bubble i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--nx-brand-mark);
+  animation: nx-dot 1.3s ease-in-out infinite;
+}
+.nx-typing__bubble i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.nx-typing__bubble i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* ---------- composer ---------- */
+.nx-composer {
+  position: sticky;
+  bottom: 0;
+  flex: none;
+  padding: var(--sp-4) var(--sp-6) calc(env(safe-area-inset-bottom, 0px) + var(--sp-4));
+  background: var(--surface-alpha);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid var(--hairline);
+}
+.nx-composer__inner {
+  width: 100%;
+  max-width: var(--nx-col);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.nx-composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+.nx-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--input-bg);
+  border: 1px solid var(--input-brd);
+  border-radius: var(--r-input);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  box-shadow: var(--sh-input);
+  transition: border-color 160ms ease;
+}
+.nx-field:focus-within {
+  border-color: var(--nx-brand-focus);
+}
+.nx-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: inherit;
+  /* 16px minimum, or iOS Safari zooms the page in on focus. */
+  font-size: var(--fs-msg);
+  color: var(--text);
+  padding: var(--sp-2) 2px;
+}
+.nx-input::placeholder {
+  color: var(--text-3);
+}
+.nx-input:disabled {
+  opacity: 0.6;
+}
+.nx-attach {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: background 160ms ease, color 160ms ease;
+}
+.nx-attach:hover:not(:disabled) {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+.nx-attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.nx-send {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  padding: 0;
+  border-radius: var(--r-pill);
+  background: var(--nx-brand);
+  color: var(--nx-on-brand);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--nx-sh-send);
+  transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
+}
+.nx-send:hover:not(:disabled) {
+  background: var(--nx-brand-hover);
+  transform: translateY(-1px);
+}
+.nx-send:active:not(:disabled) {
+  transform: translateY(0);
+}
+.nx-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+  box-shadow: none;
+}
+
+/* staged attachment, shown above the composer row */
+.nx-filechip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 5px var(--sp-4) 5px 5px;
+  background: var(--bubble-bot);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-pill);
+  box-shadow: var(--sh-input);
+}
+.nx-filechip img {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-pill);
+  object-fit: cover;
+  display: block;
+  flex: none;
+}
+.nx-filechip__name {
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.nx-filechip button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+.nx-filechip button:hover {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+
+.nx-legal {
+  margin: 0;
+  text-align: center;
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.nx-legal a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nx-legal a:hover {
+  color: var(--text);
+}
+
+/* ---------- dialog + lightbox ----------
+   Themed with the same tokens: a hardcoded white modal over a dark
+   chat would flash as a bright rectangle mid-conversation. */
+.nx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--sp-7);
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: nx-fade 200ms ease both;
+}
+@media (min-width: 640px) {
+  .nx-scrim {
+    align-items: center;
+  }
+}
+.nx-dialog {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bubble-bot);
+  border: var(--bubble-bot-brd);
+  border-radius: var(--r-bubble);
+  box-shadow: var(--sh-dialog);
+  padding: var(--sp-8);
+  animation: nx-msg-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.nx-dialog h2 {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+  color: var(--text);
+}
+.nx-dialog p {
+  margin: var(--sp-5) 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.nx-dialog a {
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nx-dialog__actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--sp-3);
+  margin-top: var(--sp-8);
+}
+@media (min-width: 640px) {
+  .nx-dialog__actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+.nx-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--r-pill);
+  padding: 11px var(--sp-7);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+.nx-btn--ghost {
+  background: transparent;
+  border-color: var(--input-brd);
+  color: var(--text-2);
+}
+.nx-btn--ghost:hover {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+.nx-btn--brand {
+  background: var(--nx-brand);
+  color: var(--nx-on-brand);
+}
+.nx-btn--brand:hover {
+  background: var(--nx-brand-hover);
+}
+
+.nx-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-7);
+  background: rgba(0, 0, 0, 0.9);
+  animation: nx-fade 200ms ease both;
+  cursor: zoom-out;
+}
+.nx-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--sp-5);
+  display: block;
+}
+.nx-lightbox__close {
+  position: absolute;
+  top: max(var(--sp-7), env(safe-area-inset-top, 0px));
+  right: var(--sp-7);
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.nx-lightbox__close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ---------- invalid link ---------- */
+.nx-empty {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8);
+  text-align: center;
+  background: var(--surface);
+  color: var(--text);
+}
+.nx-empty p:first-child {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+}
+.nx-empty p:last-child {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* ---------- wider viewports ----------
+   Everything above is the phone layout, untouched. From md up the
+   content settles into a centred column instead of stretching the full
+   window, and the bubble cap grows with it — 264px was tuned against a
+   372px viewport, and left in place it would strand narrow bubbles at
+   the edges of a wide column with dead space down the middle.
+
+   The surface stays edge to edge either side. No panel, no second
+   background: the one-cohesive-surface rule holds at every width. */
+@media (min-width: 768px) {
+  .nx-chat {
+    --nx-col: 680px;
+    --bubble-max: 460px;
+  }
+  .nx-thread {
+    padding-bottom: var(--sp-8);
+  }
+}
+
+/* ---------- motion ---------- */
+@keyframes nx-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes nx-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nx-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@keyframes nx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-msg,
+  .nx-typing,
+  .nx-greeting,
+  .nx-dialog,
+  .nx-scrim,
+  .nx-lightbox {
+    animation: none;
+  }
+  .nx-dot-online,
+  .nx-typing__bubble i {
+    animation: none;
+    opacity: 1;
+  }
+  .nx-chip:hover,
+  .nx-send:hover,
+  .nx-bubble--image:hover {
+    transform: none;
+  }
+}

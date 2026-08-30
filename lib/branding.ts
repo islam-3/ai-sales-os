@@ -101,3 +101,116 @@ export function monogram(businessName: string): string {
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Chat palette
+//
+// The public chat renders in a per-tenant light or dark theme, and its
+// accent is whatever colour the owner picked. That combination is why
+// these need real colour maths rather than fixed values: a navy chosen
+// for a white page is nearly invisible on a near-black one, and a pale
+// yellow needs dark text on top in both.
+// ─────────────────────────────────────────────────────────────────────
+
+export type ChatTheme = "light" | "dark";
+
+function rgbToHsl(hex: string): [number, number, number] {
+  const [r, g, b] = channels(hex).map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const delta = max - min;
+
+  if (delta === 0) return [0, 0, l * 100];
+
+  const s = delta / (1 - Math.abs(2 * l - 1));
+  let h: number;
+  if (max === r) h = 60 * (((g - b) / delta) % 6);
+  else if (max === g) h = 60 * ((b - r) / delta + 2);
+  else h = 60 * ((r - g) / delta + 4);
+  if (h < 0) h += 360;
+
+  return [h, s * 100, l * 100];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const sN = Math.min(100, Math.max(0, s)) / 100;
+  const lN = Math.min(100, Math.max(0, l)) / 100;
+  const c = (1 - Math.abs(2 * lN - 1)) * sN;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = lN - c / 2;
+
+  let rgb: [number, number, number];
+  if (h < 60) rgb = [c, x, 0];
+  else if (h < 120) rgb = [x, c, 0];
+  else if (h < 180) rgb = [0, c, x];
+  else if (h < 240) rgb = [0, x, c];
+  else if (h < 300) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+
+  const toHex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, "0")
+      .toUpperCase();
+  return `#${toHex(rgb[0])}${toHex(rgb[1])}${toHex(rgb[2])}`;
+}
+
+/** Same hue and saturation, lightness moved by `delta` percentage points. */
+export function adjustLightness(hex: string, delta: number): string {
+  const [h, s, l] = rgbToHsl(resolveBrandColor(hex));
+  return hslToHex(h, s, l + delta);
+}
+
+/** Same hue, lightness pinned to an absolute value. */
+export function withLightness(hex: string, lightness: number): string {
+  const [h, s] = rgbToHsl(resolveBrandColor(hex));
+  return hslToHex(h, s, lightness);
+}
+
+export type ChatPalette = Record<string, string>;
+
+/**
+ * The tenant-specific half of the chat's token set, returned as CSS custom
+ * properties to be set inline on the chat root. Everything else lives in
+ * chat.css.
+ *
+ * On dark the accent is stepped up in lightness, as the design handoff
+ * calls for — an accent tuned against white sinks into a #0D1112 surface
+ * otherwise. `--nx-brand-mark` goes further still, because it colours the
+ * typing dots and the monogram glyph, which sit ON the dark bubble rather
+ * than on the accent.
+ */
+export function buildChatPalette(brandColor: string | null, theme: ChatTheme): ChatPalette {
+  const base = resolveBrandColor(brandColor);
+
+  if (theme === "dark") {
+    const brand = adjustLightness(base, 8);
+    const mark = withLightness(base, 62);
+    return {
+      "--nx-brand": brand,
+      "--nx-brand-hover": adjustLightness(base, 13),
+      "--nx-brand-mark": mark,
+      "--nx-on-brand": foregroundFor(brand),
+      "--nx-brand-focus": brandTint(brand, 0.5),
+      "--nx-chip-fg": withLightness(base, 76),
+      "--nx-chip-bg-hv": brandTint(mark, 0.12),
+      "--nx-sh-user": `0 12px 30px ${brandTint(brand, 0.35)}`,
+      "--nx-sh-send": `0 10px 24px ${brandTint(brand, 0.5)}`,
+      "--nx-sh-avatar": `0 6px 18px ${brandTint(brand, 0.45)}`,
+    };
+  }
+
+  return {
+    "--nx-brand": base,
+    "--nx-brand-hover": adjustLightness(base, 6),
+    "--nx-brand-mark": base,
+    "--nx-on-brand": foregroundFor(base),
+    "--nx-brand-focus": brandTint(base, 0.45),
+    "--nx-chip-fg": base,
+    "--nx-chip-bg-hv": brandTint(base, 0.05),
+    "--nx-sh-user": `0 10px 26px ${brandTint(base, 0.26)}, 0 1px 2px ${brandTint(base, 0.14)}`,
+    "--nx-sh-send": `0 8px 18px ${brandTint(base, 0.32)}`,
+    "--nx-sh-avatar": `0 4px 12px ${brandTint(base, 0.26)}`,
+  };
+}

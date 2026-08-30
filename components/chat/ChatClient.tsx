@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent, ChangeEvent } from "react";
-import { ImagePlus, Send, X } from "lucide-react";
-import { foregroundFor, brandTint, monogram } from "@/lib/branding";
+import { useState, useRef, useEffect, FormEvent, ChangeEvent, CSSProperties } from "react";
+import type { ChatPalette, ChatTheme } from "@/lib/branding";
 
 type MessageMedia = { url: string; type: string | null };
 
@@ -12,33 +11,47 @@ type Message = {
   media?: MessageMedia | null;
   /** Local object URL for a photo the visitor just sent, shown in-bubble. */
   localImage?: string | null;
+  /** When it appeared in this session. Real, unlike a read receipt. */
+  at: Date;
 };
 
 // The public, customer-facing chat.
 //
-// Styled entirely on its own, deliberately outside the dashboard's design
-// token system: this is the product's face to an end customer, and it
-// takes its accent from the tenant's brand colour rather than from the
-// admin theme. Light-only on purpose — an arbitrary tenant colour
-// composited over a dark background is unpredictable, and this page's job
-// is to look controlled.
+// Styled entirely by chat.css, scoped under .nx-chat and deliberately
+// outside the dashboard's design token system: this is the product's face
+// to an end customer, and it takes its accent and its light/dark choice
+// from the tenant rather than from the admin theme or the visitor's OS.
+//
+// Naroxe does not appear anywhere on this page. Every avatar is the
+// business — its logo when it has one, its initials when it doesn't.
 //
 // Mobile-first throughout: most visitors arrive from a phone ad link.
 export function ChatClient({
   slug,
   businessName,
   logoUrl,
-  brandColor,
+  monogram,
+  theme,
+  palette,
+  fontClassName,
   subline,
   greeting,
+  greetingTitle,
+  greetingSub,
   starterChips,
 }: {
   slug: string;
   businessName: string;
   logoUrl: string | null;
-  brandColor: string;
+  monogram: string;
+  theme: ChatTheme;
+  palette: ChatPalette;
+  fontClassName: string;
   subline: string | null;
+  /** The full opening line, posted back with the first message. */
   greeting: string;
+  greetingTitle: string;
+  greetingSub: string;
   starterChips: string[];
 }) {
   // One session_id per page load — generated fresh on mount, not persisted
@@ -55,17 +68,16 @@ export function ChatClient({
   const [photoConsentGiven, setPhotoConsentGiven] = useState(false);
   const [showPhotoConsent, setShowPhotoConsent] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const onBrand = foregroundFor(brandColor);
   // Chips are shown only before the visitor has said anything — once the
   // conversation is underway they'd compete with the real reply.
   const showChips = messages.length === 0 && !isLoading && starterChips.length > 0;
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
   // Focuses the text input again every time it re-enables after a send.
@@ -133,7 +145,7 @@ export function ChatClient({
 
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: trimmed, localImage },
+      { role: "user", content: trimmed, localImage, at: new Date() },
     ]);
     setInput("");
     clearSelectedFile();
@@ -169,7 +181,8 @@ export function ChatClient({
           // the assistant's opening turn alongside this first message, so
           // the transcript is coherent and the model doesn't greet twice.
           // Sent only on the first message — afterwards it's already in
-          // the stored history.
+          // the stored history. Must remain the FULL greeting string, not
+          // the title/sub split used for display.
           openingMessage: messages.length === 0 ? greeting : undefined,
         }),
       });
@@ -179,7 +192,7 @@ export function ChatClient({
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, media: data.media ?? null },
+        { role: "assistant", content: data.reply, media: data.media ?? null, at: new Date() },
       ]);
     } catch (err) {
       console.error("Chat request failed:", err);
@@ -188,6 +201,7 @@ export function ChatClient({
         {
           role: "assistant",
           content: "Sorry, something went wrong. Please try again.",
+          at: new Date(),
         },
       ]);
     } finally {
@@ -203,245 +217,236 @@ export function ChatClient({
   const canSend = !isLoading && (input.trim().length > 0 || selectedFile !== null);
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-white">
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white">
-        <div className="mx-auto flex w-full max-w-2xl items-center gap-3 px-4 py-3">
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold"
-            style={logoUrl ? undefined : { backgroundColor: brandColor, color: onBrand }}
-          >
-            {logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={logoUrl}
-                alt={`${businessName} logo`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              monogram(businessName)
-            )}
-          </div>
+    <div
+      className={`nx-chat ${fontClassName}`}
+      data-theme={theme}
+      // The tenant's accent and its derived shadows. Everything else is
+      // in chat.css; only what varies per business is inlined.
+      style={palette as CSSProperties}
+    >
+      {/* ── Header ────────────────────────────────────────────────── */}
+      <header className="nx-header">
+        <div className="nx-header__inner">
+          <BusinessAvatar
+          className="nx-avatar"
+          logoUrl={logoUrl}
+          monogram={monogram}
+          businessName={businessName}
+        />
 
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[15px] font-semibold leading-tight text-neutral-900">
-              {businessName}
-            </h1>
-            {subline && (
-              <p className="truncate text-xs leading-tight text-neutral-500">{subline}</p>
-            )}
+          <div className="nx-id">
+            <div className="nx-name">{businessName}</div>
+            <div className="nx-status">
+              <span className="nx-dot-online" aria-hidden />
+              <span>{subline ? `Online · ${subline}` : "Online · replies instantly"}</span>
+            </div>
           </div>
-
-          {/* A quiet online cue: this is a live conversation, not a form. */}
-          <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-neutral-500">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            Online
-          </span>
         </div>
       </header>
 
-      {/* ── Messages ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 py-5">
-          {/* The proactive opening. Rendered as a real assistant bubble so
-              the visitor arrives to a conversation already in progress
-              rather than an empty box asking them to start. */}
-          <Bubble role="assistant" brandColor={brandColor} onBrand={onBrand}>
-            {greeting}
-          </Bubble>
+      {/* ── Thread ────────────────────────────────────────────────── */}
+      <div className="nx-thread">
+        <div className="nx-thread__inner">
+        {/* The proactive opening. Rendered as a greeting block rather than
+            a bubble so the page looks composed when it is otherwise empty
+            — which is how most visitors will first see it. */}
+        <section className="nx-greeting">
+          <BusinessAvatar
+            className="nx-greeting__mark"
+            logoUrl={logoUrl}
+            monogram={monogram}
+            businessName={businessName}
+          />
+          <h1 className="nx-greeting__title">{greetingTitle}</h1>
+          {greetingSub && <p className="nx-greeting__sub">{greetingSub}</p>}
+        </section>
 
-          {messages.map((msg, i) => (
-            <Bubble key={i} role={msg.role} brandColor={brandColor} onBrand={onBrand}>
-              {msg.content && <span className="whitespace-pre-wrap">{msg.content}</span>}
+        {showChips && (
+          <div className="nx-chips">
+            {starterChips.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                className="nx-chip"
+                onClick={() => void send(chip, null)}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
 
-              {msg.localImage && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={msg.localImage}
-                  alt="Photo you shared"
-                  onClick={() => setLightboxUrl(msg.localImage!)}
-                  className={`max-h-56 w-full cursor-zoom-in rounded-xl object-cover ${
-                    msg.content ? "mt-2" : ""
-                  }`}
-                />
-              )}
+        {messages.map((msg, i) => {
+          const isUser = msg.role === "user";
+          return (
+            <article key={i} className={`nx-msg ${isUser ? "nx-msg--user" : "nx-msg--bot"}`}>
+              <div className="nx-msg__row">
+                {!isUser && (
+                  <BusinessAvatar
+                    className="nx-msg__avatar"
+                    logoUrl={logoUrl}
+                    monogram={monogram}
+                    businessName={businessName}
+                  />
+                )}
 
-              {msg.media?.type === "image" && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={msg.media.url}
-                  alt={`Shared by ${businessName}`}
-                  onClick={() => setLightboxUrl(msg.media!.url)}
-                  className="mt-2 max-h-64 w-full cursor-zoom-in rounded-xl object-cover"
-                />
-              )}
+                <div className="nx-msg__stack">
+                  {msg.localImage && (
+                    <button
+                      type="button"
+                      className="nx-bubble nx-bubble--image"
+                      onClick={() => setLightboxUrl(msg.localImage!)}
+                      aria-label="Open image"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={msg.localImage} alt="Photo you shared" />
+                    </button>
+                  )}
 
-              {msg.media?.type === "video" && (
-                <video
-                  src={msg.media.url}
-                  controls
-                  playsInline
-                  className="mt-2 max-h-64 w-full rounded-xl bg-black"
-                />
-              )}
-            </Bubble>
-          ))}
+                  {msg.media?.type === "image" && (
+                    <button
+                      type="button"
+                      className="nx-bubble nx-bubble--image"
+                      onClick={() => setLightboxUrl(msg.media!.url)}
+                      aria-label="Open image"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={msg.media.url} alt={`Shared by ${businessName}`} />
+                    </button>
+                  )}
 
-          {isLoading && <TypingIndicator />}
+                  {msg.media?.type === "video" && (
+                    <div className="nx-bubble nx-bubble--image">
+                      <video src={msg.media.url} controls playsInline />
+                    </div>
+                  )}
 
-          <div ref={messagesEndRef} />
+                  {msg.content && <div className="nx-bubble">{msg.content}</div>}
+                </div>
+              </div>
+
+              <div className="nx-msg__meta">
+                <time dateTime={msg.at.toISOString()}>{formatTime(msg.at)}</time>
+              </div>
+            </article>
+          );
+        })}
+
+        {isLoading && (
+          <div className="nx-typing" role="status" aria-label={`${businessName} is typing`}>
+            <BusinessAvatar
+              className="nx-msg__avatar"
+              logoUrl={logoUrl}
+              monogram={monogram}
+              businessName={businessName}
+            />
+            <div className="nx-typing__bubble">
+              <i />
+              <i />
+              <i />
+            </div>
+          </div>
+        )}
+
+        <div ref={threadEndRef} />
         </div>
       </div>
 
-      {/* ── Composer ────────────────────────────────────────────────── */}
-      <div
-        className="sticky bottom-0 z-20 border-t border-neutral-200/80 bg-white"
-        // Keeps the input clear of the iPhone home indicator. Without
-        // this the send button sits underneath it and is hard to tap.
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <div className="mx-auto w-full max-w-2xl px-4 pb-3 pt-3">
-          {/* Starter chips, above the input so a tap is within thumb
-              reach on a phone. */}
-          {showChips && (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {starterChips.map((chip) => (
-                <button
-                  key={chip}
-                  type="button"
-                  onClick={() => void send(chip, null)}
-                  className="rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-opacity hover:opacity-80"
-                  style={{
-                    borderColor: brandTint(brandColor, 0.25),
-                    backgroundColor: brandTint(brandColor, 0.06),
-                    color: brandColor,
-                  }}
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
-          )}
+      {/* ── Composer ──────────────────────────────────────────────── */}
+      <form className="nx-composer" onSubmit={handleSubmit}>
+        <div className="nx-composer__inner">
+        {selectedPreview && (
+          <div className="nx-filechip">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={selectedPreview} alt="" />
+            <span className="nx-filechip__name">{selectedFile?.name}</span>
+            <button type="button" onClick={clearSelectedFile} aria-label="Remove attached photo">
+              <CloseIcon />
+            </button>
+          </div>
+        )}
 
-          {selectedPreview && (
-            <div className="mb-2 flex w-fit items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-100 p-1.5 pr-2.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={selectedPreview}
-                alt="Selected"
-                className="h-10 w-10 rounded-lg object-cover"
-              />
-              <span className="max-w-[140px] truncate text-xs text-neutral-600">
-                {selectedFile?.name}
-              </span>
-              <button
-                type="button"
-                onClick={clearSelectedFile}
-                className="rounded-full p-1 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700"
-                aria-label="Remove attached photo"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="flex items-end gap-2">
+        <div className="nx-composer__row">
+          <div className="nx-field">
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               onChange={handleFileChange}
               disabled={isLoading}
-              className="hidden"
+              hidden
             />
-
             <button
               type="button"
+              className="nx-attach"
               onClick={handleAttachClick}
               disabled={isLoading}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40"
               aria-label="Attach a photo"
             >
-              <ImagePlus className="h-5 w-5" />
+              <CameraIcon />
             </button>
 
             <input
               ref={inputRef}
+              className="nx-input"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message…"
+              placeholder={`Message ${businessName}…`}
+              aria-label="Message"
               disabled={isLoading}
-              // 16px minimum: anything smaller makes iOS Safari zoom the
-              // whole page in when the field is focused.
-              className="h-11 min-w-0 flex-1 rounded-full border border-neutral-200 bg-neutral-100 px-4 text-[16px] text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-neutral-300 focus:bg-white disabled:opacity-60"
             />
+          </div>
 
-            <button
-              type="submit"
-              disabled={!canSend}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-opacity disabled:opacity-30"
-              style={{ backgroundColor: brandColor, color: onBrand }}
-              aria-label="Send message"
-            >
-              <Send className="h-[18px] w-[18px]" />
-            </button>
-          </form>
-
-          <p className="mt-2.5 text-center text-[11px] leading-relaxed text-neutral-400">
-            Your messages are shared with {businessName} to handle your enquiry.{" "}
-            <a href="/privacy" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-600">
-              Privacy
-            </a>
-            {" · "}
-            <a href="/terms" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-neutral-600">
-              Terms
-            </a>
-          </p>
+          <button type="submit" className="nx-send" disabled={!canSend} aria-label="Send">
+            <SendIcon />
+          </button>
         </div>
-      </div>
 
-      {/* ── Photo consent ───────────────────────────────────────────── */}
+        <p className="nx-legal">
+          Your messages are shared with {businessName} ·{" "}
+          <a href="/privacy" target="_blank" rel="noreferrer">
+            Privacy
+          </a>{" "}
+          ·{" "}
+          <a href="/terms" target="_blank" rel="noreferrer">
+            Terms
+          </a>
+        </p>
+        </div>
+      </form>
+
+      {/* ── Photo consent ─────────────────────────────────────────── */}
       {showPhotoConsent && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-neutral-900/50 p-4 backdrop-blur-[2px] sm:items-center"
+          className="nx-scrim"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="photo-consent-title"
+          aria-labelledby="nx-consent-title"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-            <h2 id="photo-consent-title" className="text-base font-semibold text-neutral-900">
-              Before you share a photo
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-neutral-600">
+          <div className="nx-dialog">
+            <h2 id="nx-consent-title">Before you share a photo</h2>
+            <p>
               Your photo will be stored and shared with {businessName} so their team can assess
               your enquiry. Depending on what it shows, a photo may reveal health-related
               information about you.
             </p>
-            <p className="mt-3 text-sm leading-relaxed text-neutral-600">
+            <p>
               You can continue the conversation without sharing one. See our{" "}
-              <a href="/privacy" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              <a href="/privacy" target="_blank" rel="noreferrer">
                 Privacy Policy
               </a>{" "}
               for how photos are stored and how to request deletion.
             </p>
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="nx-dialog__actions">
               <button
                 type="button"
+                className="nx-btn nx-btn--ghost"
                 onClick={() => setShowPhotoConsent(false)}
-                className="rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={acceptPhotoConsent}
-                className="rounded-full px-4 py-2.5 text-sm font-medium"
-                style={{ backgroundColor: brandColor, color: onBrand }}
-              >
+              <button type="button" className="nx-btn nx-btn--brand" onClick={acceptPhotoConsent}>
                 I understand — choose photo
               </button>
             </div>
@@ -449,28 +454,24 @@ export function ChatClient({
         </div>
       )}
 
-      {/* ── Image lightbox ──────────────────────────────────────────── */}
+      {/* ── Lightbox ──────────────────────────────────────────────── */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/90 p-4"
+          className="nx-lightbox"
           role="dialog"
           aria-modal="true"
+          aria-label="Full size image"
           onClick={() => setLightboxUrl(null)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightboxUrl}
-            alt="Full size"
-            className="max-h-full max-w-full rounded-lg object-contain"
-          />
+          <img src={lightboxUrl} alt="Full size" />
           <button
             type="button"
+            className="nx-lightbox__close"
             onClick={() => setLightboxUrl(null)}
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
             aria-label="Close image"
-            style={{ top: "max(1rem, env(safe-area-inset-top))" }}
           >
-            <X className="h-5 w-5" />
+            <CloseIcon />
           </button>
         </div>
       )}
@@ -478,51 +479,73 @@ export function ChatClient({
   );
 }
 
-// Asymmetric corner radius is what makes the two sides read differently
-// at a glance on a small screen — the flattened corner points at whoever
-// is speaking.
-function Bubble({
-  role,
-  brandColor,
-  onBrand,
-  children,
+// The business's own identity, at whatever size the caller's class sets.
+// Falls back to initials so a tenant without a logo still gets a composed
+// tile rather than an empty box.
+function BusinessAvatar({
+  className,
+  logoUrl,
+  monogram,
+  businessName,
 }: {
-  role: "user" | "assistant";
-  brandColor: string;
-  onBrand: string;
-  children: React.ReactNode;
+  className: string;
+  logoUrl: string | null;
+  monogram: string;
+  businessName: string;
 }) {
-  const isUser = role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed shadow-sm sm:max-w-[75%] ${
-          isUser
-            ? "rounded-br-md"
-            : "rounded-bl-md border border-neutral-200/70 bg-neutral-100 text-neutral-800"
-        }`}
-        style={isUser ? { backgroundColor: brandColor, color: onBrand } : undefined}
-      >
-        {children}
-      </div>
+    <div className={className} aria-hidden={!logoUrl || undefined}>
+      {logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={logoUrl} alt={`${businessName} logo`} />
+      ) : (
+        monogram
+      )}
     </div>
   );
 }
 
-// Three dots with staggered delays, in an assistant-shaped bubble so the
-// reply appears to land exactly where the indicator was.
-function TypingIndicator() {
+// Locale-aware, hour and minute only — the meridiem is dropped because a
+// timestamp beside a bubble should be glanceable, not precise.
+function formatTime(date: Date): string {
+  return date
+    .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    .replace(/\s?[AP]M/i, "");
+}
+
+function CameraIcon() {
   return (
-    <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-neutral-200/70 bg-neutral-100 px-4 py-3.5 shadow-sm">
-        {[0, 150, 300].map((delay) => (
-          <span
-            key={delay}
-            className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-400"
-            style={{ animationDelay: `${delay}ms`, animationDuration: "1s" }}
-          />
-        ))}
-      </div>
-    </div>
+    <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+      <rect x="2.2" y="4.6" width="15.6" height="11.4" rx="2.8" />
+      <circle cx="10" cy="10.3" r="3" />
+      <path d="M7.4 4.6l1-1.6h3.2l1 1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path
+        d="M10 16.5V4M4.6 9.4L10 4l5.4 5.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M3.5 3.5l9 9M12.5 3.5l-9 9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

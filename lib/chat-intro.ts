@@ -22,7 +22,17 @@ export type ChatIntroInput = {
 };
 
 export type ChatIntro = {
+  /**
+   * The full opening line, unchanged. This exact string is posted back to
+   * /api/chat as `openingMessage` and stored as the assistant's first
+   * turn, so it must stay the concatenation of `title` and `sub` — the
+   * split below is presentation only.
+   */
   greeting: string;
+  /** First sentence, set as the greeting headline. */
+  title: string;
+  /** The remainder, set beneath it in a quieter style. Empty if there is none. */
+  sub: string;
   chips: string[];
 };
 
@@ -73,7 +83,7 @@ function shortIntro(description: string, businessName: string): string | null {
  * than all at once: name + place + intro, then name + place, then just a
  * warm line with the name.
  */
-function buildGreeting(input: ChatIntroInput): string {
+function buildGreeting(input: ChatIntroInput): { title: string; sub: string } {
   const { businessName, description, settings } = input;
 
   // City is the useful unit here — a street address is noise in a
@@ -86,8 +96,11 @@ function buildGreeting(input: ChatIntroInput): string {
 
   const intro = description ? shortIntro(description, businessName) : null;
 
-  if (intro) return `${opener} ${intro} How can we help you today?`;
-  return `${opener} How can we help you today?`;
+  // The opener leads; everything else is support copy. Splitting here
+  // rather than in the component keeps the greeting's assembly in one
+  // place, so `greeting` below can stay byte-identical to what it was.
+  const sub = intro ? `${intro} How can we help you today?` : "How can we help you today?";
+  return { title: opener, sub };
 }
 
 // Free-text categories in practice look like "before_after", "doctors",
@@ -158,8 +171,12 @@ function buildChips(categories: string[]): string[] {
 }
 
 export function buildChatIntro(input: ChatIntroInput): ChatIntro {
+  const { title, sub } = buildGreeting(input);
   return {
-    greeting: buildGreeting(input),
+    // Exactly what the previous single-string version produced.
+    greeting: sub ? `${title} ${sub}` : title,
+    title,
+    sub,
     chips: buildChips(input.categories),
   };
 }

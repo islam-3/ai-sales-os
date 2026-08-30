@@ -58,6 +58,7 @@ export default async function BusinessPage() {
           businessName={tenant.business_name ?? ""}
           initialLogoUrl={tenant.logo_url ?? null}
           initialBrandColor={tenant.brand_color ?? null}
+          initialChatTheme={settings.chat_theme ?? "light"}
         />
         <LocationContactForm initial={settings} />
         <OperationsForm initial={settings} />

@@ -25,6 +25,14 @@ export type TenantSettings = {
   /** Currency prices are quoted in, e.g. "USD", "EUR", "TRY". */
   currency?: string;
   /**
+   * Light or dark for the PUBLIC chat page. Stored here rather than as a
+   * column because it is presentation, not business data, and needs no
+   * migration to add. Absent means light — a customer-facing page should
+   * default to the safer, more familiar surface, and the owner opts into
+   * dark deliberately.
+   */
+  chat_theme?: "light" | "dark";
+  /**
    * Getting-started checklist state. Only the parts that can't be
    * derived from real data live here — whether the owner has completed
    * their business info or added a knowledge entry is read from those
@@ -99,6 +107,12 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
 
   const currency = asString(root.currency);
   if (currency) parsed.currency = currency;
+
+  // Anything other than the two known values is dropped, so a hand-edited
+  // row can't put the public page into an undefined theme.
+  if (root.chat_theme === "dark" || root.chat_theme === "light") {
+    parsed.chat_theme = root.chat_theme;
+  }
 
   const onboarding = asObject(root.onboarding);
   const chatLinkCopied = onboarding.chat_link_copied === true;

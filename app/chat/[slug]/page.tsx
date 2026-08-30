@@ -1,8 +1,21 @@
+import { Instrument_Sans } from "next/font/google";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { supabaseServer } from "@/lib/supabase-server";
 import { ChatClient } from "@/components/chat/ChatClient";
 import { buildChatIntro } from "@/lib/chat-intro";
-import { resolveBrandColor } from "@/lib/branding";
+import { buildChatPalette, monogram, type ChatTheme } from "@/lib/branding";
+import "./chat.css";
+
+// Loaded here rather than in the root layout so it applies to this route
+// only — the dashboard keeps Geist. Weights limited to the three the
+// design actually uses, since this page is reached from phone ads and
+// every extra file is on the critical path.
+const instrumentSans = Instrument_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--nx-font-sans",
+  display: "swap",
+});
 
 // Always resolve the slug fresh — a tenant can be created (or renamed)
 // after this route is first built, and a stale "not found" would be a
@@ -51,11 +64,11 @@ export default async function ChatPage({ params }: { params: { slug: string } })
 
   if (!tenant) {
     return (
-      <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-white px-6 text-center">
-        <p className="text-base font-semibold text-neutral-900">This chat link isn&apos;t valid</p>
-        <p className="mt-1.5 text-sm text-neutral-500">
-          Please double-check the link you were given.
-        </p>
+      <div className={`nx-chat ${instrumentSans.variable}`} data-theme="light">
+        <div className="nx-empty">
+          <p>This chat link isn&apos;t valid</p>
+          <p>Please double-check the link you were given.</p>
+        </div>
       </div>
     );
   }
@@ -73,10 +86,16 @@ export default async function ChatPage({ params }: { params: { slug: string } })
     categories,
   });
 
+  // The business chooses how its own customer-facing page looks, so this
+  // comes from the tenant's setting and NOT from the visitor's OS
+  // preference. Absent means light.
+  const theme: ChatTheme = tenant.settings.chat_theme === "dark" ? "dark" : "light";
+  const palette = buildChatPalette(tenant.brandColor, theme);
+
   // Location first, industry as the fallback — a city tells a visitor
   // something the business name doesn't, and is more reassuring than a
-  // category label. Null when neither exists, and the header omits the
-  // line entirely rather than showing a gap.
+  // category label. Null when neither exists, and the header shows only
+  // the online status rather than an empty line.
   const place = [tenant.settings.location?.city, tenant.settings.location?.country]
     .filter(Boolean)
     .join(", ");
@@ -87,9 +106,14 @@ export default async function ChatPage({ params }: { params: { slug: string } })
       slug={params.slug}
       businessName={tenant.businessName}
       logoUrl={tenant.logoUrl}
-      brandColor={resolveBrandColor(tenant.brandColor)}
+      monogram={monogram(tenant.businessName)}
+      theme={theme}
+      palette={palette}
+      fontClassName={instrumentSans.variable}
       subline={subline}
       greeting={intro.greeting}
+      greetingTitle={intro.title}
+      greetingSub={intro.sub}
       starterChips={intro.chips}
     />
   );

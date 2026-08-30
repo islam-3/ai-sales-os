@@ -11,7 +11,7 @@ import { updateBusinessBranding } from "@/app/dashboard/business/actions";
 import { LogoCropDialog } from "@/components/dashboard/business/LogoCropDialog";
 import {
   DEFAULT_BRAND_COLOR,
-  foregroundFor,
+  buildChatPalette,
   isValidBrandColor,
   monogram,
   resolveBrandColor,
@@ -27,10 +27,12 @@ export function BrandingForm({
   businessName,
   initialLogoUrl,
   initialBrandColor,
+  initialChatTheme,
 }: {
   businessName: string;
   initialLogoUrl: string | null;
   initialBrandColor: string | null;
+  initialChatTheme: "light" | "dark";
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,17 +50,32 @@ export function BrandingForm({
     type: string;
   } | null>(null);
   const [brandColor, setBrandColor] = useState(initialBrandColor ?? "");
+  const [chatTheme, setChatTheme] = useState<"light" | "dark">(initialChatTheme);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isDirty =
-    file !== null || removeLogo || (brandColor || null) !== (initialBrandColor ?? null);
+    file !== null ||
+    removeLogo ||
+    (brandColor || null) !== (initialBrandColor ?? null) ||
+    chatTheme !== initialChatTheme;
 
   // What the chat page will actually use, including the fallback — so the
   // preview is honest when the field is empty.
   const effectiveColor = resolveBrandColor(brandColor || null);
-  const effectiveForeground = foregroundFor(effectiveColor);
+  // Exactly what the chat page will render, including the dark-theme
+  // lightness step — a preview computed differently would misrepresent it.
+  const palette = buildChatPalette(brandColor || null, chatTheme);
+  const previewBrand = palette["--nx-brand"];
+  const effectiveForeground = palette["--nx-on-brand"];
+  const isDarkPreview = chatTheme === "dark";
+  const previewSurface = isDarkPreview ? "#0D1112" : "#F7F8F8";
+  const previewBubble = isDarkPreview ? "#171C1D" : "#FFFFFF";
+  const previewText = isDarkPreview ? "#ECEFEE" : "#141A19";
+  const previewHairline = isDarkPreview
+    ? "rgba(255,255,255,0.07)"
+    : "rgba(20,26,25,0.06)";
   const previewLogo = removeLogo ? null : filePreview ?? logoUrl;
 
   const colorIsUsable = brandColor === "" || isValidBrandColor(brandColor);
@@ -135,6 +152,7 @@ export function BrandingForm({
       if (file) formData.append("logo", file);
       if (removeLogo) formData.append("removeLogo", "true");
       formData.append("brandColor", brandColor);
+      formData.append("chatTheme", chatTheme);
 
       const result = await updateBusinessBranding(formData);
 
@@ -281,17 +299,46 @@ export function BrandingForm({
           )}
         </div>
 
+        {/* ── Chat theme ───────────────────────────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs text-muted-foreground">Chat page theme</Label>
+          <div className="flex gap-2">
+            {(["light", "dark"] as const).map((option) => (
+              <Button
+                key={option}
+                type="button"
+                variant={chatTheme === option ? "default" : "outline"}
+                size="sm"
+                className="flex-1 capitalize"
+                onClick={() => {
+                  setChatTheme(option);
+                  setSaved(false);
+                }}
+              >
+                {option}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            How your public chat page looks to customers. This is your choice, not theirs —
+            it does not follow the visitor&apos;s device setting.
+          </p>
+        </div>
+
         {/* ── Live preview ─────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs text-muted-foreground">Preview</Label>
-          <div className="overflow-hidden rounded-xl border">
-            <div className="flex items-center gap-2.5 border-b bg-white px-3 py-2.5">
+          <div className="overflow-hidden rounded-xl border" style={{ background: previewSurface }}>
+            <div
+              className="flex items-center gap-2.5 px-3 py-2.5"
+              style={{ borderBottom: `1px solid ${previewHairline}` }}
+            >
               <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-semibold"
+                className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[10px] text-[11px] font-semibold"
                 style={
                   previewLogo
                     ? undefined
-                    : { backgroundColor: effectiveColor, color: effectiveForeground }
+                    : { backgroundColor: previewBrand, color: effectiveForeground }
                 }
               >
                 {previewLogo ? (
@@ -301,17 +348,28 @@ export function BrandingForm({
                   monogram(businessName || "Your business")
                 )}
               </div>
-              <span className="truncate text-sm font-semibold text-neutral-900">
+              <span
+                className="truncate text-sm font-semibold"
+                style={{ color: previewText }}
+              >
                 {businessName || "Your business"}
               </span>
             </div>
-            <div className="flex flex-col gap-2 bg-white p-3">
-              <div className="max-w-[75%] self-start rounded-2xl rounded-bl-md border border-neutral-200/70 bg-neutral-100 px-3 py-2 text-xs text-neutral-800 shadow-sm">
+            <div className="flex flex-col gap-2 p-3">
+              <div
+                className="max-w-[75%] self-start rounded-[14px] rounded-bl-[5px] px-3 py-2 text-xs"
+                style={{
+                  background: previewBubble,
+                  color: previewText,
+                  border: isDarkPreview ? `1px solid ${previewHairline}` : "none",
+                  boxShadow: isDarkPreview ? "none" : "0 4px 12px rgba(20,26,25,0.07)",
+                }}
+              >
                 Hi! How can we help you today?
               </div>
               <div
-                className="max-w-[75%] self-end rounded-2xl rounded-br-md px-3 py-2 text-xs shadow-sm"
-                style={{ backgroundColor: effectiveColor, color: effectiveForeground }}
+                className="max-w-[75%] self-end rounded-[14px] rounded-br-[5px] px-3 py-2 text-xs"
+                style={{ backgroundColor: previewBrand, color: effectiveForeground }}
               >
                 I&apos;d like to know more about your prices.
               </div>
