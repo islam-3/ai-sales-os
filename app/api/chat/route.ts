@@ -8,6 +8,7 @@ import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
+import { formatEntryForPrompt } from "@/lib/knowledge-base";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -86,6 +87,7 @@ type EntryMedia = { url: string; type: string | null };
 
 type KnowledgeMatch = {
   id: string;
+  title: string | null;
   content: string;
   category: string | null;
   media: EntryMedia[];
@@ -172,7 +174,7 @@ async function getRelevantContext(
 
     return {
       text: `Relevant information about the business:\n${relevant
-        .map((m) => withMediaNote(m.content, m.media ?? []))
+        .map((m) => withMediaNote(formatEntryForPrompt({ title: m.title ?? "", content: m.content }), m.media ?? []))
         .join("\n\n")}`,
       media: relevant.flatMap((m) => m.media ?? []),
     };
@@ -183,6 +185,7 @@ async function getRelevantContext(
 }
 
 type KnowledgeEntry = {
+  title: string;
   category: string;
   content: string;
   media: EntryMedia[];
@@ -195,7 +198,7 @@ type KnowledgeEntry = {
 async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("category, content, knowledge_base_media(media_url, media_type)")
+    .select("title, category, content, knowledge_base_media(media_url, media_type)")
     .eq("tenant_id", tenantId)
     .not("category", "is", null)
     .order("category");
@@ -211,6 +214,7 @@ async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> 
         typeof row.category === "string" && row.category.length > 0
     )
     .map((row) => ({
+      title: row.title ?? "",
       category: row.category,
       content: row.content,
       media: (row.knowledge_base_media ?? []).map((m) => ({
@@ -229,7 +233,7 @@ function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const existing = byCategory.get(entry.category) ?? [];
-    existing.push(withMediaNote(entry.content, entry.media));
+    existing.push(withMediaNote(formatEntryForPrompt(entry), entry.media));
     byCategory.set(entry.category, existing);
   }
 

@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   if (!context) {
     return (
       <DashboardMessage>
-        We couldn&apos;t find a clinic for your account. Please log in again.
+        We couldn&apos;t find a business for your account. Please log in again.
       </DashboardMessage>
     );
   }
@@ -25,7 +25,7 @@ export default async function SettingsPage() {
   const { data: rows, error } = await supabase
     .from("knowledge_base")
     .select(
-      "id, category, content, embedding, created_at, knowledge_base_media(id, media_url, media_type, created_at)"
+      "id, title, category, content, embedding, created_at, knowledge_base_media(id, media_url, media_type, created_at)"
     )
     .eq("tenant_id", tenantId)
     .order("category", { ascending: true })
@@ -33,6 +33,7 @@ export default async function SettingsPage() {
 
   const entries: KnowledgeEntry[] = (rows ?? []).map((row) => ({
     id: row.id,
+    title: row.title ?? "",
     category: row.category,
     content: row.content,
     hasEmbedding: row.embedding !== null,
@@ -56,7 +57,7 @@ export default async function SettingsPage() {
           <span className="font-normal text-muted-foreground">({entries.length})</span>
         </>
       }
-      description="Facts about the clinic your chat assistant can draw on when talking to leads."
+      description="Facts about your business your chat assistant can draw on when talking to leads."
     >
       {error ? (
         <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-card-p text-sm text-destructive">

@@ -5,6 +5,7 @@ import { AlertTriangle, Paperclip, Video, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TITLE_MAX_LENGTH } from "@/lib/knowledge-base";
 import { Button } from "@/components/ui/button";
 import { createKnowledgeEntry } from "@/app/dashboard/settings/actions";
 
@@ -15,6 +16,7 @@ export function AddEntryForm({
   categories: string[];
   onDone: () => void;
 }) {
+  const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -52,6 +54,7 @@ export function AddEntryForm({
     setWarning(null);
 
     const formData = new FormData();
+    formData.append("title", title);
     formData.append("content", content);
     formData.append("category", category);
     files.forEach((file) => formData.append("files", file));
@@ -79,6 +82,25 @@ export function AddEntryForm({
       className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm"
     >
       <div className="flex flex-col gap-1.5">
+        <Label htmlFor="new-title" className="text-xs text-muted-foreground">
+          Title
+        </Label>
+        <Input
+          id="new-title"
+          name="title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="e.g. Warranty & guarantees"
+          maxLength={TITLE_MAX_LENGTH}
+          required
+        />
+        <p className="text-xs text-muted-foreground">
+          A short label for this fact. Your assistant sees it too, so name it the way a
+          customer would ask about it.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
         <Label htmlFor="new-content" className="text-xs text-muted-foreground">
           Content
         </Label>
@@ -86,7 +108,7 @@ export function AddEntryForm({
           id="new-content"
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="e.g. Our clinic has been operating for over 12 years and has treated over 5,000 patients from more than 30 countries."
+          placeholder="e.g. We have been operating for over 12 years and have served more than 5,000 customers from over 30 countries."
           rows={3}
           required
         />
@@ -101,7 +123,7 @@ export function AddEntryForm({
           list="knowledge-categories"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          placeholder="e.g. clinic_overview"
+          placeholder="e.g. About us"
           required
         />
         <datalist id="knowledge-categories">

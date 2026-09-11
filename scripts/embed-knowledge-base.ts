@@ -1,7 +1,14 @@
-// One-time script: generates OpenAI embeddings for any knowledge_base rows
-// that don't have one yet, and writes them back to the embedding column.
+// Generates OpenAI embeddings for knowledge_base rows and writes them
+// back to the embedding column.
 //
-// Run with: npm run embed-knowledge-base
+//   npm run embed-knowledge-base          # only rows with no embedding
+//   npm run embed-knowledge-base -- --all # re-embed every row
+//
+// --all exists because the embedded text changed: it now includes the
+// entry's title (see embeddingTextFor). Rows embedded before the title
+// column existed still have usable vectors, but they describe the body
+// alone, so they compete unevenly against newly-embedded rows. Re-running
+// with --all puts every row on the same footing.
 
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -12,14 +19,15 @@ config({ path: ".env.local" });
 // imports rather than static ones (static imports are hoisted and would
 // run first).
 
+const reembedAll = process.argv.includes("--all");
+
 async function main() {
   const { generateEmbedding } = await import("../lib/embeddings");
+  const { embeddingTextFor } = await import("../lib/knowledge-base");
   const { supabaseServer } = await import("../lib/supabase-server");
 
-  const { data: rows, error } = await supabaseServer
-    .from("knowledge_base")
-    .select("id, content")
-    .is("embedding", null);
+  const query = supabaseServer.from("knowledge_base").select("id, title, content");
+  const { data: rows, error } = reembedAll ? await query : await query.is("embedding", null);
 
   if (error) {
     console.error("Failed to fetch knowledge_base rows:", error);
@@ -38,7 +46,9 @@ async function main() {
 
   for (const row of rows) {
     try {
-      const embedding = await generateEmbedding(row.content);
+      const embedding = await generateEmbedding(
+        embeddingTextFor({ title: row.title ?? "", content: row.content })
+      );
 
       const { error: updateError } = await supabaseServer
         .from("knowledge_base")

@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { type SessionClient } from "@/lib/supabase-session";
 import { generateEmbedding } from "@/lib/embeddings";
+import { TITLE_MAX_LENGTH, embeddingTextFor } from "@/lib/knowledge-base";
 import type { MediaType } from "@/lib/knowledge-base";
 
 export type SaveResult = {
@@ -127,7 +128,21 @@ function storagePathFromPublicUrl(url: string): string | null {
   return decodeURIComponent(url.slice(idx + marker.length));
 }
 
+// Required for new entries: an optional title would sit blank on most
+// rows, which puts the list straight back to guessing a heading from the
+// content and denies the model the label it benefits from. Length is
+// capped because a title is a one-line label, not a sentence.
+function readTitle(formData: FormData): string {
+  const title = String(formData.get("title") ?? "").trim();
+  if (!title) throw new Error("Title is required");
+  if (title.length > TITLE_MAX_LENGTH) {
+    throw new Error(`Title must be ${TITLE_MAX_LENGTH} characters or fewer`);
+  }
+  return title;
+}
+
 export async function createKnowledgeEntry(formData: FormData): Promise<SaveResult> {
+  const title = readTitle(formData);
   const content = String(formData.get("content") ?? "").trim();
   const category = String(formData.get("category") ?? "").trim();
 
@@ -143,7 +158,7 @@ export async function createKnowledgeEntry(formData: FormData): Promise<SaveResu
   let embedding: number[] | null = null;
   let embeddingFailed = false;
   try {
-    embedding = await generateEmbedding(content, tenantId);
+    embedding = await generateEmbedding(embeddingTextFor({ title, content }), tenantId);
   } catch (err) {
     console.error("Failed to generate embedding for new knowledge_base entry:", err);
     embeddingFailed = true;
@@ -151,7 +166,7 @@ export async function createKnowledgeEntry(formData: FormData): Promise<SaveResu
 
   const { data: inserted, error } = await supabase
     .from("knowledge_base")
-    .insert({ tenant_id: tenantId, content, category, embedding })
+    .insert({ tenant_id: tenantId, title, content, category, embedding })
     .select("id")
     .single();
 
@@ -167,6 +182,7 @@ export async function createKnowledgeEntry(formData: FormData): Promise<SaveResu
 }
 
 export async function updateKnowledgeEntry(id: string, formData: FormData): Promise<SaveResult> {
+  const title = readTitle(formData);
   const content = String(formData.get("content") ?? "").trim();
   const category = String(formData.get("category") ?? "").trim();
 
@@ -179,11 +195,13 @@ export async function updateKnowledgeEntry(id: string, formData: FormData): Prom
 
   const uploaded = await uploadAllKnowledgeMedia(formData, category, tenantId);
 
-  const updates: Record<string, unknown> = { content, category };
+  const updates: Record<string, unknown> = { title, content, category };
 
   let embeddingFailed = false;
   try {
-    updates.embedding = await generateEmbedding(content, tenantId);
+    // Embedded text includes the title, so a title-only edit still has to
+    // re-embed or the vector would describe the previous label.
+    updates.embedding = await generateEmbedding(embeddingTextFor({ title, content }), tenantId);
   } catch (err) {
     console.error("Failed to generate embedding for updated knowledge_base entry:", err);
     embeddingFailed = true;
