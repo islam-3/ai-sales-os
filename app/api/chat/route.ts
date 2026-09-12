@@ -9,7 +9,11 @@ import { buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
-import { buildConversationStateBlock } from "@/lib/conversation-state";
+import {
+  buildConversationStateBlock,
+  pickMediaForAcceptance,
+  promisesImageWithoutSending,
+} from "@/lib/conversation-state";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -105,7 +109,11 @@ function withMediaNote(content: string, media: EntryMedia[]) {
   return `${content} ${notes}`;
 }
 
-const MEDIA_TAG_PATTERN = /\[\[MEDIA:(\S+?)\]\]/g;
+// Matches any [[MEDIA:...]] tag, INCLUDING an empty or malformed one.
+// The narrower \S+? version silently failed on "[[MEDIA:]]" — which the
+// model does emit when it wants to show something it has no URL for — and
+// the raw tag was printed to the visitor as text.
+const MEDIA_TAG_PATTERN = /\[\[MEDIA:([^\]]*)\]\]/g;
 
 // Strips every [[MEDIA:url]] tag from the reply and returns the cleaned
 // text plus the first tag whose URL was actually offered to the model this
@@ -117,10 +125,13 @@ function extractMedia(
 ): { cleaned: string; media: { url: string; type: string | null } | null } {
   let media: { url: string; type: string | null } | null = null;
   const cleaned = reply
-    .replace(MEDIA_TAG_PATTERN, (_match, url) => {
-      if (!media && knownMedia.has(url)) {
-        media = { url, type: knownMedia.get(url) ?? null };
+    .replace(MEDIA_TAG_PATTERN, (_match, url: string) => {
+      const trimmed = (url ?? "").trim();
+      if (!media && trimmed && knownMedia.has(trimmed)) {
+        media = { url: trimmed, type: knownMedia.get(trimmed) ?? null };
       }
+      // Always removed, even when the URL is empty or unrecognised: a
+      // visitor must never see the tag itself.
       return "";
     })
     .trim();
@@ -501,7 +512,7 @@ export async function POST(req: NextRequest) {
     await Promise.all([
       supabaseServer
         .from("conversations")
-        .select("role, content")
+        .select("role, content, media_url")
         .eq("tenant_id", tenantId)
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true }),
@@ -595,9 +606,28 @@ export async function POST(req: NextRequest) {
   // Handing it the entire catalogue made every conversation look like a
   // multi-visit trip abroad; handing it nothing missed cases the
   // assistant had not happened to describe.
+  // What this visitor has already been shown. The tag is stripped before
+  // a reply is stored, so without the media_url column there was no
+  // record of it and the same photo went out on consecutive turns.
+  // Computed before the model call so the state block can say when the
+  // available images are spent.
+  const alreadySent = new Set(
+    (history ?? [])
+      .map((row) => (row as { media_url?: string | null }).media_url)
+      .filter((url): url is string => !!url)
+  );
+
   const stateBlock = buildConversationStateBlock(
     [...(history ?? []), { role: "user", content: userContent }],
-    knowledgeEntries
+    // The URLs go through, not just a boolean. Given only "this topic has
+    // photos" the model emitted "[[MEDIA:]]" with nothing in it, which the
+    // visitor saw as raw text — it needs the exact URL to send.
+    knowledgeEntries.map((e) => ({
+      title: e.title,
+      content: e.content,
+      mediaUrls: e.media.map((m) => m.url),
+    })),
+    alreadySent
   );
   if (stateBlock) {
     systemBlocks.push({ type: "text", text: `\n\n${stateBlock}` });
@@ -647,7 +677,42 @@ export async function POST(req: NextRequest) {
   for (const m of relevantContext?.media ?? []) {
     knownMedia.set(m.url, m.type);
   }
-  const { cleaned: reply, media } = extractMedia(rawReply, knownMedia);
+  const { cleaned: reply, media: taggedMedia } = extractMedia(rawReply, knownMedia);
+
+  // The model reliably OFFERS to show a photo and unreliably attaches
+  // one. Three attempts to fix that with instructions all failed in live
+  // testing — it would describe a case that has no image, offer it, then
+  // reply "here you go, take a look!" with nothing attached. Someone who
+  // says yes and receives an empty promise is worse off than someone who
+  // was never offered anything.
+  //
+  // So when the reply PROMISES a picture and no usable tag came back, the
+  // attachment is chosen here instead. Keyed on the promise rather than
+  // on the visitor having said yes: acceptance stays true on later turns,
+  // and that re-sent the same image attached to a reply about something
+  // else. Null when nothing relevant has media, so a conversation about
+  // something the business has no pictures of still sends nothing.
+  // A repeat is dropped rather than sent. If the reply also promises a
+  // picture, the fallback below will pick a different, unsent one.
+  let media =
+    taggedMedia && alreadySent.has(taggedMedia.url) ? null : taggedMedia;
+
+  if (!media && promisesImageWithoutSending(reply)) {
+    const fallbackUrl = pickMediaForAcceptance(
+      [...(history ?? []), { role: "user", content: userContent }],
+      knowledgeEntries.map((e) => ({
+        title: e.title,
+        content: e.content,
+        mediaUrls: e.media.map((m) => m.url),
+      })),
+      alreadySent
+    );
+    if (fallbackUrl) {
+      const type = knownMedia.get(fallbackUrl) ?? null;
+      media = { url: fallbackUrl, type };
+      console.log("Attached media server-side after offer acceptance:", fallbackUrl);
+    }
+  }
 
   // Written in order: the greeting (first turn only) precedes the
   // visitor's message so the stored transcript reads the way the
@@ -657,7 +722,13 @@ export async function POST(req: NextRequest) {
       ? [{ tenant_id: tenantId, session_id: sessionId, role: "assistant", content: greeting }]
       : []),
     { tenant_id: tenantId, session_id: sessionId, role: "user", content: userContent },
-    { tenant_id: tenantId, session_id: sessionId, role: "assistant", content: reply },
+    {
+      tenant_id: tenantId,
+      session_id: sessionId,
+      role: "assistant",
+      content: reply,
+      media_url: media?.url ?? null,
+    },
   ];
 
   const { error } = await supabaseServer.from("conversations").insert(rowsToInsert);
