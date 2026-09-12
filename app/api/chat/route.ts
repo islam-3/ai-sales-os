@@ -9,6 +9,7 @@ import { buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
+import { buildConversationStateBlock } from "@/lib/conversation-state";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -579,6 +580,27 @@ export async function POST(req: NextRequest) {
 
   if (relevantContext) {
     systemBlocks.push({ type: "text", text: `\n\n${relevantContext.text}` });
+  }
+
+  // What has already been offered, and whether the visitor sounds
+  // frustrated — recomputed every turn from the transcript, including the
+  // message that just arrived.
+  //
+  // Deliberately appended AFTER the cache_control block above, never
+  // inside it. This text changes on every turn, so folding it into the
+  // cached prefix would invalidate the cache on every single message and
+  // undo the saving that caching exists for.
+  // The entries are passed whole rather than concatenated: the state
+  // builder selects only the ones matching what the visitor asked for.
+  // Handing it the entire catalogue made every conversation look like a
+  // multi-visit trip abroad; handing it nothing missed cases the
+  // assistant had not happened to describe.
+  const stateBlock = buildConversationStateBlock(
+    [...(history ?? []), { role: "user", content: userContent }],
+    knowledgeEntries
+  );
+  if (stateBlock) {
+    systemBlocks.push({ type: "text", text: `\n\n${stateBlock}` });
   }
 
   const response = await anthropic.messages.create({
