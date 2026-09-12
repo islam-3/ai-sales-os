@@ -44,7 +44,10 @@ export default async function DashboardPage() {
         "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
       )
       .eq("tenant_id", tenantId)
-      .order("qualification_score", { ascending: false, nullsFirst: false })
+      // Newest first. This used to sort by qualification_score, which
+      // buried a lead that arrived minutes ago beneath older, better-
+      // scored ones — the opposite of what an inbox is for. The score is
+      // still on every card, and the KPI row above summarises quality.
       .order("created_at", { ascending: false }),
     supabase
       .from("tenants")
