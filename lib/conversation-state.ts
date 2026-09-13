@@ -817,7 +817,120 @@ const IMAGE_PROMISE_CUES = [
  * turn, attached to a reply about something else entirely.
  */
 export function promisesImageWithoutSending(reply: string): boolean {
-  return IMAGE_PROMISE_CUES.some((cue) => cue.test(reply));
+  // Checked sentence by sentence, because the same words mean opposite
+  // things depending on the sentence they sit in. "Take a look at this"
+  // presents something; "want to take a look?" merely offers it, and
+  // treating the offer as a delivery attached an image to a reply that
+  // was still asking permission — and the wrong image at that.
+  return sentencesOf(reply).some((sentence) => {
+    if (!IMAGE_PROMISE_CUES.some((cue) => cue.test(sentence))) return false;
+
+    const isQuestion = sentence.trim().endsWith("?");
+    const isOffer = OFFER_CUES.some((cue) => cue.test(sentence));
+    return !isQuestion && !isOffer;
+  });
+}
+
+export type PlannedMedia = { url: string; title: string };
+
+/**
+ * True when a reply merely OFFERS to show something rather than
+ * presenting it.
+ *
+ * An offer that arrives with the picture already attached spends it
+ * before the visitor has answered: they say "yes" a turn later, the image
+ * is now marked as sent, and the dedupe hands them a different one whose
+ * subject does not match what they agreed to see.
+ */
+export function isOfferWithoutDelivery(reply: string): boolean {
+  return (
+    OFFER_CUES.some((cue) => cue.test(reply)) && !promisesImageWithoutSending(reply)
+  );
+}
+
+/**
+ * The SENTENCE in which the assistant made its offer — not the whole
+ * message.
+ *
+ * The distinction decides which image gets chosen. A reply that describes
+ * Straumann crowns at length and then adds "I can show you a
+ * before-and-after" overlaps far more with the crowns entry than with the
+ * before-and-after one, so matching on the whole message picked the
+ * crowns photo for a visitor who had just agreed to see a patient result.
+ * Only the offer itself says what was promised.
+ */
+function lastOfferText(history: ChatTurn[]): string | null {
+  const lastUserIndex = history.map((h) => h.role).lastIndexOf("user");
+  if (lastUserIndex < 1) return null;
+
+  const prior = history
+    .slice(0, lastUserIndex)
+    .reverse()
+    .find((h) => h.role === "assistant");
+  if (!prior) return null;
+
+  const offerSentences = sentencesOf(prior.content).filter((sentence) =>
+    OFFER_CUES.some((cue) => cue.test(sentence))
+  );
+
+  return offerSentences.length > 0 ? offerSentences.join(" ") : null;
+}
+
+/**
+ * Decides — BEFORE the model writes — which image will be attached when
+ * the visitor has accepted an offer.
+ *
+ * Choosing it afterwards is what produced a reply describing implant
+ * brands while a patient before-and-after sat attached to it: the server
+ * picked the right picture, but the model had no way to know which one
+ * was coming and wrote about whatever topic it had chosen. The visitor
+ * read about one thing while looking at another.
+ *
+ * The entry is also biased toward whatever the offer actually promised.
+ * If the assistant said "a before-and-after", an entry titled that way
+ * should win over one that merely scores well on the conversation.
+ */
+export function planAcceptedMedia(
+  history: ChatTurn[],
+  entries: KnowledgeEntryLike[],
+  alreadySent: ReadonlySet<string> = new Set()
+): PlannedMedia | null {
+  if (!visitorAcceptedOffer(history)) return null;
+
+  const userText = history
+    .filter((h) => h.role === "user")
+    .map((h) => h.content)
+    .join(" ");
+
+  const ranked = rankMediaEntries(userText, entries);
+  if (ranked.length === 0) return null;
+
+  const offer = lastOfferText(history);
+  const ordered = offer ? rankByOfferMatch(ranked, offer) : ranked;
+
+  for (const entry of ordered) {
+    const unsent = (entry.mediaUrls ?? []).find((url) => !alreadySent.has(url));
+    if (unsent) return { url: unsent, title: entry.title };
+  }
+  return null;
+}
+
+/** Entries whose titles echo the wording of the offer, first. */
+function rankByOfferMatch(
+  entries: KnowledgeEntryLike[],
+  offer: string
+): KnowledgeEntryLike[] {
+  const offerWords = contentWords(offer);
+  const overlap = (entry: KnowledgeEntryLike) =>
+    Array.from(contentWords(entry.title)).filter(
+      (w) => !CONVERSATIONAL_FILLER.has(w) && offerWords.has(w)
+    ).length;
+
+  // Stable: equal overlap keeps the original relevance order.
+  return entries
+    .map((entry, i) => ({ entry, score: overlap(entry), i }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map(({ entry }) => entry);
 }
 
 export type UnsharedTopic = { title: string; mediaUrls: string[] };
@@ -916,7 +1029,9 @@ export function buildConversationStateBlock(
   history: ChatTurn[],
   entries: KnowledgeEntryLike[] = [],
   /** URLs already shown to this visitor, so exhausted media is not promised again. */
-  alreadySent: ReadonlySet<string> = new Set()
+  alreadySent: ReadonlySet<string> = new Set(),
+  /** The image already chosen for this reply, so the text can match it. */
+  plannedMedia: PlannedMedia | null = null
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = detectImpatience(history);
@@ -992,9 +1107,20 @@ export function buildConversationStateBlock(
   if (accepted) {
     lines.push(
       "",
-      "The visitor has JUST ACCEPTED your offer to show them something. An image is being attached to this reply automatically, so it will be there whatever you write.",
-      "Your words must match that. Acknowledge the yes and introduce what they are about to see in a sentence — then you may continue. Do NOT ignore their answer, do not move to a different topic as though they had said nothing, and do not ask them a new question before presenting it. Being answered with a change of subject after saying yes is worse than never having been offered anything."
+      "The visitor has JUST ACCEPTED your offer to show them something."
     );
+
+    if (plannedMedia) {
+      lines.push(
+        `THIS EXACT IMAGE is being attached to your reply, automatically, whatever you write: "${plannedMedia.title}"`,
+        "Write about THAT image and nothing else. The visitor will be looking at it while they read your words, so a reply describing a different topic reads as broken — they see a patient's before-and-after while being told about implant brands.",
+        "Acknowledge the yes, introduce what they are looking at in a sentence, and say something specific about it. Do not change the subject, and do not ask a new question before you have presented it."
+      );
+    } else {
+      lines.push(
+        "There is no image available to attach for this. Say so plainly rather than implying one is coming, and do not ignore their answer."
+      );
+    }
   }
 
   // ── The accelerator ────────────────────────────────────────────────

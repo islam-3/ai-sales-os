@@ -12,6 +12,8 @@ import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import {
   buildConversationStateBlock,
   pickMediaForAcceptance,
+  isOfferWithoutDelivery,
+  planAcceptedMedia,
   promisesImageWithoutSending,
   visitorAcceptedOffer,
 } from "@/lib/conversation-state";
@@ -618,17 +620,31 @@ export async function POST(req: NextRequest) {
       .filter((url): url is string => !!url)
   );
 
+  const turnsWithLatest = [
+    ...(history ?? []),
+    { role: "user", content: userContent },
+  ];
+
+  const entriesForState = knowledgeEntries.map((e) => ({
+    title: e.title,
+    content: e.content,
+    mediaUrls: e.media.map((m) => m.url),
+  }));
+
+  // Chosen BEFORE the model writes, so its words can describe the picture
+  // the visitor will actually be looking at. Deciding afterwards produced
+  // a reply about implant brands with a patient before-and-after attached
+  // to it — the right image, and text about something else.
+  const plannedMedia = planAcceptedMedia(turnsWithLatest, entriesForState, alreadySent);
+
   const stateBlock = buildConversationStateBlock(
-    [...(history ?? []), { role: "user", content: userContent }],
+    turnsWithLatest,
     // The URLs go through, not just a boolean. Given only "this topic has
     // photos" the model emitted "[[MEDIA:]]" with nothing in it, which the
     // visitor saw as raw text — it needs the exact URL to send.
-    knowledgeEntries.map((e) => ({
-      title: e.title,
-      content: e.content,
-      mediaUrls: e.media.map((m) => m.url),
-    })),
-    alreadySent
+    entriesForState,
+    alreadySent,
+    plannedMedia
   );
   if (stateBlock) {
     systemBlocks.push({ type: "text", text: `\n\n${stateBlock}` });
@@ -698,42 +714,43 @@ export async function POST(req: NextRequest) {
   let media =
     taggedMedia && alreadySent.has(taggedMedia.url) ? null : taggedMedia;
 
-  // Two independent triggers, because they are two different failures.
-  //
-  // The reply PROMISES a picture and carries no tag — "here you go, take
-  // a look!" with nothing attached.
-  //
-  // Or the visitor ACCEPTED an explicit offer, whatever the reply then
-  // says. That second case was missed: on a live conversation the
-  // assistant offered a before-and-after, the visitor answered "yes", and
-  // the reply changed the subject without an image and without even
-  // acknowledging the answer. Nothing promised a picture, so nothing
-  // fired. Being answered that way is worse than never being offered.
-  //
-  // Safe to trigger on acceptance now that conversations.media_url exists
-  // — an already-sent image is skipped rather than repeated, which is
-  // what made this trigger unusable before.
-  const turnsWithLatest = [
-    ...(history ?? []),
-    { role: "user", content: userContent },
-  ];
-  const shouldAttachMedia =
-    promisesImageWithoutSending(reply) || visitorAcceptedOffer(turnsWithLatest);
+  // A reply that only OFFERS to show something must not also send it.
+  // The model does tag an image while still asking permission, which
+  // spends the picture a turn early: the visitor answers "yes", that
+  // image is already marked sent, and they are handed a different one
+  // that is not what they agreed to look at.
+  const justAccepted = visitorAcceptedOffer(turnsWithLatest);
+  if (!justAccepted && isOfferWithoutDelivery(reply)) {
+    media = null;
+  }
 
-  if (!media && shouldAttachMedia) {
+  // On acceptance the PLAN wins, overriding any tag the model emitted.
+  //
+  // The plan is chosen to match what was actually offered — a visitor who
+  // agreed to see a before-and-after gets the before-and-after. Letting
+  // the model's own tag win instead reproduced the original bug from the
+  // other direction: told which image was coming, it still tagged a
+  // different one, and the visitor read about a patient result while
+  // looking at a photo of implant hardware.
+  if (plannedMedia) {
+    media = {
+      url: plannedMedia.url,
+      type: knownMedia.get(plannedMedia.url) ?? null,
+    };
+  }
+
+  // Last resort, for the other failure: the reply promises a picture
+  // ("here you go, take a look!") without the visitor having accepted
+  // anything, so nothing was planned. Better a relevant image than an
+  // empty promise.
+  if (!media && promisesImageWithoutSending(reply)) {
     const fallbackUrl = pickMediaForAcceptance(
       turnsWithLatest,
-      knowledgeEntries.map((e) => ({
-        title: e.title,
-        content: e.content,
-        mediaUrls: e.media.map((m) => m.url),
-      })),
+      entriesForState,
       alreadySent
     );
     if (fallbackUrl) {
-      const type = knownMedia.get(fallbackUrl) ?? null;
-      media = { url: fallbackUrl, type };
-      console.log("Attached media server-side after offer acceptance:", fallbackUrl);
+      media = { url: fallbackUrl, type: knownMedia.get(fallbackUrl) ?? null };
     }
   }
 
