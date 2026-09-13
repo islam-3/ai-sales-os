@@ -13,6 +13,7 @@ import {
   buildConversationStateBlock,
   pickMediaForAcceptance,
   promisesImageWithoutSending,
+  visitorAcceptedOffer,
 } from "@/lib/conversation-state";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
@@ -697,9 +698,31 @@ export async function POST(req: NextRequest) {
   let media =
     taggedMedia && alreadySent.has(taggedMedia.url) ? null : taggedMedia;
 
-  if (!media && promisesImageWithoutSending(reply)) {
+  // Two independent triggers, because they are two different failures.
+  //
+  // The reply PROMISES a picture and carries no tag — "here you go, take
+  // a look!" with nothing attached.
+  //
+  // Or the visitor ACCEPTED an explicit offer, whatever the reply then
+  // says. That second case was missed: on a live conversation the
+  // assistant offered a before-and-after, the visitor answered "yes", and
+  // the reply changed the subject without an image and without even
+  // acknowledging the answer. Nothing promised a picture, so nothing
+  // fired. Being answered that way is worse than never being offered.
+  //
+  // Safe to trigger on acceptance now that conversations.media_url exists
+  // — an already-sent image is skipped rather than repeated, which is
+  // what made this trigger unusable before.
+  const turnsWithLatest = [
+    ...(history ?? []),
+    { role: "user", content: userContent },
+  ];
+  const shouldAttachMedia =
+    promisesImageWithoutSending(reply) || visitorAcceptedOffer(turnsWithLatest);
+
+  if (!media && shouldAttachMedia) {
     const fallbackUrl = pickMediaForAcceptance(
-      [...(history ?? []), { role: "user", content: userContent }],
+      turnsWithLatest,
       knowledgeEntries.map((e) => ({
         title: e.title,
         content: e.content,

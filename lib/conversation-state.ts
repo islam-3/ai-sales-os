@@ -960,7 +960,8 @@ export function buildConversationStateBlock(
     !hesitation.hesitating &&
     gaps.length === 0 &&
     !readyToClose &&
-    !shouldBuildInterest
+    !shouldBuildInterest &&
+    !accepted
   ) {
     return null;
   }
@@ -979,6 +980,20 @@ export function buildConversationStateBlock(
       engagement.engaged
         ? "Do not make any of these offers again — they have been heard. Offer something DIFFERENT instead: there is more below that you have not shown them yet."
         : "Do not make any of these offers again. They have been heard. If the visitor wanted to take one up, they would have. Offer something different, or — more often the better choice — offer nothing and simply continue the conversation."
+    );
+  }
+
+  // Acceptance is handled at the top level, NOT inside the
+  // interest-building block below. That block only renders when the
+  // visitor reads as engaged and unshared topics remain, so on a live
+  // conversation a visitor answered "yes" to an explicit offer and the
+  // instruction was never shown at all — the reply changed the subject
+  // and delivered nothing.
+  if (accepted) {
+    lines.push(
+      "",
+      "The visitor has JUST ACCEPTED your offer to show them something. An image is being attached to this reply automatically, so it will be there whatever you write.",
+      "Your words must match that. Acknowledge the yes and introduce what they are about to see in a sentence — then you may continue. Do NOT ignore their answer, do not move to a different topic as though they had said nothing, and do not ask them a new question before presenting it. Being answered with a change of subject after saying yes is worse than never having been offered anything."
     );
   }
 
