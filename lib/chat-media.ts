@@ -442,12 +442,28 @@ function resolveEntry(
    * implant patient should be offered the implant before-and-after, not
    * the Hollywood smile. Capped, because a list of five is not an offer.
    */
-  const otherMatches = (chosen: MediaCandidate) =>
-    ranked
-      .filter((r) => r.entry !== chosen && r.score >= MEDIA_MATCH_THRESHOLD)
+  const topicScore = new Map(byTopic.map((r) => [r.entry, r.score]));
+
+  const otherMatches = (chosen: MediaCandidate) => {
+    const candidates = ranked.filter(
+      (r) => r.entry !== chosen && r.score >= MEDIA_MATCH_THRESHOLD
+    );
+
+    // Drop what is off-target for this visitor — but only when something
+    // on-target survives. Entry titles already carry the treatment, so a
+    // full-mouth reconstruction patient scores 0.000 against "Before and
+    // after ( Hollywood smile )" and offering it to them is noise. When
+    // nothing scores, the offer itself is all we have to go on and every
+    // candidate stays: an implant patient who asked to see the crowns
+    // should still be shown the crowns.
+    const onTopic = candidates.filter((r) => (topicScore.get(r.entry) ?? 0) > 0);
+    const shortlist = onTopic.length > 0 ? onTopic : candidates;
+
+    return shortlist
       .sort((a, b) => (topicOrder.get(a.entry) ?? 1e9) - (topicOrder.get(b.entry) ?? 1e9))
       .slice(0, 2)
       .map((r) => r.entry);
+  };
 
   // Entries too close to the leader to separate on the request alone.
   const contenders = ranked.filter((r) => r.score * MEDIA_AMBIGUITY_MARGIN >= top.score);

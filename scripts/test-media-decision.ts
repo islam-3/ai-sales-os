@@ -654,6 +654,25 @@ check(
   "accept-all: what was just sent is not offered again",
   bothDecision.send && !bothDecision.alsoAvailable.includes(bothDecision.title)
 );
+check(
+  "accept-all: an off-treatment entry is not offered on",
+  bothDecision.send && !bothDecision.alsoAvailable.some((tt) => /hollywood/i.test(tt)),
+  bothDecision.send ? JSON.stringify(bothDecision.alsoAvailable) : "did not send"
+);
+// ...but scoping must not strip the list bare when nothing is on-topic.
+const offTopicOnly = decideMedia(
+  [
+    user("I want a hair transplant"),
+    bot("Would you like to see the crowns we use, or the implants?"),
+    user("both"),
+  ],
+  CATALOGUE
+);
+check(
+  "accept-all: nothing on-topic keeps what the offer named",
+  !offTopicOnly.send || offTopicOnly.alsoAvailable.length > 0,
+  offTopicOnly.send ? JSON.stringify(offTopicOnly.alsoAvailable) : "did not send"
+);
 const singleDecision = decideMedia(
   [user("I want implants"), bot("Would you like to see the crowns we use?"), user("yes")],
   CATALOGUE
