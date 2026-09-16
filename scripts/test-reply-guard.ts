@@ -144,7 +144,7 @@ let generated = 0;
 let survived = 0;
 for (const history of histories) {
   for (const decision of decisions) {
-    const instruction = buildMediaInstruction(decision, entries.map((e) => e.title));
+    const instruction = buildMediaInstruction(decision);
     const block = buildConversationStateBlock(history, entries, instruction);
     if (!block) continue;
     generated++;

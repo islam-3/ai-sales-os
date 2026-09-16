@@ -777,14 +777,9 @@ export function buildConversationStateBlock(
   const alreadyClosed = hasAlreadyClosed(history);
   const userTurns = history.filter((t) => t.role === "user").length;
 
-  const significance = assessCaseSignificance(history, entries);
   const unshared = engagement.engaged ? findUnsharedTopics(history, entries) : [];
   const logisticsRun = countRecentLogisticsQuestions(history);
 
-  // Interest-building applies only while the visitor is receptive: the
-  // brakes above take precedence, and detectEngagement already returns
-  // false whenever one of them is active.
-  const shouldBuildInterest = engagement.engaged && unshared.length > 0 && !alreadyClosed;
 
   // Coverage is suppressed while they are hesitating: chasing case
   // details from someone stepping back is exactly the pressure the
@@ -810,7 +805,6 @@ export function buildConversationStateBlock(
     !hesitation.hesitating &&
     gaps.length === 0 &&
     !readyToClose &&
-    !shouldBuildInterest &&
     !mediaInstruction
   ) {
     return null;
@@ -845,24 +839,21 @@ export function buildConversationStateBlock(
     lines.push("", mediaInstruction);
   }
 
-  // ── The accelerator ────────────────────────────────────────────────
-  if (shouldBuildInterest) {
-    lines.push(
-      "",
-      `The visitor is engaged, not impatient: ${engagement.reasons.join("; ")}.`,
-      "You have NOT yet told them about:",
-      ...unshared.map((title) => `  • ${title}`),
-      "",
-      "Share one of these now, using the specific facts, numbers and names given to you below rather than a generic summary.",
-      "The point of this conversation is that by the time someone from the business calls, this person already feels they know it — its people, its experience, its results, what is included. Someone who only handed over a phone number has been processed, not won."
-    );
-
-    if (significance === "significant") {
-      lines.push(
-        "This is a significant decision for them, not a small booking. Build real confidence before pressing for logistics — a case of this size deserves it."
-      );
-    }
-  }
+  // The interest-building section used to sit here: "You have NOT yet
+  // told them about: <list>. Share one of these now." It is gone.
+  //
+  // It fired on eight turns in twelve and read as an order to bolt the
+  // next topic onto every reply, which is exactly what made conversations
+  // uniform. It also listed knowledge-base TITLES as things to say, and
+  // for a real tenant those titles are SEO headings — the model was being
+  // instructed to work "Get a Celebrity Smile in the Heart of Istanbul,
+  // Shine Like a Star!" into a conversation with a man who had gone ten
+  // years without teeth.
+  //
+  // Measurement said it was not even the main cause: suppressing it moved
+  // the two-paragraph rate 6 points, while removing the category
+  // checklist it echoed moved it 25. It was the state-block twin of that
+  // checklist, so it went with it.
 
   if (logisticsRun >= 2) {
     lines.push(
@@ -929,12 +920,17 @@ export function buildConversationStateBlock(
       `Do NOT wrap up, close, or say the team will follow up until these are covered. The next one to establish is ${next.need}, because ${next.because}.`
     );
 
-    // How to ask depends entirely on the visitor. Interrogating an
-    // engaged person is what made a high-value conversation read like an
-    // intake form; drawing it out for someone impatient is worse.
-    if (shouldBuildInterest) {
+    // How to ask depends on the visitor. Interrogating an engaged person
+    // is what made a high-value conversation read like an intake form;
+    // drawing it out for someone impatient is worse.
+    //
+    // This used to point at "the list above" — the unshared-topics list,
+    // which no longer exists. It says what it means now instead, which is
+    // also a better instruction: give the detail a reason before you ask
+    // for it, rather than reciting a topic to earn the right to.
+    if (engagement.engaged) {
       lines.push(
-        "Do not ask it on its own as a bare logistics question, and never ask two such questions in a row. Lead with something worth knowing from the list above, then let the question follow naturally from it — the detail is easier to give when it is clear why it matters."
+        "Do not ask it as a bare logistics question, and never ask two of those in a row. Give it a reason first — a sentence on why it changes what the team can do for them — and let the question follow from that. A detail is easy to give once it is clear why it matters."
       );
     } else {
       lines.push(

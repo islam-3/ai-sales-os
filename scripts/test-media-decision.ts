@@ -611,22 +611,19 @@ const sendDecision: MediaDecision = {
   alsoAvailable: [],
   reason: "accepted-offer",
 };
-const sendInstr = buildMediaInstruction(sendDecision, TITLES)!;
+const sendInstr = buildMediaInstruction(sendDecision)!;
 check("attach: names what the image shows", sendInstr.includes("Before and after ( dental implants )"));
 check("attach: says an image IS attached", /AN IMAGE IS ATTACHED/.test(sendInstr));
 check("attach: does not also claim nothing is attached", !warnsNothingComing(sendInstr));
 
-const multi = buildMediaInstruction(
-  {
+const multi = buildMediaInstruction({
     send: true,
     url: BA_1,
     type: "image/jpeg",
     title: "Crowns brand",
     alsoAvailable: ["Before and after ( dental implants )"],
     reason: "accepted-offer",
-  },
-  TITLES
-)!;
+  })!;
 check("multi-option: names the image that IS attached", /It shows: "Crowns brand"/.test(multi));
 check("multi-option: says one image goes per reply", /ONE image goes per reply/.test(multi));
 check("multi-option: lists what remains", multi.includes("Before and after ( dental implants )"));
@@ -683,7 +680,7 @@ check(
 );
 check(
   "a single-image send says nothing about others",
-  !/ONE image goes per reply/.test(buildMediaInstruction(sendDecision, TITLES)!)
+  !/ONE image goes per reply/.test(buildMediaInstruction(sendDecision)!)
 );
 
 
@@ -697,7 +694,7 @@ const NON_SEND: MediaDecision["reason"][] = [
 
 for (const reason of NON_SEND) {
   for (const titles of [[] as string[], TITLES]) {
-    const instr = buildMediaInstruction({ send: false, reason } as MediaDecision, titles);
+    const instr = buildMediaInstruction({ send: false, reason } as MediaDecision);
     check(
       `${reason} (${titles.length} offerable): warns nothing is attached or coming`,
       warnsNothingComing(instr),
@@ -707,17 +704,22 @@ for (const reason of NON_SEND) {
 }
 
 // The exact phrasings that reached visitors.
-const noReq = buildMediaInstruction({ send: false, reason: "no-request" }, TITLES)!;
+const noReq = buildMediaInstruction({ send: false, reason: "no-request" })!;
 check("forbids \"here you go\"", /here you go/i.test(noReq));
 check("forbids promising an image in a later message", /follow right after|later message/i.test(noReq));
-check("still permits making an offer", /You may OFFER/.test(noReq));
-check("separates an offer from a delivery", /a question, not a delivery/i.test(noReq));
+// The per-turn list of offerable titles is gone. It fired on eleven
+// turns in twelve, duplicated the "(a photo of this is available to
+// show)" marks already on the entries, put SEO headings in front of the
+// model as things to say, and was the block a visitor was shown verbatim.
+check("no-request no longer lists titles to offer", !/You may OFFER/.test(noReq));
+check("no-request carries no bullet list", !/•/.test(noReq));
+check("no-request is one short instruction, not a block", noReq.split("\n").length <= 2);
 check("forbids relaying the instruction to the visitor", /never say it to them/i.test(noReq));
 check("forbids explaining how images work", /never explain how images work/i.test(noReq));
 
 // No instruction may ever leak a URL to a model that cannot send images.
 for (const reason of NON_SEND) {
-  const instr = buildMediaInstruction({ send: false, reason } as MediaDecision, TITLES);
+  const instr = buildMediaInstruction({ send: false, reason } as MediaDecision);
   check(`${reason}: leaks no URL`, !instr || !/https?:\/\//i.test(instr));
 }
 check("attach: leaks no URL", !/https?:\/\//i.test(sendInstr));
@@ -754,7 +756,7 @@ const liveFailure: [string, ChatTurn[]][] = [
 
 for (const [label, history] of liveFailure) {
   const d = decideMedia(history, CATALOGUE, new Set());
-  const instr = buildMediaInstruction(d, TITLES);
+  const instr = buildMediaInstruction(d);
   check(
     `live failure "${label}": image attached, or told none is coming`,
     d.send || warnsNothingComing(instr),

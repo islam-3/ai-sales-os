@@ -624,10 +624,7 @@ const NOTHING_ATTACHED = [
  * No URLs ever reach the model — it cannot send anything itself, so it
  * has nothing to do with them.
  */
-export function buildMediaInstruction(
-  decision: MediaDecision,
-  offerableTitles: string[]
-): string | null {
+export function buildMediaInstruction(decision: MediaDecision): string | null {
   if (decision.send) {
     const lines = [
       `AN IMAGE IS ATTACHED TO THIS REPLY, automatically. It shows: "${decision.title}"`,
@@ -664,16 +661,19 @@ export function buildMediaInstruction(
     ].join("\n");
   }
 
-  // No request this turn. The model may still OFFER, which is a question
-  // rather than a delivery — so the warning above is what keeps the two
-  // apart, and it is stated whether or not there is anything to list.
-  if (offerableTitles.length === 0) return NOTHING_ATTACHED;
-
-  return [
-    NOTHING_ATTACHED,
-    "",
-    "You may OFFER to show the visitor these, and nothing else:",
-    ...offerableTitles.map((title) => `  • ${title}`),
-    "An offer is a question, not a delivery. If they accept, the image is attached automatically to the reply you write next, and you will be told so in advance.",
-  ].join("\n");
+  // No request this turn.
+  //
+  // The list of titles the model may offer used to live here, and it
+  // fired on eleven turns in twelve. It was redundant with the standing
+  // rule in the system prompt - the knowledge entries themselves are
+  // already marked "(a photo of this is available to show)" - and it was
+  // harmful twice over: it put entry TITLES in front of the model as
+  // things to say, which for one tenant meant headings like "Get a
+  // Celebrity Smile in the Heart of Istanbul, Shine Like a Star!", and it
+  // was the block a visitor was shown verbatim.
+  //
+  // What stays is the one thing a standing rule cannot carry: whether
+  // THIS reply has an image on it. That sentence exists because its
+  // absence let four consecutive turns promise a photo that never came.
+  return NOTHING_ATTACHED;
 }

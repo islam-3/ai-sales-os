@@ -616,14 +616,7 @@ export async function POST(req: NextRequest) {
     alreadySent
   );
 
-  // Titles only — never URLs. What may be offered is what still has an
-  // unshown image.
-  const offerableTitles = knowledgeEntries
-    .filter((e) => e.media.some((m) => !alreadySent.has(m.url)))
-    .map((e) => e.title)
-    .filter(Boolean);
-
-  const mediaInstruction = buildMediaInstruction(mediaDecision, offerableTitles);
+const mediaInstruction = buildMediaInstruction(mediaDecision);
 
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
