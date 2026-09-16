@@ -23,8 +23,12 @@ export type ChatTurn = { role: string; content: string };
  * proposes showing or sending something, and a loose pattern here would
  * flag ordinary sentences and suppress offers that were never made.
  */
-const OFFER_CUES = [
+export const OFFER_CUES = [
   /\bwant to see\b/i,
+  // "Want to take a look?" is an OFFER, not a description of something
+  // already sent. Without this the assistant would make the offer, the
+  // visitor would say "sure", and nothing would arrive.
+  /\b(?:want|care) to (?:take|have) a look\b/i,
   /\bwould you like (?:to see|me to)\b/i,
   /\bwould you like\b[^.?!]*\?/i,
   /\bi can (?:show|send)\b/i,
@@ -35,7 +39,7 @@ const OFFER_CUES = [
 ];
 
 /** Splits into sentences without cutting on decimals or abbreviations. */
-function sentencesOf(text: string): string[] {
+export function sentencesOf(text: string): string[] {
   return text
     .replace(/\s+/g, " ")
     .split(/(?<=[.!?])\s+/)
@@ -96,7 +100,7 @@ const STOPWORDS = new Set([
   "will", "much", "many", "have", "has", "about", "that", "this", "be", "so",
 ]);
 
-function contentWords(text: string): Set<string> {
+export function contentWords(text: string): Set<string> {
   return new Set(
     text
       .toLowerCase()
@@ -268,8 +272,6 @@ export function detectHesitation(history: ChatTurn[]): HesitationSignal {
 export type KnowledgeEntryLike = {
   title: string;
   content: string;
-  /** Public URLs of anything attached to this entry. */
-  mediaUrls?: string[];
 };
 
 type CoverageDimension = {
@@ -382,7 +384,7 @@ const COVERAGE_DIMENSIONS: CoverageDimension[] = [
  * enough to appear in a business's material by chance, and matching on
  * them pulls in entries that have nothing to do with what was asked.
  */
-const CONVERSATIONAL_FILLER = new Set([
+export const CONVERSATIONAL_FILLER = new Set([
   "take", "takes", "taking", "good", "great", "sounds", "know", "tell",
   "like", "want", "wants", "need", "needs", "needed", "looking", "look",
   "thinking", "think", "interested", "please", "thanks", "thank", "hello",
@@ -450,59 +452,6 @@ export function selectRelevantEntries(
   // score near the best match means an incidental word cannot drag an
   // unrelated entry in alongside a strong one.
   return entries.filter((_, i) => scores[i] >= best * cutoffRatio);
-}
-
-/**
- * The best-matching entry that actually has photos or video attached, or
- * null when nothing relevant does.
- *
- * Held to a far lower bar than ordinary relevance, on purpose. The
- * entries carrying images here are things like "Before and after (dental
- * implants)" — thirty-six characters, four words. Against a rarity-
- * weighted, length-normalised score they never clear a relative cutoff
- * set by a long descriptive page, so they were never offered as topics
- * and the assistant went five turns without once offering to show
- * anything. A before-and-after is among the most persuasive things this
- * business owns; it should not lose a scoring contest to prose.
- */
-export function selectMediaEntry(
-  userText: string,
-  entries: KnowledgeEntryLike[]
-): KnowledgeEntryLike | null {
-  return rankMediaEntries(userText, entries)[0] ?? null;
-}
-
-/**
- * Every relevant entry that carries media, best match first.
- *
- * Ranked rather than reduced to one, so a caller can skip past entries
- * whose images have already been sent instead of giving up on the first
- * collision.
- */
-export function rankMediaEntries(
-  userText: string,
-  entries: KnowledgeEntryLike[]
-): KnowledgeEntryLike[] {
-  if (entries.length === 0) return [];
-
-  const scores = scoreEntries(userText, entries);
-  const best = Math.max(...scores);
-  if (best <= 0) return [];
-
-  // Held well below the relevance cutoff so a short before-and-after can
-  // still qualify, but not at zero: with no floor at all, a hair
-  // transplant enquiry was offered photos of dental crowns, because the
-  // hair entry is titled "Before and after" with no words to match and
-  // anything scoring above nothing won by default.
-  const floor = best * MEDIA_FLOOR_RATIO;
-
-  return entries
-    .map((entry, i) => ({ entry, score: scores[i] }))
-    .filter(
-      ({ entry, score }) => (entry.mediaUrls ?? []).length > 0 && score >= floor
-    )
-    .sort((a, b) => b.score - a.score)
-    .map(({ entry }) => entry);
 }
 
 /** The same selection, flattened — used where only the text matters. */
@@ -717,13 +666,10 @@ export function assessCaseSignificance(
  * still has, so it has something to say. Without it the assistant runs
  * out of material and falls back to asking questions.
  */
-/** How close to the best overall match a media entry must score to be offered. */
-const MEDIA_FLOOR_RATIO = 0.35;
-
 /** Length-normalisation floor — see the scoring comment above. */
 const MIN_ENTRY_WORDS = 25;
 
-const ACCEPTANCE_CUES = [
+export const ACCEPTANCE_CUES = [
   /^\s*(?:yes|yeah|yep|sure|ok|okay|please|go on|why not)\b/i,
   /\byes please\b/i,
   /\b(?:i'?d|i would) (?:love|like) to (?:see|have a look)\b/i,
@@ -733,213 +679,20 @@ const ACCEPTANCE_CUES = [
   /\bthat would be (?:great|good|helpful)\b/i,
 ];
 
-/**
- * Whether the visitor has just said yes to something the assistant
- * offered to show them.
- *
- * Computed rather than left to judgement for the same reason as
- * everything else here: told only "send it if they asked", the assistant
- * replied "Here you go — take a look!" with nothing attached, because it
- * had described a case that has no photo and then had no URL to send.
- */
-export function visitorAcceptedOffer(history: ChatTurn[]): boolean {
-  const lastUserIndex = history.map((t) => t.role).lastIndexOf("user");
-  if (lastUserIndex < 1) return false;
-
-  const latest = history[lastUserIndex].content;
-  if (!ACCEPTANCE_CUES.some((cue) => cue.test(latest.trim()))) return false;
-
-  // The offer has to have been the thing immediately before it.
-  const priorAssistant = history
-    .slice(0, lastUserIndex)
-    .reverse()
-    .find((t) => t.role === "assistant");
-  if (!priorAssistant) return false;
-
-  return OFFER_CUES.some((cue) => cue.test(priorAssistant.content));
-}
 
 /**
- * The media to attach when the visitor has accepted an offer but the
- * model produced no usable tag.
+ * Topics relevant to this visitor that the assistant has not yet drawn
+ * on, as their titles.
  *
- * This exists because three separate attempts to fix the problem with
- * instructions all failed in live testing: the assistant would describe a
- * case that has no photo, offer to show it, and then answer "here you go
- * — take a look!" with nothing attached. A visitor who says yes and
- * receives an empty promise is worse off than one who was never offered
- * anything, and no amount of emphasis in the prompt changed it.
- *
- * Returns null when nothing relevant has media, so a conversation about
- * something the business has no pictures of still sends nothing.
+ * Knows nothing about images any more. Media is decided entirely in
+ * lib/chat-media.ts, and mixing the two here is what produced topic lists
+ * ordered by whether a photo happened to be attached.
  */
-export function pickMediaForAcceptance(
-  history: ChatTurn[],
-  entries: KnowledgeEntryLike[],
-  alreadySent: ReadonlySet<string> = new Set()
-): string | null {
-  const userText = history
-    .filter((t) => t.role === "user")
-    .map((t) => t.content)
-    .join(" ");
-
-  for (const entry of rankMediaEntries(userText, entries)) {
-    const unsent = (entry.mediaUrls ?? []).find((url) => !alreadySent.has(url));
-    if (unsent) return unsent;
-  }
-
-  // Everything relevant has been shown already. Sending nothing is
-  // correct here — repeating a picture they have seen is worse than the
-  // reply simply not carrying one.
-  return null;
-}
-
-// Phrases that promise the visitor is about to see something. These are
-// what the assistant writes when it believes it is sending an image.
-const IMAGE_PROMISE_CUES = [
-  // "Here's" is one word — an earlier version required a space after
-  // "here" and missed every contraction, which is the most common way
-  // the assistant actually introduces a picture.
-  /\bhere'?s\b/i,
-  /\bhere (?:you go|it is|are)\b/i,
-  /\b(?:take|have) a look\b/i,
-  /\bas you can see\b/i,
-  /\bthis is (?:her|his|their|the) (?:result|before|case|smile)\b/i,
-  /\bbelow (?:is|you)\b/i,
-];
-
-/**
- * Whether a reply promises a picture without one attached.
- *
- * This, not "the visitor said yes", is the precise failure: the assistant
- * writes "Here you go — take a look!" and sends nothing. Keying the
- * fallback on acceptance instead re-sent the same image on the following
- * turn, attached to a reply about something else entirely.
- */
-export function promisesImageWithoutSending(reply: string): boolean {
-  // Checked sentence by sentence, because the same words mean opposite
-  // things depending on the sentence they sit in. "Take a look at this"
-  // presents something; "want to take a look?" merely offers it, and
-  // treating the offer as a delivery attached an image to a reply that
-  // was still asking permission — and the wrong image at that.
-  return sentencesOf(reply).some((sentence) => {
-    if (!IMAGE_PROMISE_CUES.some((cue) => cue.test(sentence))) return false;
-
-    const isQuestion = sentence.trim().endsWith("?");
-    const isOffer = OFFER_CUES.some((cue) => cue.test(sentence));
-    return !isQuestion && !isOffer;
-  });
-}
-
-export type PlannedMedia = { url: string; title: string };
-
-/**
- * True when a reply merely OFFERS to show something rather than
- * presenting it.
- *
- * An offer that arrives with the picture already attached spends it
- * before the visitor has answered: they say "yes" a turn later, the image
- * is now marked as sent, and the dedupe hands them a different one whose
- * subject does not match what they agreed to see.
- */
-export function isOfferWithoutDelivery(reply: string): boolean {
-  return (
-    OFFER_CUES.some((cue) => cue.test(reply)) && !promisesImageWithoutSending(reply)
-  );
-}
-
-/**
- * The SENTENCE in which the assistant made its offer — not the whole
- * message.
- *
- * The distinction decides which image gets chosen. A reply that describes
- * Straumann crowns at length and then adds "I can show you a
- * before-and-after" overlaps far more with the crowns entry than with the
- * before-and-after one, so matching on the whole message picked the
- * crowns photo for a visitor who had just agreed to see a patient result.
- * Only the offer itself says what was promised.
- */
-function lastOfferText(history: ChatTurn[]): string | null {
-  const lastUserIndex = history.map((h) => h.role).lastIndexOf("user");
-  if (lastUserIndex < 1) return null;
-
-  const prior = history
-    .slice(0, lastUserIndex)
-    .reverse()
-    .find((h) => h.role === "assistant");
-  if (!prior) return null;
-
-  const offerSentences = sentencesOf(prior.content).filter((sentence) =>
-    OFFER_CUES.some((cue) => cue.test(sentence))
-  );
-
-  return offerSentences.length > 0 ? offerSentences.join(" ") : null;
-}
-
-/**
- * Decides — BEFORE the model writes — which image will be attached when
- * the visitor has accepted an offer.
- *
- * Choosing it afterwards is what produced a reply describing implant
- * brands while a patient before-and-after sat attached to it: the server
- * picked the right picture, but the model had no way to know which one
- * was coming and wrote about whatever topic it had chosen. The visitor
- * read about one thing while looking at another.
- *
- * The entry is also biased toward whatever the offer actually promised.
- * If the assistant said "a before-and-after", an entry titled that way
- * should win over one that merely scores well on the conversation.
- */
-export function planAcceptedMedia(
-  history: ChatTurn[],
-  entries: KnowledgeEntryLike[],
-  alreadySent: ReadonlySet<string> = new Set()
-): PlannedMedia | null {
-  if (!visitorAcceptedOffer(history)) return null;
-
-  const userText = history
-    .filter((h) => h.role === "user")
-    .map((h) => h.content)
-    .join(" ");
-
-  const ranked = rankMediaEntries(userText, entries);
-  if (ranked.length === 0) return null;
-
-  const offer = lastOfferText(history);
-  const ordered = offer ? rankByOfferMatch(ranked, offer) : ranked;
-
-  for (const entry of ordered) {
-    const unsent = (entry.mediaUrls ?? []).find((url) => !alreadySent.has(url));
-    if (unsent) return { url: unsent, title: entry.title };
-  }
-  return null;
-}
-
-/** Entries whose titles echo the wording of the offer, first. */
-function rankByOfferMatch(
-  entries: KnowledgeEntryLike[],
-  offer: string
-): KnowledgeEntryLike[] {
-  const offerWords = contentWords(offer);
-  const overlap = (entry: KnowledgeEntryLike) =>
-    Array.from(contentWords(entry.title)).filter(
-      (w) => !CONVERSATIONAL_FILLER.has(w) && offerWords.has(w)
-    ).length;
-
-  // Stable: equal overlap keeps the original relevance order.
-  return entries
-    .map((entry, i) => ({ entry, score: overlap(entry), i }))
-    .sort((a, b) => b.score - a.score || a.i - b.i)
-    .map(({ entry }) => entry);
-}
-
-export type UnsharedTopic = { title: string; mediaUrls: string[] };
-
 export function findUnsharedTopics(
   history: ChatTurn[],
   entries: KnowledgeEntryLike[],
   limit = 5
-): UnsharedTopic[] {
+): string[] {
   const userText = history
     .filter((t) => t.role === "user")
     .map((t) => t.content)
@@ -954,34 +707,19 @@ export function findUnsharedTopics(
 
   const saidWords = contentWords(assistantText);
 
-  const isUnshared = (entry: KnowledgeEntryLike) => {
-    // An entry counts as already used when the assistant has echoed a
-    // meaningful share of its distinctive wording.
-    const words = Array.from(contentWords(`${entry.title} ${entry.content}`)).filter(
-      (w) => !CONVERSATIONAL_FILLER.has(w)
-    );
-    if (words.length === 0) return false;
-    return words.filter((w) => saidWords.has(w)).length / words.length < 0.3;
-  };
-
-  const unshared = relevant.filter(isUnshared);
-
-  // A relevant entry with images is added even when it scored below the
-  // relevance cutoff, because those entries are short and lose to prose
-  // on score — see selectMediaEntry. Put first: it is the strongest thing
-  // available to show someone.
-  const mediaEntry = selectMediaEntry(userText, entries);
-  const ordered =
-    mediaEntry && isUnshared(mediaEntry) && !unshared.includes(mediaEntry)
-      ? [mediaEntry, ...unshared]
-      : [...unshared].sort(
-          (a, b) => (b.mediaUrls ?? []).length - (a.mediaUrls ?? []).length
-        );
-
-  return ordered
-    .filter((e) => e.title)
-    .slice(0, limit)
-    .map((e) => ({ title: e.title, mediaUrls: e.mediaUrls ?? [] }));
+  return relevant
+    .filter((entry) => {
+      // An entry counts as already used when the assistant has echoed a
+      // meaningful share of its distinctive wording.
+      const words = Array.from(contentWords(`${entry.title} ${entry.content}`)).filter(
+        (w) => !CONVERSATIONAL_FILLER.has(w)
+      );
+      if (words.length === 0) return false;
+      return words.filter((w) => saidWords.has(w)).length / words.length < 0.3;
+    })
+    .map((e) => e.title)
+    .filter(Boolean)
+    .slice(0, limit);
 }
 
 const LOGISTICS_QUESTION =
@@ -1028,10 +766,8 @@ const MIN_TURNS_BEFORE_CLOSING = 3;
 export function buildConversationStateBlock(
   history: ChatTurn[],
   entries: KnowledgeEntryLike[] = [],
-  /** URLs already shown to this visitor, so exhausted media is not promised again. */
-  alreadySent: ReadonlySet<string> = new Set(),
-  /** The image already chosen for this reply, so the text can match it. */
-  plannedMedia: PlannedMedia | null = null
+  /** Ready-made media instruction from lib/chat-media.ts, or null. */
+  mediaInstruction: string | null = null
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = detectImpatience(history);
@@ -1044,7 +780,6 @@ export function buildConversationStateBlock(
   const significance = assessCaseSignificance(history, entries);
   const unshared = engagement.engaged ? findUnsharedTopics(history, entries) : [];
   const logisticsRun = countRecentLogisticsQuestions(history);
-  const accepted = visitorAcceptedOffer(history);
 
   // Interest-building applies only while the visitor is receptive: the
   // brakes above take precedence, and detectEngagement already returns
@@ -1076,7 +811,7 @@ export function buildConversationStateBlock(
     gaps.length === 0 &&
     !readyToClose &&
     !shouldBuildInterest &&
-    !accepted
+    !mediaInstruction
   ) {
     return null;
   }
@@ -1092,35 +827,22 @@ export function buildConversationStateBlock(
       // Polarity flips with engagement. For a receptive visitor "offer
       // nothing" is the wrong default — it is how the assistant ran out
       // of things to say and fell back to interrogating.
-      engagement.engaged
+      // The engaged branch used to promise "there is more below that you
+      // have not shown them yet" whether or not anything remained. Told
+      // that with an empty catalogue left, the assistant has nowhere to
+      // go but repetition or invention — the same defect as telling it
+      // it may offer an image while sending none. Only claim there is
+      // more when there is.
+      engagement.engaged && unshared.length > 0
         ? "Do not make any of these offers again — they have been heard. Offer something DIFFERENT instead: there is more below that you have not shown them yet."
         : "Do not make any of these offers again. They have been heard. If the visitor wanted to take one up, they would have. Offer something different, or — more often the better choice — offer nothing and simply continue the conversation."
     );
   }
 
-  // Acceptance is handled at the top level, NOT inside the
-  // interest-building block below. That block only renders when the
-  // visitor reads as engaged and unshared topics remain, so on a live
-  // conversation a visitor answered "yes" to an explicit offer and the
-  // instruction was never shown at all — the reply changed the subject
-  // and delivered nothing.
-  if (accepted) {
-    lines.push(
-      "",
-      "The visitor has JUST ACCEPTED your offer to show them something."
-    );
-
-    if (plannedMedia) {
-      lines.push(
-        `THIS EXACT IMAGE is being attached to your reply, automatically, whatever you write: "${plannedMedia.title}"`,
-        "Write about THAT image and nothing else. The visitor will be looking at it while they read your words, so a reply describing a different topic reads as broken — they see a patient's before-and-after while being told about implant brands.",
-        "Acknowledge the yes, introduce what they are looking at in a sentence, and say something specific about it. Do not change the subject, and do not ask a new question before you have presented it."
-      );
-    } else {
-      lines.push(
-        "There is no image available to attach for this. Say so plainly rather than implying one is coming, and do not ignore their answer."
-      );
-    }
+  // Everything about images now comes from lib/chat-media.ts as a
+  // ready-made instruction. This module no longer knows URLs exist.
+  if (mediaInstruction) {
+    lines.push("", mediaInstruction);
   }
 
   // ── The accelerator ────────────────────────────────────────────────
@@ -1129,60 +851,11 @@ export function buildConversationStateBlock(
       "",
       `The visitor is engaged, not impatient: ${engagement.reasons.join("; ")}.`,
       "You have NOT yet told them about:",
-      ...unshared.map(
-        (topic) =>
-          `  • ${topic.title}${topic.mediaUrls.length ? "   [HAS PHOTOS]" : ""}`
-      ),
+      ...unshared.map((title) => `  • ${title}`),
       "",
       "Share one of these now, using the specific facts, numbers and names given to you below rather than a generic summary.",
       "The point of this conversation is that by the time someone from the business calls, this person already feels they know it — its people, its experience, its results, what is included. Someone who only handed over a phone number has been processed, not won."
     );
-
-    // Marked separately and emphatically. A general "offer media where it
-    // exists" line produced five turns without a single offer, because
-    // nothing told the model which topics actually had anything to show.
-    // Only count media they have not already been shown. Everything else
-    // is spent, and offering it again would either repeat a picture or
-    // promise one that never arrives.
-    const withMedia = unshared
-      .map((topic) => ({
-        ...topic,
-        mediaUrls: topic.mediaUrls.filter((url) => !alreadySent.has(url)),
-      }))
-      .filter((topic) => topic.mediaUrls.length > 0);
-
-    const mediaExhausted =
-      alreadySent.size > 0 &&
-      withMedia.length === 0 &&
-      rankMediaEntries(
-        history.filter((h) => h.role === "user").map((h) => h.content).join(" "),
-        entries
-      ).every((entry) =>
-        (entry.mediaUrls ?? []).every((url) => alreadySent.has(url))
-      );
-
-    if (mediaExhausted) {
-      lines.push(
-        "",
-        "You have already shown this visitor every photo available for what they are asking about. Do NOT offer, promise or refer to another image — there is nothing left to send, and saying \"here's another\" produces a message with no picture in it. Describe results in words instead."
-      );
-    }
-    if (withMedia.length > 0) {
-      lines.push(
-        "",
-        "IMPORTANT — real images are available, and they are among the most persuasive things this business has. Seeing an actual result does more to build confidence than any description of one.",
-        ...withMedia.map(
-          (topic) =>
-            `  • ${topic.title}
-      send with: [[MEDIA:${topic.mediaUrls[0]}]]`
-        ),
-        accepted
-          ? "THEY HAVE JUST SAID YES to seeing something. This reply MUST end with the exact tag above — copy it character for character. Saying \"here you go\" or \"take a look\" without the tag sends nothing at all and leaves them staring at a message with no image in it. Do not offer again, do not describe the picture instead, and do not change the subject."
-          : "Offer to show them in this reply — naturally, as part of what you are telling them, not as a question tacked on the end.",
-        "When you want to show a result, talk about THE ITEM LISTED ABOVE — it is the one that actually has an image. Describing a different case and offering to show a photo of it leaves you with nothing to send when they accept, which is exactly what happened before this instruction existed.",
-        "Use ONLY a URL listed above or in the business information below, copied exactly. Never write an empty tag and never invent a URL: if you have no URL for the thing you are describing, describe it in words and offer the item you DO have a URL for instead."
-      );
-    }
 
     if (significance === "significant") {
       lines.push(

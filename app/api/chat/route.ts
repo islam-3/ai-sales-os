@@ -9,14 +9,16 @@ import { buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
+import { buildConversationStateBlock } from "@/lib/conversation-state";
+import { buildMediaInstruction, decideMedia } from "@/lib/chat-media";
+import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import {
-  buildConversationStateBlock,
-  pickMediaForAcceptance,
-  isOfferWithoutDelivery,
-  planAcceptedMedia,
-  promisesImageWithoutSending,
-  visitorAcceptedOffer,
-} from "@/lib/conversation-state";
+  INTERNAL_STATE_CLOSE,
+  INTERNAL_STATE_OPEN,
+  SAFE_FALLBACK,
+  containsInternalState,
+  stripInternalState,
+} from "@/lib/reply-guard";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -108,44 +110,16 @@ type KnowledgeMatch = {
 // surfaced the entry — and regardless of how many files it has.
 function withMediaNote(content: string, media: EntryMedia[]) {
   if (!media || media.length === 0) return content;
-  const notes = media.map((m) => `(media available: ${m.type ?? "file"}, url: ${m.url})`).join(" ");
-  return `${content} ${notes}`;
-}
-
-// Matches any [[MEDIA:...]] tag, INCLUDING an empty or malformed one.
-// The narrower \S+? version silently failed on "[[MEDIA:]]" — which the
-// model does emit when it wants to show something it has no URL for — and
-// the raw tag was printed to the visitor as text.
-const MEDIA_TAG_PATTERN = /\[\[MEDIA:([^\]]*)\]\]/g;
-
-// Strips every [[MEDIA:url]] tag from the reply and returns the cleaned
-// text plus the first tag whose URL was actually offered to the model this
-// turn (via the knowledge section or RAG matches, keyed in `knownMedia`) —
-// never trusts a URL the model might have invented or mangled.
-function extractMedia(
-  reply: string,
-  knownMedia: Map<string, string | null>
-): { cleaned: string; media: { url: string; type: string | null } | null } {
-  let media: { url: string; type: string | null } | null = null;
-  const cleaned = reply
-    .replace(MEDIA_TAG_PATTERN, (_match, url: string) => {
-      const trimmed = (url ?? "").trim();
-      if (!media && trimmed && knownMedia.has(trimmed)) {
-        media = { url: trimmed, type: knownMedia.get(trimmed) ?? null };
-      }
-      // Always removed, even when the URL is empty or unrecognised: a
-      // visitor must never see the tag itself.
-      return "";
-    })
-    .trim();
-  return { cleaned, media };
+  // Deliberately no URL. The model cannot send anything — lib/chat-media.ts
+  // owns that decision — so a URL here would only be something for it to
+  // mis-copy. It only needs to know a photo exists, so it can offer one.
+  return `${content} (a photo of this is available to show)`;
 }
 
 // Embeds the user's message and looks up the most relevant knowledge_base
 // entries for this tenant. Returns null on any failure or when nothing
 // clears the similarity bar — callers should just proceed without context.
-// Also returns the raw matches' media so the caller can validate a
-// [[MEDIA:...]] tag against a real, provided URL.
+// Also returns the matches' media, which feeds the media decision.
 async function getRelevantContext(
   query: string,
   tenantId: string,
@@ -628,26 +602,48 @@ export async function POST(req: NextRequest) {
   const entriesForState = knowledgeEntries.map((e) => ({
     title: e.title,
     content: e.content,
-    mediaUrls: e.media.map((m) => m.url),
   }));
 
-  // Chosen BEFORE the model writes, so its words can describe the picture
-  // the visitor will actually be looking at. Deciding afterwards produced
-  // a reply about implant brands with a patient before-and-after attached
-  // to it — the right image, and text about something else.
-  const plannedMedia = planAcceptedMedia(turnsWithLatest, entriesForState, alreadySent);
+  // The single media decision, made here and nowhere else. The model is
+  // told what is attached; it has no way to send anything itself.
+  const mediaDecision = decideMedia(
+    turnsWithLatest,
+    knowledgeEntries.map((e) => ({
+      title: e.title,
+      content: e.content,
+      media: e.media,
+    })),
+    alreadySent
+  );
+
+  // Titles only — never URLs. What may be offered is what still has an
+  // unshown image.
+  const offerableTitles = knowledgeEntries
+    .filter((e) => e.media.some((m) => !alreadySent.has(m.url)))
+    .map((e) => e.title)
+    .filter(Boolean);
+
+  const mediaInstruction = buildMediaInstruction(mediaDecision, offerableTitles);
 
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
-    // The URLs go through, not just a boolean. Given only "this topic has
-    // photos" the model emitted "[[MEDIA:]]" with nothing in it, which the
-    // visitor saw as raw text — it needs the exact URL to send.
     entriesForState,
-    alreadySent,
-    plannedMedia
+    mediaInstruction
   );
   if (stateBlock) {
-    systemBlocks.push({ type: "text", text: `\n\n${stateBlock}` });
+    // Fenced so a verbatim echo is detectable exactly rather than by
+    // resemblance. The model reproduced this entire block into a reply
+    // once; the fence means the guard downstream need not guess.
+    systemBlocks.push({
+      type: "text",
+      text: [
+        "",
+        "",
+        INTERNAL_STATE_OPEN,
+        stateBlock,
+        INTERNAL_STATE_CLOSE,
+      ].join("\n"),
+    });
   }
 
   const response = await anthropic.messages.create({
@@ -684,75 +680,29 @@ export async function POST(req: NextRequest) {
   const textBlock = response.content.find((block) => block.type === "text");
   const rawReply = textBlock?.type === "text" ? textBlock.text : "";
 
-  // Only URLs actually offered to the model this turn are trusted — this
-  // guards against a hallucinated or mangled [[MEDIA:...]] tag ever
-  // reaching the visitor.
-  const knownMedia = new Map<string, string | null>();
-  for (const entry of knowledgeEntries) {
-    for (const m of entry.media) knownMedia.set(m.url, m.type);
-  }
-  for (const m of relevantContext?.media ?? []) {
-    knownMedia.set(m.url, m.type);
-  }
-  const { cleaned: reply, media: taggedMedia } = extractMedia(rawReply, knownMedia);
-
-  // The model reliably OFFERS to show a photo and unreliably attaches
-  // one. Three attempts to fix that with instructions all failed in live
-  // testing — it would describe a case that has no image, offer it, then
-  // reply "here you go, take a look!" with nothing attached. Someone who
-  // says yes and receives an empty promise is worse off than someone who
-  // was never offered anything.
-  //
-  // So when the reply PROMISES a picture and no usable tag came back, the
-  // attachment is chosen here instead. Keyed on the promise rather than
-  // on the visitor having said yes: acceptance stays true on later turns,
-  // and that re-sent the same image attached to a reply about something
-  // else. Null when nothing relevant has media, so a conversation about
-  // something the business has no pictures of still sends nothing.
-  // A repeat is dropped rather than sent. If the reply also promises a
-  // picture, the fallback below will pick a different, unsent one.
-  let media =
-    taggedMedia && alreadySent.has(taggedMedia.url) ? null : taggedMedia;
-
-  // A reply that only OFFERS to show something must not also send it.
-  // The model does tag an image while still asking permission, which
-  // spends the picture a turn early: the visitor answers "yes", that
-  // image is already marked sent, and they are handed a different one
-  // that is not what they agreed to look at.
-  const justAccepted = visitorAcceptedOffer(turnsWithLatest);
-  if (!justAccepted && isOfferWithoutDelivery(reply)) {
-    media = null;
+  // The single gate. Everything below — the HTTP response, the stored
+  // transcript, the lead extractor — reads one value and nothing else, so
+  // this is the only place internal content could escape, and it does not
+  // get past here.
+  const cleaned = stripInternalState(rawReply);
+  if (cleaned !== rawReply) {
+    console.error("[chat] internal state in model output", {
+      sessionId,
+      tenantId,
+      discarded: cleaned === null,
+      sample: rawReply.slice(0, 200),
+    });
   }
 
-  // On acceptance the PLAN wins, overriding any tag the model emitted.
-  //
-  // The plan is chosen to match what was actually offered — a visitor who
-  // agreed to see a before-and-after gets the before-and-after. Letting
-  // the model's own tag win instead reproduced the original bug from the
-  // other direction: told which image was coming, it still tagged a
-  // different one, and the visitor read about a patient result while
-  // looking at a photo of implant hardware.
-  if (plannedMedia) {
-    media = {
-      url: plannedMedia.url,
-      type: knownMedia.get(plannedMedia.url) ?? null,
-    };
-  }
+  const candidate =
+    cleaned === null ? SAFE_FALLBACK : enforceSingleQuestion(stripMarkup(cleaned));
 
-  // Last resort, for the other failure: the reply promises a picture
-  // ("here you go, take a look!") without the visitor having accepted
-  // anything, so nothing was planned. Better a relevant image than an
-  // empty promise.
-  if (!media && promisesImageWithoutSending(reply)) {
-    const fallbackUrl = pickMediaForAcceptance(
-      turnsWithLatest,
-      entriesForState,
-      alreadySent
-    );
-    if (fallbackUrl) {
-      media = { url: fallbackUrl, type: knownMedia.get(fallbackUrl) ?? null };
-    }
-  }
+  // Belt and braces: whatever happened above, nothing internal is served.
+  const reply = containsInternalState(candidate) ? SAFE_FALLBACK : candidate;
+
+  const media = mediaDecision.send
+    ? { url: mediaDecision.url, type: mediaDecision.type }
+    : null;
 
   // Written in order: the greeting (first turn only) precedes the
   // visitor's message so the stored transcript reads the way the
