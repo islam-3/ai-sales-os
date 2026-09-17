@@ -615,6 +615,9 @@ export async function POST(req: NextRequest) {
     title: e.title,
     content: e.content,
     media: e.media,
+    // Lets a photo filed under a category, with a title like "Before and
+    // after" that names no subject, be matched by that category.
+    category: e.category,
   }));
 
   const mediaDecision = decideMedia(turnsWithLatest, mediaCandidates, alreadySent);

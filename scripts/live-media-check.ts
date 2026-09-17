@@ -36,16 +36,11 @@ const newSession = () => crypto.randomUUID();
  * fires on ordinary prose — "the quality here is world-class" — and a
  * checker that cries wolf is worse than no checker.
  */
-const CLAIMS_AN_IMAGE = new RegExp(
-  [
-    "(?:^|[.!?\n]\s*)here(?:'s| is| you go)\b",
-    "\battached\b",
-    "\btake a look at th(?:is|ese)\b",
-    "\bas you can see\b",
-    "\bin (?:this|the) (?:photo|picture|image)\b",
-  ].join("|"),
-  "i"
-);
+// A regex literal, not strings joined into new RegExp: inside a JS string
+// "\b" is a backspace, so the first version of this detector could never
+// match the phrases it listed and silently reported every reply clean.
+const CLAIMS_AN_IMAGE =
+  /(?:^|[.!?\n]\s*)here(?:'s| is| you go)\b|\battached\b|\btake a look at th(?:is|ese)\b|\bas you can see\b|\bin (?:this|the) (?:photo|picture|image)\b/i;
 
 /** Image markup or a raw URL in the reply. The visitor sees these raw. */
 const LEAKED_MARKUP = /!\[|\]\(|\[\[|https?:\/\//i;

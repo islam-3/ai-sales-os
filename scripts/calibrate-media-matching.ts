@@ -49,6 +49,13 @@ const cases: [string, ChatTurn[], RegExp | null][] = [
   ["vague: shall I show you", [u("hi"), a("Shall I show you something?"), u("ok")], null],
   ["request: clinic building", [u("can I see a photo of your clinic building?")], null],
   ["request: price list", [u("can I see your price list?")], null],
+
+  // Filed under a category rather than named in the title. "Before and
+  // after" names no subject; its category, Hair transplant, is what tells
+  // it apart - and must never pull it in front of a dental visitor.
+  ["hair visitor asks for before-and-afters", [u("I'm looking into a hair transplant, my hairline has been receding for years"), a("That's very common."), u("can I see some before and afters?")], /^Before and after$/],
+  ["hair visitor accepts a hair offer", [u("I'm looking into a hair transplant"), a("Would you like to see a before and after from one of our hair transplant patients?"), u("yes please")], /^Before and after$/],
+  ["implant visitor never gets the hair case", [u("I'm looking at full mouth dental implants, I've lost most of my upper teeth"), a("That's very treatable."), u("can I see some before and afters?")], /dental implants/i],
   ["no request", [a("We have 15 years of experience."), u("that's good to know")], null],
   ["yes with no offer", [a("What brings you in?"), u("yes")], null],
   ["declined offer", [u("I want implants"), OFFER, u("no thanks")], null],
@@ -58,10 +65,14 @@ const cases: [string, ChatTurn[], RegExp | null][] = [
   const { data: tn } = await s.from("tenants").select("id").eq("slug", "prof-clinic").single();
   const { data: k } = await s
     .from("knowledge_base")
-    .select("title,content,knowledge_base_media(media_url,media_type)")
+    .select("title,category,content,knowledge_base_media(media_url,media_type)")
     .eq("tenant_id", tn!.id);
   const entries: MediaCandidate[] = (k ?? []).map((e: any) => ({
     title: e.title ?? "",
+    // Mirrors the route, which matches on category for entries whose title
+    // names no subject. Leaving it out would calibrate against a matcher
+    // the route no longer uses.
+    category: e.category,
     content: e.content,
     media: (e.knowledge_base_media ?? []).map((m: any) => ({ url: m.media_url, type: m.media_type })),
   }));

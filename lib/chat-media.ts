@@ -43,7 +43,52 @@ export type MediaCandidate = {
   title: string;
   content: string;
   media: { url: string; type: string | null }[];
+  /** The section the business filed this entry under, e.g. "Hair transplant". */
+  category?: string | null;
 };
+
+/**
+ * Words a title can contain without saying what it is a picture OF.
+ *
+ * "Before and after", "Our results", "Gallery" label the kind of image,
+ * not its subject. A title made only of these names nothing a request can
+ * match on.
+ */
+const GENERIC_LABEL_WORDS = new Set([
+  "before", "after", "photo", "photos", "picture", "pictures", "image", "images",
+  "gallery", "result", "results", "example", "examples", "case", "cases",
+  "transformation", "transformations", "patient", "patients", "video", "videos",
+  "our", "real",
+]);
+
+/**
+ * The words an entry is labelled with, for matching.
+ *
+ * The title, always. The category too — but ONLY when the title names no
+ * subject of its own.
+ *
+ * Businesses file entries into categories and reasonably expect that to
+ * mean something. One tenant has a "Before and after" filed under Hair
+ * transplant beside "Before and after ( dental implants )" and "Before and
+ * after ( Hollywood smile )" filed under Dental treatment. The category is
+ * exactly what tells the first one apart, and ignoring it meant that photo
+ * could never be matched or offered at all, with nothing to tell the owner
+ * why.
+ *
+ * The restriction is what keeps this safe, and it is the same invariant as
+ * the anaphora fallback: extra context may RESOLVE an entry that names
+ * nothing, never OVERRIDE one that does. Both dental before-and-afters sit
+ * in one category; if the category counted for them, an implant patient
+ * saying "dental" would pick up the Hollywood-smile case through it, which
+ * is the original mismatch all over again.
+ */
+function labelOf(entry: MediaCandidate): { title: Set<string>; category: Set<string> } {
+  const title = contentWords(entry.title);
+  const namesSubject = Array.from(title).some((word) => !GENERIC_LABEL_WORDS.has(word));
+  const category =
+    !namesSubject && entry.category ? contentWords(entry.category) : new Set<string>();
+  return { title, category };
+}
 
 export type MediaDecision =
   | {
@@ -263,7 +308,7 @@ function matchStrength(
   documentFrequency: Map<string, number>,
   corpusSize: number
 ): number {
-  const titleWords = contentWords(entry.title);
+  const { title: titleWords, category: categoryWords } = labelOf(entry);
   const allWords = contentWords(`${entry.title} ${entry.content}`);
 
   const requestWords = Array.from(contentWords(requestText)).filter(
@@ -277,19 +322,25 @@ function matchStrength(
 
   let matched = 0;
   let total = 0;
-  let touchedTitle = false;
+  let touchedLabel = false;
   for (const word of requestWords) {
     const weight = idf(word);
     total += weight;
     if (titleWords.has(word)) {
       matched += weight * 2;
-      touchedTitle = true;
+      touchedLabel = true;
+    } else if (categoryWords.has(word)) {
+      // A category hit satisfies the label rule, so an unlabelled entry can
+      // be reached at all — but at body weight, never title weight. The
+      // business's own title outranks where it happened to be filed.
+      matched += weight;
+      touchedLabel = true;
     } else if (allWords.has(word)) {
       matched += weight;
     }
   }
 
-  if (!touchedTitle || total === 0) return 0;
+  if (!touchedLabel || total === 0) return 0;
 
   // Not capped. Clamping made two entries tie at the cap, and the winner
   // became whichever was evaluated first.
@@ -357,7 +408,15 @@ export function rankByRequest(
   // differently in decideMedia.
   const documentFrequency = new Map<string, number>();
   for (const entry of entries) {
-    Array.from(contentWords(`${entry.title} ${entry.content}`)).forEach((word) => {
+    // A category that can be matched against must also be in the
+    // vocabulary, or its words are dropped as unknown before they are ever
+    // compared. Only where it counts, so every labelled entry scores
+    // exactly as it did before categories were considered.
+    const words = new Set([
+      ...Array.from(contentWords(`${entry.title} ${entry.content}`)),
+      ...Array.from(labelOf(entry).category),
+    ]);
+    Array.from(words).forEach((word) => {
       documentFrequency.set(word, (documentFrequency.get(word) ?? 0) + 1);
     });
   }
