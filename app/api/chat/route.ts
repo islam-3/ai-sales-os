@@ -5,7 +5,7 @@ import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isValidSessionId } from "@/lib/constants";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
-import { buildSystemPrompt } from "@/lib/business-prompt";
+import { BEHAVIOUR_PROMPT, buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
@@ -677,7 +677,13 @@ const mediaInstruction = buildMediaInstruction(mediaDecision);
   // transcript, the lead extractor — reads one value and nothing else, so
   // this is the only place internal content could escape, and it does not
   // get past here.
-  const cleaned = stripInternalState(rawReply);
+  // Checked against the instruction text actually sent this turn, not
+  // only against a list of known phrases. The list is written by hand and
+  // went stale the moment a section was added after it; this cannot.
+  // The knowledge base is deliberately NOT included — repeating its
+  // facts to the visitor is the assistant's job.
+  const injected = [BEHAVIOUR_PROMPT, stateBlock ?? ""];
+  const cleaned = stripInternalState(rawReply, injected);
   if (cleaned !== rawReply) {
     console.error("[chat] internal state in model output", {
       sessionId,
@@ -691,7 +697,7 @@ const mediaInstruction = buildMediaInstruction(mediaDecision);
     cleaned === null ? SAFE_FALLBACK : enforceSingleQuestion(stripMarkup(cleaned));
 
   // Belt and braces: whatever happened above, nothing internal is served.
-  const reply = containsInternalState(candidate) ? SAFE_FALLBACK : candidate;
+  const reply = containsInternalState(candidate, injected) ? SAFE_FALLBACK : candidate;
 
   const media = mediaDecision.send
     ? { url: mediaDecision.url, type: mediaDecision.type }

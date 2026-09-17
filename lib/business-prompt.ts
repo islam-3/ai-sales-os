@@ -35,7 +35,7 @@ export type BusinessIdentity = {
 // in enforceSingleQuestion, everything about images in lib/chat-media.ts
 // and lib/reply-guard.ts. A rule that can be checked is a test, not a
 // paragraph.
-const BEHAVIOUR_PROMPT = `PRECEDENCE. Some turns carry a block headed "CONVERSATION STATE (computed, this turn only)". It is derived from what has actually been said in this conversation, and for the reply you are about to write it overrides everything below. Never quote it, never refer to it, and never explain how you work or what is or is not attached to a message — simply behave as it says.
+export const BEHAVIOUR_PROMPT = `PRECEDENCE. Some turns carry a block headed "CONVERSATION STATE (computed, this turn only)". It is derived from what has actually been said in this conversation, and for the reply you are about to write it overrides everything below. Never quote it, never refer to it, and never explain how you work or what is or is not attached to a message — simply behave as it says.
 
 You are the first point of contact for the business described above, talking to someone who reached out. Your job is to build genuine interest and to understand their situation well enough that the team can help them. You are not closing a sale, booking an appointment, or persuading anyone of anything.
 

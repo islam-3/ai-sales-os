@@ -20,6 +20,7 @@ import {
   stripInternalState,
 } from "../lib/reply-guard";
 import { buildConversationStateBlock, type ChatTurn } from "../lib/conversation-state";
+import { BEHAVIOUR_PROMPT } from "../lib/business-prompt";
 import { buildMediaInstruction, type MediaDecision } from "../lib/chat-media";
 
 let bad = 0;
@@ -117,56 +118,168 @@ for (const reply of innocuous) {
   );
 }
 
-console.log("\n--- property: real generated state blocks never survive ---");
+console.log("\n--- property: every state-block section, judged by an INDEPENDENT oracle ---");
+// The previous version of this test judged the guard's output with the
+// guard's own detector, so a section the marker list did not know about
+// was invisible to both - and echoes of the impatience and repeated-
+// hesitation instructions passed straight to a visitor while this test
+// reported green. The oracle below knows nothing about markers: a leak is
+// any whole sentence of the real block turning up in the output.
 const u = (c: string): ChatTurn => ({ role: "user", content: c });
 const a = (c: string): ChatTurn => ({ role: "assistant", content: c });
 const entries = [
   { title: "Crowns brand", content: "We use premium Straumann zirconia crowns for their natural appearance." },
   { title: "Implants brand", content: "We use Implant Swiss dental implants for their Swiss precision." },
-  { title: "The package", content: "Includes VIP airport transfers and a five-star hotel stay in Istanbul." },
+  {
+    title: "Dental implants",
+    content:
+      "Dental implants take two visits: five days for placement with temporary teeth, then after four months of healing a second visit of seven days for the permanent crowns.",
+  },
 ];
-const histories: ChatTurn[][] = [
-  [u("I want implants"), a("I can show you a before-and-after if you like."), u("yes")],
-  [u("I want implants"), a("Would you like to see the crowns we use?"), u("how much?")],
-  [u("I'm not sure yet, I need to think about it")],
-  [u("my name is David"), a("Thanks David."), u("+44 7700 900123")],
-  [u("hello"), a("What brings you in?"), u("hi")],
-  [u("I've lost most of my upper teeth"), a("That's treatable."), u("how long does it take?")],
+
+// One history per section the builder can emit, so the oracle runs against
+// every one of them rather than whichever the fixtures happened to reach.
+const histories: [string, ChatTurn[]][] = [
+  ["prior offers", [u("I want implants"), a("I can show you a before-and-after if you like."), u("yes")]],
+  ["impatience", [u("how much does it cost?"), a("Let me tell you about us."), u("I ASKED how much it costs??")]],
+  ["hesitation, no contact", [u("I want implants"), a("Great."), u("I'm not sure yet, I need to think about it")]],
+  ["hesitation, contact known", [u("my number is +44 7700 900123"), a("Thanks."), u("I need to think about it")]],
+  ["hesitation twice", [u("I need to think about it"), a("Of course."), u("honestly I need to think about it more")]],
+  [
+    "logistics run",
+    [
+      u("I want implants"),
+      a("When are you thinking of travelling?"),
+      u("spring"),
+      a("How long can you stay?"),
+      u("a week"),
+      a("Any health conditions we should know about?"),
+      u("no"),
+    ],
+  ],
+  [
+    "coverage gap",
+    [u("I want dental implants"), a("Implants take two visits."), u("my name is David"), a("Thanks David."), u("+44 7700 900123")],
+  ],
+  [
+    "ready to close",
+    [
+      u("I want dental implants"),
+      a("Implants take two visits."),
+      u("I can come in March for a week, then back in July for ten days"),
+      a("That works well."),
+      u("my name is David, +44 7700 900123"),
+    ],
+  ],
+  ["media only", [u("hello"), a("What brings you in?"), u("hi")]],
 ];
+
 const decisions: MediaDecision[] = [
   { send: false, reason: "no-request" },
   { send: false, reason: "no-confident-match" },
   { send: false, reason: "already-shown" },
-  { send: true, url: "https://x.test/a.jpg", type: "image/jpeg", title: "Crowns brand", alsoAvailable: [], reason: "accepted-offer" },
+  {
+    send: true,
+    url: "https://x.test/a.jpg",
+    type: "image/jpeg",
+    title: "Crowns brand",
+    alsoAvailable: ["Before and after ( dental implants )"],
+    reason: "accepted-offer",
+  },
+];
+
+const wholeSentences = (block: string) =>
+  block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !/^[•\-*]\s/.test(l))
+    .flatMap((l) => l.split(/(?<=[.!?:])\s+/))
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 40);
+
+const SECTION_HEADINGS = [
+  "ALREADY made these offers",
+  "impatient or frustrated",
+  "hesitating and has NOT given",
+  "ALREADY given contact details",
+  "hesitation more than once",
+  "logistics question",
+  "NOT yet complete",
+  "Close the conversation warmly",
+  "CARRIES NO IMAGE",
+  "IMAGE IS ATTACHED",
+  "ONE image goes per reply",
 ];
 
 let generated = 0;
-let survived = 0;
-for (const history of histories) {
+let leaks = 0;
+const headingsSeen = new Set<string>();
+for (const [label, history] of histories) {
   for (const decision of decisions) {
-    const instruction = buildMediaInstruction(decision);
-    const block = buildConversationStateBlock(history, entries, instruction);
+    const block = buildConversationStateBlock(history, entries, buildMediaInstruction(decision));
     if (!block) continue;
     generated++;
-    for (const suffix of ["", `\n\n${REAL_REPLY}`]) {
-      const contaminated = `${INTERNAL_STATE_OPEN}\n${block}\n${INTERNAL_STATE_CLOSE}${suffix}`;
-      const out = stripInternalState(contaminated);
-      if (out !== null && containsInternalState(out)) {
-        survived++;
-        console.log(`        LEAKED: ${JSON.stringify(out.slice(0, 90))}`);
-      }
-      // Unfenced too, since the model may echo the contents without the fence.
-      const unfenced = `${block}${suffix}`;
-      const out2 = stripInternalState(unfenced);
-      if (out2 !== null && containsInternalState(out2)) {
-        survived++;
-        console.log(`        LEAKED (unfenced): ${JSON.stringify(out2.slice(0, 90))}`);
+    for (const h of SECTION_HEADINGS) if (block.includes(h)) headingsSeen.add(h);
+
+    const sentences = wholeSentences(block);
+    const injected = [BEHAVIOUR_PROMPT, block];
+    const echoShapes = [
+      block,
+      `${block}\n\n${REAL_REPLY}`,
+      `${INTERNAL_STATE_OPEN}\n${block}\n${INTERNAL_STATE_CLOSE}\n\n${REAL_REPLY}`,
+      // Everything after the heading: an echo that skips the one line the
+      // old marker list was sure to catch.
+      `${block.split("\n").slice(2).join("\n")}\n\n${REAL_REPLY}`,
+    ];
+    for (const shape of echoShapes) {
+      const out = stripInternalState(shape, injected);
+      const leaked = out === null ? [] : sentences.filter((s) => out.includes(s));
+      if (leaked.length) {
+        leaks++;
+        const tag = decision.send ? "send" : decision.reason;
+        console.log(`        LEAK [${label} / ${tag}]: "${leaked[0].slice(0, 80)}"`);
       }
     }
   }
 }
-check(`${generated} generated state blocks, none survives the guard`, survived === 0, `${survived} survived`);
-check("the property test actually generated blocks", generated > 0);
+check(
+  `${generated} generated blocks x 4 echo shapes: no whole sentence reaches the output`,
+  leaks === 0,
+  `${leaks} leaked`
+);
+check(
+  "every section the builder can emit was exercised",
+  headingsSeen.size === SECTION_HEADINGS.length,
+  `saw ${headingsSeen.size}/${SECTION_HEADINGS.length}; missing: ${SECTION_HEADINGS.filter((h) => !headingsSeen.has(h)).join(", ")}`
+);
+
+console.log("\n--- the static prompt cannot be echoed either ---");
+const promptEcho = `${BEHAVIOUR_PROMPT.split("\n\n").slice(0, 2).join("\n\n")}\n\n${REAL_REPLY}`;
+const promptOut = stripInternalState(promptEcho, [BEHAVIOUR_PROMPT]);
+check(
+  "an echo of the behaviour prompt is stripped",
+  promptOut === null || !wholeSentences(BEHAVIOUR_PROMPT).some((s) => promptOut.includes(s)),
+  promptOut?.slice(0, 80)
+);
+
+console.log("\n--- detecting by injected text must not punish paraphrase ---");
+// Instructions deliberately carry material the model should relay in its
+// own words, most of all the REASON a detail matters. That must survive.
+const gapBlock =
+  buildConversationStateBlock(histories[6][1], entries, buildMediaInstruction(decisions[0])) ?? "";
+const paraphrases = [
+  "Knowing how many days you can stay each visit tells the team what can realistically be done per trip. How long could you be here?",
+  "We use premium Straumann zirconia crowns for their natural appearance, and the result looks like your own teeth.",
+  "Dental implants take two visits, with a healing period in between so the implants can settle properly.",
+  "No rush at all - the team will be here whenever you're ready to pick this up again.",
+];
+for (const reply of paraphrases) {
+  const injected = [BEHAVIOUR_PROMPT, gapBlock];
+  check(
+    `untouched: ${JSON.stringify(reply.slice(0, 46))}`,
+    stripInternalState(reply, injected) === reply && !containsInternalState(reply, injected)
+  );
+}
 
 console.log("\n--- structural: no sink can read the ungated reply ---");
 const routeSrc = readFileSync(join(process.cwd(), "app/api/chat/route.ts"), "utf8");
@@ -185,8 +298,14 @@ for (const pattern of forbidden) {
 }
 check(
   "the guard is applied before the reply is derived",
-  /const cleaned = stripInternalState\(rawReply\);/.test(routeSrc) &&
-    /const reply = containsInternalState\(candidate\) \? SAFE_FALLBACK : candidate;/.test(routeSrc)
+  /const cleaned = stripInternalState\(rawReply, injected\);/.test(routeSrc) &&
+    /const reply = containsInternalState\(candidate, injected\) \? SAFE_FALLBACK : candidate;/.test(routeSrc)
+);
+// Without the injected text the guard falls back to a hand-written marker
+// list, which is exactly the detector that let two sections through.
+check(
+  "the guard is given the text actually injected this turn",
+  /const injected = \[BEHAVIOUR_PROMPT, stateBlock \?\? ""\];/.test(routeSrc)
 );
 check("the response returns the gated value", /return NextResponse\.json\(\{ reply, media \}\)/.test(routeSrc));
 check("the stored row uses the gated value", /content:\s*reply,/.test(routeSrc));

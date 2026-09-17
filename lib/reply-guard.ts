@@ -65,9 +65,67 @@ const REASONING_MARKERS: RegExp[] = [
 
 const hits = (text: string, patterns: RegExp[]) => patterns.some((p) => p.test(text));
 
-/** Whether a reply contains anything that was meant only for the model. */
-export function containsInternalState(text: string): boolean {
-  return hits(text, INTERNAL_MARKERS);
+/** Comparable form: case, quote style, dashes and spacing all flattened. */
+function normalise(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Whole sentences from text we injected, long enough to be unmistakable.
+ *
+ * This is the detector the marker list could never be. The list was
+ * written by hand from the sections that existed at the time, so every
+ * section added later was invisible to it: an echo of the impatience or
+ * repeated-hesitation instructions passed through to a visitor while the
+ * guard reported the reply clean, and the property test agreed, because it
+ * judged the output with the same list.
+ *
+ * Matching against what was actually sent cannot drift. Whole sentences
+ * only, because the instructions deliberately contain material the model
+ * is meant to relay in its own words — a coverage gap carries the reason
+ * a detail matters, and the reply should give that reason. A shared
+ * phrase is expected; a whole sentence of our instructions is not.
+ *
+ * Bullet lines are skipped. They quote the assistant's own earlier offers
+ * back to it, and repeating its own sentence is a repetition problem, not
+ * a leak.
+ */
+function injectedSentences(injected: string[]): string[] {
+  const sentences: string[] = [];
+  for (const block of injected) {
+    for (const line of block.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || /^[•\-*]\s/.test(trimmed)) continue;
+      for (const sentence of trimmed.split(/(?<=[.!?:])\s+/)) {
+        const flat = normalise(sentence);
+        if (flat.length >= 40) sentences.push(flat);
+      }
+    }
+  }
+  return sentences;
+}
+
+const echoes = (text: string, sentences: string[]) => {
+  if (sentences.length === 0) return false;
+  const flat = normalise(text);
+  return sentences.some((sentence) => flat.includes(sentence));
+};
+
+/**
+ * Whether a reply contains anything that was meant only for the model.
+ *
+ * Pass `injected` — the instruction text actually sent this turn — on
+ * every real call. The marker list alone is a fallback that is known to
+ * be incomplete.
+ */
+export function containsInternalState(text: string, injected: string[] = []): boolean {
+  return hits(text, INTERNAL_MARKERS) || echoes(text, injectedSentences(injected));
 }
 
 /**
@@ -104,14 +162,12 @@ function isMostlyBullets(text: string): boolean {
  * Trimming from the front preserves whole sentences; cutting inside a
  * paragraph would leave fragments that read as bugs of their own.
  */
-export function stripInternalState(text: string): string | null {
-  if (
-    !containsInternalState(text) &&
-    !hits(text, REASONING_MARKERS) &&
-    !isMostlyBullets(text)
-  ) {
-    return text;
-  }
+export function stripInternalState(text: string, injected: string[] = []): string | null {
+  const sentences = injectedSentences(injected);
+  const internal = (chunk: string) =>
+    hits(chunk, INTERNAL_MARKERS) || hits(chunk, REASONING_MARKERS) || echoes(chunk, sentences);
+
+  if (!internal(text) && !isMostlyBullets(text)) return text;
 
   const paragraphs = text.split(/\n\n+/);
 
@@ -120,11 +176,7 @@ export function stripInternalState(text: string): string | null {
   let start = 0;
   while (start < paragraphs.length) {
     const paragraph = paragraphs[start];
-    const isInternal =
-      hits(paragraph, INTERNAL_MARKERS) ||
-      hits(paragraph, REASONING_MARKERS) ||
-      /^\s*[•\-*]\s/m.test(paragraph);
-    if (!isInternal) break;
+    if (!internal(paragraph) && !/^\s*[•\-*]\s/m.test(paragraph)) break;
     start += 1;
   }
 
@@ -133,7 +185,7 @@ export function stripInternalState(text: string): string | null {
   // Whatever survived must be clean, non-trivial prose. Anything else is
   // discarded: showing half a leak is still showing a leak.
   if (!kept) return null;
-  if (containsInternalState(kept) || hits(kept, REASONING_MARKERS)) return null;
+  if (internal(kept)) return null;
   if (isMostlyBullets(kept)) return null;
   if (kept.length < 40) return null;
 
