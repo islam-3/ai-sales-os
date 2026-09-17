@@ -28,9 +28,17 @@ const TURNS = [
   "ok thanks, that's really helpful",
 ];
 
-/** A question asking about the person, rather than extracting a field. */
+/**
+ * A question asking about the person, rather than extracting a field.
+ *
+ * The first version matched "what made you" and missed "what's made you"
+ * and "what made now the moment", so it reported 0% on a run where five
+ * of five turn-2 replies asked exactly that. A metric that under-reports
+ * the thing you changed is worse than none, so the variants are spelled
+ * out.
+ */
 const ABOUT_THEM =
-  /\b(?:what (?:was|has|were) (?:that|it|they)\b|how (?:has|did) (?:that|it|you)\b|what(?:'s| is| has) that been like|how are you feeling|what made you|what's held you back|hardest part|how do you feel|been like for you|what changed)\b/i;
+  /\bwhat(?:'s| has)? made (?:you|now|this)\b|\bwhat (?:was|has|were) (?:that|it|they) (?:been )?like\b|\bwhat(?:'s| is| has) that been like\b|\bhow (?:has|did) (?:that|it) (?:been|feel|affect)\b|\bhow (?:are|do) you feel\b|\bhardest part\b|\bwhat (?:are|were) you hoping\b|\bwhat would (?:it|that) mean (?:to|for) you\b|\bwhat(?:'s| has) held you back\b/i;
 
 type Shape = { paras: number; words: number; endsQ: boolean; qs: number; aboutThem: boolean };
 

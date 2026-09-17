@@ -740,6 +740,108 @@ export function countRecentLogisticsQuestions(history: ChatTurn[]): number {
     .filter((t) => t.content.includes("?") && LOGISTICS_QUESTION.test(t.content)).length;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Reply shape
+//
+// Every reply in a twelve-turn conversation had the same shape, and
+// telling the model to "let your replies look different" did nothing
+// measurable — like every other soft instruction about form this codebase
+// has tried. Shape is countable, so it is counted: the last two replies
+// are measured and, when they match, the model is told so as a fact, with
+// the specific change that would break the pattern.
+// ─────────────────────────────────────────────────────────────────────
+
+export type ReplyShape = {
+  /** 3 stands for three or more. */
+  paragraphs: 1 | 2 | 3;
+  endsWithQuestion: boolean;
+  length: "short" | "medium" | "long";
+  words: number;
+};
+
+/** Word counts that bound the length bands, taken from measured replies (mean 65, sd 32). */
+const SHORT_MAX_WORDS = 35;
+const MEDIUM_MAX_WORDS = 90;
+
+export function shapeOf(text: string): ReplyShape {
+  const trimmed = text.trim();
+  const paragraphCount = trimmed.split(/\n\s*\n+/).filter((p) => p.trim()).length;
+  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  return {
+    paragraphs: paragraphCount >= 3 ? 3 : paragraphCount <= 1 ? 1 : 2,
+    endsWithQuestion: /\?\s*$/.test(trimmed),
+    length: words <= SHORT_MAX_WORDS ? "short" : words <= MEDIUM_MAX_WORDS ? "medium" : "long",
+    words,
+  };
+}
+
+/**
+ * The shape the assistant's last two replies share, or null when they
+ * differ.
+ *
+ * They match on paragraph count and on whether they end in a question —
+ * the two things a reader actually registers as sameness. Length band is
+ * reported but not required to match, because 60 and 95 words in the same
+ * two-paragraphs-then-a-question mould read as the same reply twice, and
+ * requiring the band too would hide exactly that.
+ *
+ * The opening greeting is not a reply and is not counted.
+ */
+export function detectRepeatedShape(
+  history: ChatTurn[]
+): { shape: ReplyShape; previous: ReplyShape } | null {
+  const firstUser = history.findIndex((t) => t.role === "user");
+  if (firstUser < 0) return null;
+
+  const replies = history.slice(firstUser).filter((t) => t.role === "assistant");
+  if (replies.length < 2) return null;
+
+  const previous = shapeOf(replies[replies.length - 2].content);
+  const shape = shapeOf(replies[replies.length - 1].content);
+
+  if (shape.paragraphs !== previous.paragraphs) return null;
+  if (shape.endsWithQuestion !== previous.endsWithQuestion) return null;
+  return { shape, previous };
+}
+
+/**
+ * The concrete changes that would break a repeated shape, or none.
+ *
+ * Specific rather than "vary it", because the vague version is the one
+ * that was measured doing nothing. A question is never taken away when
+ * the conversation needs one — a coverage gap has to be asked about, and
+ * form does not outrank substance.
+ */
+export function shapeChanges(repeated: ReplyShape, previous: ReplyShape, questionNeeded: boolean): string[] {
+  const changes: string[] = [];
+  if (repeated.endsWithQuestion && !questionNeeded) {
+    changes.push("end it on a statement rather than a question");
+  }
+  if (repeated.paragraphs >= 2) {
+    changes.push("keep it to a single paragraph");
+  }
+  if (repeated.length === "long" && previous.length === "long") {
+    changes.push("make it clearly shorter than the last two");
+  }
+  if (
+    changes.length === 0 &&
+    repeated.endsWithQuestion &&
+    repeated.length === "short" &&
+    previous.length === "short"
+  ) {
+    // Two bare questions in a row, and another is needed: the pattern to
+    // break is the bareness, not the question.
+    changes.push("give the question a sentence of substance before it rather than asking it on its own");
+  }
+  return changes;
+}
+
+function describeShape(shape: ReplyShape): string {
+  const paragraphs =
+    shape.paragraphs === 1 ? "a single paragraph" : shape.paragraphs === 2 ? "two paragraphs" : "three or more paragraphs";
+  return `${paragraphs} ${shape.endsWithQuestion ? "ending in a question" : "ending on a statement"}`;
+}
+
 /**
  * Whether closing has become likely — contact details given, or a photo
  * sent. This is the moment the coverage check has to bite, and it is
@@ -799,12 +901,27 @@ export function buildConversationStateBlock(
     contactKnown &&
     userTurns >= MIN_TURNS_BEFORE_CLOSING;
 
+  // Form only matters once substance is settled. Impatience, hesitation
+  // and closing each already dictate what the reply must look like — a
+  // direct answer, a warm step back, a sign-off — and a note about
+  // paragraph counts on top of those is noise at best and a contradiction
+  // at worst.
+  const repeated =
+    impatience.impatient || hesitation.hesitating || readyToClose
+      ? null
+      : detectRepeatedShape(history);
+  const breakShape = repeated
+    ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0)
+    : [];
+
   if (
     offers.length === 0 &&
     !impatience.impatient &&
     !hesitation.hesitating &&
     gaps.length === 0 &&
     !readyToClose &&
+    logisticsRun < 2 &&
+    breakShape.length === 0 &&
     !mediaInstruction
   ) {
     return null;
@@ -859,6 +976,17 @@ export function buildConversationStateBlock(
     lines.push(
       "",
       `Your last ${logisticsRun} replies each ended in a logistics question — dates, length of stay, health, travel. Do not ask another one in this reply. Tell them something worth knowing about the business instead, and let the next detail come up naturally afterwards.`
+    );
+  }
+
+  if (repeated && breakShape.length > 0) {
+    const { shape, previous } = repeated;
+    const [first, ...rest] = breakShape;
+    const change = [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(", and ");
+    lines.push(
+      "",
+      `Your last two replies had the same shape as each other: ${describeShape(shape)}, at ${previous.words} and ${shape.words} words. Give this reply a different shape — ${change}.`,
+      "This is about form only. Say whatever this moment actually needs; just do not say it in that same mould a third time."
     );
   }
 

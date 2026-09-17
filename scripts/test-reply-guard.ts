@@ -172,6 +172,16 @@ const histories: [string, ChatTurn[]][] = [
     ],
   ],
   ["media only", [u("hello"), a("What brings you in?"), u("hi")]],
+  [
+    "repeated reply shape",
+    [
+      u("hi, I'm looking at implants"),
+      a("We do a great deal of implant work here.\n\nWhat has brought you to look into it now?"),
+      u("ok"),
+      a("Most cases take two visits in total.\n\nWhat matters most to you about the result?"),
+      u("right"),
+    ],
+  ],
 ];
 
 const decisions: MediaDecision[] = [
@@ -209,6 +219,7 @@ const SECTION_HEADINGS = [
   "CARRIES NO IMAGE",
   "IMAGE IS ATTACHED",
   "ONE image goes per reply",
+  "same shape as each other",
 ];
 
 let generated = 0;
