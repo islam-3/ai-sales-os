@@ -40,7 +40,20 @@ const TURNS = [
 const ABOUT_THEM =
   /\bwhat(?:'s| has)? made (?:you|now|this)\b|\bwhat (?:was|has|were) (?:that|it|they) (?:been )?like\b|\bwhat(?:'s| is| has) that been like\b|\bhow (?:has|did) (?:that|it) (?:been|feel|affect)\b|\bhow (?:are|do) you feel\b|\bhardest part\b|\bwhat (?:are|were) you hoping\b|\bwhat would (?:it|that) mean (?:to|for) you\b|\bwhat(?:'s| has) held you back\b/i;
 
-type Shape = { paras: number; words: number; endsQ: boolean; qs: number; aboutThem: boolean };
+/** The assistant offering to show something, in the phrasings it actually uses. */
+const OFFERS_PHOTO =
+  /\b(?:would you like to see|want to see|can i show you|i can show you|like me to show you|would it help to see|shall i show you|happy to show you)\b/i;
+
+type Shape = {
+  paras: number;
+  words: number;
+  endsQ: boolean;
+  qs: number;
+  aboutThem: boolean;
+  offer: boolean;
+  image: boolean;
+  fallback: boolean;
+};
 
 async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
   const sessionId = crypto.randomUUID();
@@ -53,7 +66,7 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
       body: JSON.stringify({ message: TURNS[i], sessionId, slug: SLUG }),
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-    const { reply } = (await res.json()) as { reply: string };
+    const { reply, media } = (await res.json()) as { reply: string; media: unknown };
     if (i === 1) tenYear = reply;
     shapes.push({
       paras: reply.split(/\n\n+/).filter(Boolean).length,
@@ -61,6 +74,9 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
       endsQ: /\?\s*$/.test(reply.trim()),
       qs: (reply.match(/\?/g) ?? []).length,
       aboutThem: ABOUT_THEM.test(reply),
+      offer: OFFERS_PHOTO.test(reply),
+      image: !!media,
+      fallback: /could you say that once more/i.test(reply),
     });
   }
   return { shapes, tenYear };
@@ -91,6 +107,9 @@ const sd = (xs: number[]) => {
   console.log(`  paragraph spread (sd): ${sd(paras).toFixed(2)}`);
   console.log(`  asks about THEM      : ${pct(all.filter((s) => s.aboutThem).length)}`);
   console.log(`  >1 question          : ${pct(all.filter((s) => s.qs > 1).length)}`);
+  console.log(`  photo offers made    : ${all.filter((s) => s.offer).length} of ${all.length}`);
+  console.log(`  images delivered     : ${all.filter((s) => s.image).length}`);
+  console.log(`  guard fallbacks      : ${all.filter((s) => s.fallback).length}`);
 
   console.log(`\n  TURN 2 — "ten years without teeth":`);
   results.forEach((r, i) => console.log(`\n   [${i + 1}] ${r.tenYear.replace(/\n/g, "\n       ")}`));

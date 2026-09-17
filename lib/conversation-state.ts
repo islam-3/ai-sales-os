@@ -869,7 +869,9 @@ export function buildConversationStateBlock(
   history: ChatTurn[],
   entries: KnowledgeEntryLike[] = [],
   /** Ready-made media instruction from lib/chat-media.ts, or null. */
-  mediaInstruction: string | null = null
+  mediaInstruction: string | null = null,
+  /** Ready-made instruction to offer a specific photo, from lib/chat-media.ts, or null. */
+  photoOffer: string | null = null
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = detectImpatience(history);
@@ -910,9 +912,30 @@ export function buildConversationStateBlock(
     impatience.impatient || hesitation.hesitating || readyToClose
       ? null
       : detectRepeatedShape(history);
-  const breakShape = repeated
-    ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0)
-    : [];
+  // An offer suggested this turn only stands while no brake is on — the
+  // suggestion already checks, and this is checked again so the block can
+  // never say "offer a photo" beside "do not make any offer".
+  const offerPhoto =
+    photoOffer && !impatience.impatient && !hesitation.hesitating && !readyToClose ? photoOffer : null;
+
+  // A photo offer is a question, and it is a legitimate change of shape:
+  // offering to show something is a different kind of reply from
+  // information followed by an extraction question. But it is only a
+  // suggestion - the model takes it up when it fits - so the statement
+  // nudge is kept and the offer is carved out as its one exception.
+  //
+  // Dropping the nudge outright whenever an offer was suggested was
+  // measured doing harm: question endings rose from 56% to 69% in two
+  // separate samples, while offers accounted for about three replies in
+  // thirty-six. The nudge had vanished on every eligible turn where the
+  // model chose not to offer.
+  const breakShape = (
+    repeated ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0) : []
+  ).map((change) =>
+    offerPhoto && change === "end it on a statement rather than a question"
+      ? "end it on a statement rather than a question, unless you close with the photo offer described below"
+      : change
+  );
 
   if (
     offers.length === 0 &&
@@ -922,6 +945,7 @@ export function buildConversationStateBlock(
     !readyToClose &&
     logisticsRun < 2 &&
     breakShape.length === 0 &&
+    !offerPhoto &&
     !mediaInstruction
   ) {
     return null;
@@ -988,6 +1012,10 @@ export function buildConversationStateBlock(
       `Your last two replies had the same shape as each other: ${describeShape(shape)}, at ${previous.words} and ${shape.words} words. Give this reply a different shape — ${change}.`,
       "This is about form only. Say whatever this moment actually needs; just do not say it in that same mould a third time."
     );
+  }
+
+  if (offerPhoto) {
+    lines.push("", offerPhoto);
   }
 
   if (impatience.impatient) {

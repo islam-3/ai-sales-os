@@ -29,7 +29,11 @@ import {
   ACCEPTANCE_CUES,
   CONVERSATIONAL_FILLER,
   OFFER_CUES,
+  assessCaseSignificance,
   contentWords,
+  detectEngagement,
+  hasAlreadyClosed,
+  isNearingClose,
   sentencesOf,
   type ChatTurn,
 } from "./conversation-state";
@@ -524,6 +528,90 @@ function resolveEntry(
     namedSomething,
     alsoMatched: acceptedAll ? otherMatches(first.entry) : [],
   };
+}
+
+/** A photo worth offering this turn, named by its entry title. */
+export type PhotoOffer = { title: string };
+
+/**
+ * A photo the reply could offer, unprompted, or null.
+ *
+ * Offers had fallen to about one reply in eighteen once the per-turn list
+ * of offerable titles was removed, and a real before-and-after is the
+ * strongest thing this product has for building interest. But an offer
+ * bolted onto every reply is the bolt-on pattern all over again, so this
+ * fires only when every one of these is a fact:
+ *
+ *   - they have said enough to know what they came for (two messages)
+ *   - their latest message is not a question: when they have asked
+ *     something, answering it is the whole reply
+ *   - they are engaged, which already rules out impatience and hesitation
+ *   - the case is significant rather than a small booking
+ *   - nothing is closing: no contact details, no photo, no sign-off yet
+ *   - neither of the last two replies made an offer of any kind
+ *   - a photo relevant to what THEY said is unshown and not yet offered
+ *
+ * It is still only an offer. The image goes only if they accept, through
+ * decideMedia and every guard it has, so the mismatch risk stays closed.
+ */
+export function suggestPhotoOffer(
+  history: ChatTurn[],
+  entries: MediaCandidate[],
+  alreadySent: ReadonlySet<string> = new Set()
+): PhotoOffer | null {
+  const visitorTurns = history.filter((t) => t.role === "user");
+  if (visitorTurns.length < 2) return null;
+  if (visitorTurns[visitorTurns.length - 1].content.includes("?")) return null;
+
+  if (!detectEngagement(history).engaged) return null;
+  if (hasAlreadyClosed(history) || isNearingClose(history)) return null;
+  if (assessCaseSignificance(history, entries) !== "significant") return null;
+
+  const assistantTurns = history.filter((t) => t.role === "assistant");
+  const offersIn = (turns: ChatTurn[]) =>
+    turns.flatMap((t) => sentencesOf(t.content).filter(isOfferSentence));
+  if (offersIn(assistantTurns.slice(-2)).length > 0) return null;
+
+  // Relevant to what the visitor said, which also scopes by treatment: an
+  // implant patient scores zero against the Hollywood-smile cases.
+  const visitorWords = visitorTurns.map((t) => t.content).join(" ");
+  const relevant = rankByRequest(visitorWords, entries).filter(
+    (r) =>
+      r.entry.media.length > 0 &&
+      r.score >= MEDIA_MATCH_THRESHOLD &&
+      r.entry.media.some((m) => !alreadySent.has(m.url))
+  );
+  if (relevant.length === 0) return null;
+
+  // Never the same photo twice, however it was worded the first time.
+  const earlierOffers = offersIn(assistantTurns).join(" ");
+  const alreadyOffered = new Set(
+    earlierOffers
+      ? rankByRequest(earlierOffers, entries)
+          .filter((r) => r.score >= MEDIA_MATCH_THRESHOLD)
+          .map((r) => r.entry)
+      : []
+  );
+  const fresh = relevant.find((r) => !alreadyOffered.has(r.entry));
+  return fresh ? { title: fresh.entry.title } : null;
+}
+
+/**
+ * What the model is told about an offer it may make, or null.
+ *
+ * The entry title is given as a label to understand, never as words to
+ * say: titles are written by the business, and for at least one tenant
+ * they are SEO headings. The model is also asked to name the subject
+ * plainly, because acceptance is matched against the wording of its
+ * offer — "one of our full-mouth implant cases, before and after" can be
+ * resolved to a photo, "a transformation like yours" cannot.
+ */
+export function buildPhotoOfferInstruction(offer: PhotoOffer | null): string | null {
+  if (!offer) return null;
+  return [
+    `A photo relevant to what they have told you has not been shown or offered yet. For your understanding only, its label is "${offer.title}".`,
+    "If it fits what they have just said, close this reply by offering to show it — one short question, in your own words, naming plainly what it shows (the treatment, and whether it is a before-and-after). Never repeat that label to them, and never write as though the photo is already in front of them: it is attached only if they say yes.",
+  ].join("\n");
 }
 
 export function decideMedia(

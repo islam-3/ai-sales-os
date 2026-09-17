@@ -10,7 +10,12 @@ import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import { buildConversationStateBlock } from "@/lib/conversation-state";
-import { buildMediaInstruction, decideMedia } from "@/lib/chat-media";
+import {
+  buildMediaInstruction,
+  buildPhotoOfferInstruction,
+  decideMedia,
+  suggestPhotoOffer,
+} from "@/lib/chat-media";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import {
   INTERNAL_STATE_CLOSE,
@@ -606,22 +611,29 @@ export async function POST(req: NextRequest) {
 
   // The single media decision, made here and nowhere else. The model is
   // told what is attached; it has no way to send anything itself.
-  const mediaDecision = decideMedia(
-    turnsWithLatest,
-    knowledgeEntries.map((e) => ({
-      title: e.title,
-      content: e.content,
-      media: e.media,
-    })),
-    alreadySent
-  );
+  const mediaCandidates = knowledgeEntries.map((e) => ({
+    title: e.title,
+    content: e.content,
+    media: e.media,
+  }));
 
-const mediaInstruction = buildMediaInstruction(mediaDecision);
+  const mediaDecision = decideMedia(turnsWithLatest, mediaCandidates, alreadySent);
+
+  const mediaInstruction = buildMediaInstruction(mediaDecision);
+
+  // An unprompted offer is only considered on a turn with no request of
+  // any kind. While the visitor is asking to see something, the answer to
+  // that is the whole job of this reply.
+  const photoOffer =
+    !mediaDecision.send && mediaDecision.reason === "no-request"
+      ? buildPhotoOfferInstruction(suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent))
+      : null;
 
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
-    mediaInstruction
+    mediaInstruction,
+    photoOffer
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by

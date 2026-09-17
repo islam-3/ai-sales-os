@@ -21,7 +21,7 @@ import {
 } from "../lib/reply-guard";
 import { buildConversationStateBlock, type ChatTurn } from "../lib/conversation-state";
 import { BEHAVIOUR_PROMPT } from "../lib/business-prompt";
-import { buildMediaInstruction, type MediaDecision } from "../lib/chat-media";
+import { buildMediaInstruction, buildPhotoOfferInstruction, type MediaDecision } from "../lib/chat-media";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail?: string) => {
@@ -220,6 +220,7 @@ const SECTION_HEADINGS = [
   "IMAGE IS ATTACHED",
   "ONE image goes per reply",
   "same shape as each other",
+  "has not been shown or offered yet",
 ];
 
 let generated = 0;
@@ -227,7 +228,10 @@ let leaks = 0;
 const headingsSeen = new Set<string>();
 for (const [label, history] of histories) {
   for (const decision of decisions) {
-    const block = buildConversationStateBlock(history, entries, buildMediaInstruction(decision));
+    // A photo offer is passed on every block: the builder keeps it where it
+    // stands and drops it under a brake, so both paths are exercised.
+    const photoOffer = buildPhotoOfferInstruction({ title: "Before and after ( dental implants )" });
+    const block = buildConversationStateBlock(history, entries, buildMediaInstruction(decision), photoOffer);
     if (!block) continue;
     generated++;
     for (const h of SECTION_HEADINGS) if (block.includes(h)) headingsSeen.add(h);
