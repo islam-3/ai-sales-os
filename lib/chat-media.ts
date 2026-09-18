@@ -669,7 +669,12 @@ export function buildPhotoOfferInstruction(offer: PhotoOffer | null): string | n
   if (!offer) return null;
   return [
     `A photo relevant to what they have told you has not been shown or offered yet. For your understanding only, its label is "${offer.title}".`,
-    "If it fits what they have just said, close this reply by offering to show it — one short question, in your own words, naming plainly what it shows (the treatment, and whether it is a before-and-after). Never repeat that label to them, and never write as though the photo is already in front of them: it is attached only if they say yes.",
+    // Permission, not an instruction to close on a question. The first
+    // version said "close this reply by offering to show it - one short
+    // question", which is an order about the shape of the reply and not
+    // about the photo at all.
+    "Offering it is one thing this reply MAY do, not something it should do. Take it only where it genuinely fits what they have just said — on most turns it will not, and a reply that says nothing about it is exactly right.",
+    "If you do offer it, keep it to one short question in your own words, naming plainly what it shows (the treatment, and whether it is a before-and-after). Never repeat that label to them, and never write as though the photo is already in front of them: it is attached only if they say yes.",
   ].join("\n");
 }
 

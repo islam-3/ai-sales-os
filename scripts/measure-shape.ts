@@ -60,12 +60,22 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
   const shapes: Shape[] = [];
   let tenYear = "";
   for (let i = 0; i < TURNS.length; i++) {
-    const res = await fetch(`${BASE}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: TURNS[i], sessionId, slug: SLUG }),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    // One retry: a single upstream timeout should not throw away a run of
+    // seventy-two calls, and a retried turn measures the same thing.
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      res = await fetch(`${BASE}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: TURNS[i], sessionId, slug: SLUG }),
+      });
+      if (res.ok) break;
+      if (attempt === 0) {
+        console.log(`    (retrying turn ${i + 1} after ${res.status})`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    if (!res || !res.ok) throw new Error(`${res?.status} ${res ? await res.text() : ""}`);
     const { reply, media } = (await res.json()) as { reply: string; media: unknown };
     if (i === 1) tenYear = reply;
     shapes.push({
@@ -110,6 +120,24 @@ const sd = (xs: number[]) => {
   console.log(`  photo offers made    : ${all.filter((s) => s.offer).length} of ${all.length}`);
   console.log(`  images delivered     : ${all.filter((s) => s.image).length}`);
   console.log(`  guard fallbacks      : ${all.filter((s) => s.fallback).length}`);
+
+  // Per turn, because the aggregate hides where a change acts. When the
+  // photo-offer instruction told the model to close on a question, the
+  // aggregate rose ten points while offers accounted for three replies in
+  // thirty-six - so the rest had to come from turns that offered nothing,
+  // and only a per-turn view shows that.
+  console.log(`\n  PER TURN (${RUNS} runs each)`);
+  console.log("    turn   ends on a question   offers   avg paragraphs");
+  for (let i = 0; i < TURNS.length; i++) {
+    const turn = results.map((r) => r.shapes[i]);
+    const q = turn.filter((s) => s.endsQ).length;
+    const offers = turn.filter((s) => s.offer).length;
+    const avgParas = (turn.reduce((n, s) => n + s.paras, 0) / turn.length).toFixed(1);
+    const bar = "#".repeat(q).padEnd(RUNS, ".");
+    console.log(
+      `    ${String(i + 1).padStart(4)}   ${bar} ${String(q).padStart(2)}/${RUNS}          ${offers}        ${avgParas}`
+    );
+  }
 
   console.log(`\n  TURN 2 — "ten years without teeth":`);
   results.forEach((r, i) => console.log(`\n   [${i + 1}] ${r.tenYear.replace(/\n/g, "\n       ")}`));

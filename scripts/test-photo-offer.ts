@@ -169,7 +169,12 @@ check("the next relevant photo is offered instead", next?.title === "Implants br
 console.log("\n--- what the model is told ---");
 const instruction = buildPhotoOfferInstruction(offer)!;
 check("no suggestion, no instruction", buildPhotoOfferInstruction(null) === null);
-check("it is framed as an offer, closing the reply", /close this reply by offering to show it/.test(instruction));
+// Permission, not an order to close on a question: the ordering version
+// raised question endings from 56% to 67% on turns where the model did
+// not even take the offer up.
+check("it is framed as permission", /MAY do, not something it should do/.test(instruction));
+check("it says saying nothing is fine", /says nothing about it is exactly right/.test(instruction));
+check("it does not order the reply to close on the offer", !/close this reply by offering/.test(instruction));
 check("the label is never to be repeated", /Never repeat that label to them/.test(instruction));
 check("it must name the subject plainly, so acceptance can resolve", /naming plainly what it shows/.test(instruction));
 check("it never claims the photo is present", /attached only if they say yes/.test(instruction));
