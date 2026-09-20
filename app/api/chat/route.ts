@@ -16,6 +16,12 @@ import {
   decideMedia,
   suggestPhotoOffer,
 } from "@/lib/chat-media";
+import {
+  GENERATED_LEAD_FIELDS,
+  buildLeadExtractionPrompt,
+  dropUnsupportedNumbers,
+  leadLanguage,
+} from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import {
   INTERNAL_STATE_CLOSE,
@@ -27,11 +33,23 @@ import {
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
-// Lead extraction runs on a smaller model than the conversation itself.
-// It's a constrained task — read a transcript, fill a fixed JSON schema —
-// with no requirement to write well, which is what Sonnet is being paid
-// for on the reply. The reply model is deliberately unchanged.
-const LEAD_EXTRACTION_MODEL = "claude-haiku-4-5-20251001";
+// Lead extraction ran on Haiku while it was only filling a fixed JSON
+// schema from a transcript — a constrained task with no requirement to
+// write well, so the cheaper model was the right call.
+//
+// Writing the lead in the TEAM's language changed that, and measurement
+// moved it back to Sonnet. Haiku followed the language instruction on 2
+// of 4 runs writing Turkish for an English conversation, and 3 of 4
+// writing English for a Turkish one; Sonnet was 4 of 4 on the harder
+// direction. Half the leads in the wrong language is not a feature, and
+// no amount of prompt wording fixed it — moving the rule to the top of
+// the prompt and repeating it at the end left Haiku at 2 of 4.
+//
+// The cost is bounded and known: extraction averages ~1.1k input and
+// ~250 output tokens, uncached, on roughly every third turn. Only the
+// per-token rate changes. Reverting is this one line if that trade stops
+// being worth it.
+const LEAD_EXTRACTION_MODEL = "claude-sonnet-4-6";
 
 // Extraction used to run on every single message, re-reading the whole
 // transcript each time — measured at ~41% of total conversation cost and
@@ -243,23 +261,9 @@ Here is the business's actual information, organized by category. Use these exac
 ${categoryBlocks}`;
 }
 
-const LEAD_EXTRACTION_SYSTEM_PROMPT = `You extract structured lead information from a conversation between a business's chat assistant and a prospective customer. Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
-
-{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null, "ai_summary": string or null, "qualification_score": integer or null}
-
-Only give a field a real value if it was actually mentioned somewhere in the transcript — use null for anything not yet known. Do not guess or infer beyond what was actually said.
-
-- "contact_info" is whatever they gave to be reached — a phone number, WhatsApp number, or email, whichever applies.
-- "main_concern" is what they need or want help with — the reason they got in touch.
-- "priority" is what they said matters most to them, e.g. "quality and price" or "speed".
-- "duration_of_issue" is how long they've had the need or problem, e.g. "a few months", "for years". Null if it doesn't apply to this kind of business.
-- "timeline" is when they're looking to move forward, e.g. "soon", "still exploring".
-- "travel_country" is the country they'd be traveling from, if mentioned.
-- "notes" is any other detail useful to the sales team that doesn't fit the fields above.
-- "ai_summary" is a concise 2-3 sentence briefing written for a sales rep who hasn't read the conversation: who the customer is, what they want, their main concern or objection, and their timeline or intent. Write it fresh each time from the full transcript, not as a diff from a previous summary. Only null if there's genuinely nothing to summarize yet (e.g. the very first message).
-- "qualification_score" is an integer from 0 to 100 estimating how strong and ready this lead is, based on how complete their info is, how clearly they've expressed intent, any urgency they've shown, and how engaged they are in the conversation. Higher means a hotter lead. Only null if there's not yet enough conversation to judge.
-
-Respond with the JSON object only.`;
+// The extraction prompt now depends on the team's language and the
+// business's own service and brand names, so it is built per tenant in
+// lib/lead-language.ts rather than being a constant here.
 
 type ExtractedLead = {
   name: string | null;
@@ -362,15 +366,31 @@ function formatTranscript(turns: { role: string; content: string }[]): string {
 // by the caller — it must never delay the reply shown to the user. Every
 // failure path (API error, unparseable JSON) is caught and logged here so
 // the returned promise always resolves, never rejects.
-async function extractAndSaveLead(sessionId: string, tenantId: string, transcript: string) {
+async function extractAndSaveLead(
+  sessionId: string,
+  tenantId: string,
+  transcript: string,
+  /** The language the team reads leads in. */
+  language: string
+) {
   try {
-    // No output_config here: Haiku 4.5 rejects the `effort` parameter
-    // outright with a 400, unlike Sonnet. Extraction is a short,
-    // schema-constrained task, so there is nothing to tune down anyway.
+    // The transcript handed in here is the visitor's words as they typed
+    // them, and it stays that way: it is stored untranslated by design,
+    // because tone, urgency, hesitation and exact medical wording are all
+    // evidence, and a mistranslated "I have diabetes" is a real risk.
+    // Only what the model writes ABOUT them below is in the team's
+    // language. Reading the visitor's own words in translation is the
+    // intended follow-up — a lead transcript view with an on-demand,
+    // per-message translate action that never writes to storage — not a
+    // gap left here by accident.
+    //
+    // No output_config: extraction is a short, schema-constrained task
+    // with nothing to tune down. (Haiku 4.5 rejected `effort` outright
+    // with a 400; Sonnet accepts it, but it buys nothing here.)
     const response = await anthropic.messages.create({
       model: LEAD_EXTRACTION_MODEL,
       max_tokens: 512,
-      system: LEAD_EXTRACTION_SYSTEM_PROMPT,
+      system: buildLeadExtractionPrompt(language),
       messages: [{ role: "user", content: transcript }],
     });
 
@@ -405,6 +425,27 @@ async function extractAndSaveLead(sessionId: string, tenantId: string, transcrip
     } catch (parseErr) {
       console.error("Failed to parse lead extraction JSON:", parseErr, "raw response:", rawText);
       return;
+    }
+
+    // A number in a generated field that is nowhere in the transcript is
+    // either invented or reformatted, and a wrong price is worse than a
+    // missing one. The prompt asks for these to be carried through
+    // unchanged; this is what checks that it happened.
+    const guarded = dropUnsupportedNumbers(
+      Object.fromEntries(
+        GENERATED_LEAD_FIELDS.map((field) => [field, extracted[field] ?? null])
+      ),
+      transcript
+    );
+    if (guarded.dropped.length > 0) {
+      console.error("[lead] dropped fields with numbers absent from the transcript", {
+        sessionId,
+        tenantId,
+        dropped: guarded.dropped,
+      });
+      for (const { field } of guarded.dropped) {
+        (extracted as Record<string, unknown>)[field] = null;
+      }
     }
 
     // Only fields with a real (non-null) value this pass get written —
@@ -777,7 +818,7 @@ export async function POST(req: NextRequest) {
       { role: "user", content: userContent },
       { role: "assistant", content: reply },
     ]);
-    void extractAndSaveLead(sessionId, tenantId, transcript);
+    void extractAndSaveLead(sessionId, tenantId, transcript, leadLanguage(tenant.settings));
   }
 
   return NextResponse.json({ reply, media });

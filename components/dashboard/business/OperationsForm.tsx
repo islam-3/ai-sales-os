@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard, SectionCardFooter } from "@/components/dashboard/SectionCard";
 import type { TenantSettings } from "@/lib/tenant-settings";
+import { suggestedLeadLanguage } from "@/lib/lead-language";
 import { updateBusinessSettings } from "@/app/dashboard/business/actions";
 
 export function OperationsForm({ initial }: { initial: TenantSettings }) {
@@ -19,6 +20,13 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
   const [languages, setLanguages] = useState(initialLanguages);
   const [serviceArea, setServiceArea] = useState(initial.service_area ?? "");
   const [currency, setCurrency] = useState(initial.currency ?? "");
+  // Pre-filled from the first spoken language the FIRST time this is seen,
+  // as a suggestion the owner can change. Not bound to that field: it
+  // answers a different question, and reordering "languages spoken" must
+  // not silently change the language of every future lead.
+  const [leadLanguage, setLeadLanguage] = useState(
+    initial.lead_language ?? suggestedLeadLanguage(initial)
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -28,7 +36,8 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
     openingHours !== (initial.opening_hours ?? "") ||
     languages !== initialLanguages ||
     serviceArea !== (initial.service_area ?? "") ||
-    currency !== (initial.currency ?? "");
+    currency !== (initial.currency ?? "") ||
+    leadLanguage !== (initial.lead_language ?? suggestedLeadLanguage(initial));
 
   function set<T>(setter: (v: T) => void) {
     return (value: T) => {
@@ -54,6 +63,7 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
           .filter(Boolean),
         service_area: serviceArea,
         currency: currency,
+        lead_language: leadLanguage,
       });
       setSaved(true);
       router.refresh();
@@ -115,6 +125,23 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
             placeholder="e.g. English, Turkish, Arabic"
           />
           <p className="text-xs text-muted-foreground">Separate with commas.</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="lead-language" className="text-xs text-muted-foreground">
+            Language for lead summaries
+          </Label>
+          <Input
+            id="lead-language"
+            value={leadLanguage}
+            onChange={(e) => set(setLeadLanguage)(e.target.value)}
+            placeholder="e.g. English"
+          />
+          <p className="text-xs text-muted-foreground">
+            The language your team reads leads in — summaries, notes and qualification details are
+            written in it. Not the languages the assistant speaks to visitors in. What visitors
+            themselves wrote is always kept in their own words.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

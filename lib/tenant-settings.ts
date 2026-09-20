@@ -15,6 +15,14 @@ export type TenantSettings = {
   /** Free text — real hours are too irregular for a rigid per-day grid. */
   opening_hours?: string;
   languages?: string[];
+  /**
+   * The language the TEAM reads leads in — summaries, qualification
+   * details and notes. Distinct from `languages` above, which is who the
+   * assistant can serve: a clinic may answer visitors in three languages
+   * while its reps work in one. The visitor's own transcript is never
+   * translated regardless.
+   */
+  lead_language?: string;
   contact?: {
     phone?: string;
     whatsapp?: string;
@@ -101,6 +109,9 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
 
   const languages = asStringArray(root.languages);
   if (languages) parsed.languages = languages;
+
+  const leadLanguage = asString(root.lead_language);
+  if (leadLanguage) parsed.lead_language = leadLanguage;
 
   const serviceArea = asString(root.service_area);
   if (serviceArea) parsed.service_area = serviceArea;
