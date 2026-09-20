@@ -23,6 +23,7 @@ import {
   leadLanguage,
 } from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
+import { untracedFigures } from "@/lib/reply-accuracy";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -754,6 +755,28 @@ export async function POST(req: NextRequest) {
 
   // Belt and braces: whatever happened above, nothing internal is served.
   const reply = containsInternalState(candidate, injected) ? SAFE_FALLBACK : candidate;
+
+  // Figures the reply states that the business never did. WATCHING ONLY:
+  // nothing is changed or withheld on the strength of it yet.
+  //
+  // On this path a false positive would cost a whole visible message, not
+  // a hidden field, so the rate and the shape of what it catches are
+  // measured before anything acts on it. The log separates the two cases
+  // that want opposite answers — a price nobody quoted, versus the same
+  // figure rewritten ("5,000" as "5.000", "two visits" as "2 visits").
+  const figureSource = [
+    knowledgeEntries.map((e) => `${e.title} ${e.content}`).join(" "),
+    (history ?? []).map((row) => row.content).join(" "),
+    userContent,
+  ].join(" ");
+  const untraced = untracedFigures(reply, figureSource);
+  if (untraced.length > 0) {
+    console.warn("[chat] figures with no source", {
+      sessionId,
+      tenantId,
+      figures: untraced,
+    });
+  }
 
   const media = mediaDecision.send
     ? { url: mediaDecision.url, type: mediaDecision.type }
