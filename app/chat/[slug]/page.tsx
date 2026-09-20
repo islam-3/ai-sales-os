@@ -3,6 +3,7 @@ import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { supabaseServer } from "@/lib/supabase-server";
 import { ChatClient } from "@/components/chat/ChatClient";
 import { buildChatIntro } from "@/lib/chat-intro";
+import { isRtlText } from "@/lib/chat-intro-i18n";
 import { buildChatPalette, monogram, type ChatTheme } from "@/lib/branding";
 import "./chat.css";
 
@@ -111,6 +112,10 @@ export default async function ChatPage({ params }: { params: { slug: string } })
       palette={palette}
       fontClassName={instrumentSans.variable}
       subline={subline}
+      // Judged on the greeting itself rather than on a language name:
+      // the setting is free text, and "Arabic", the Arabic for it and
+      // "ar" are all things an owner might type.
+      direction={isRtlText(intro.greeting) ? "rtl" : "ltr"}
       greeting={intro.greeting}
       greetingTitle={intro.title}
       greetingSub={intro.sub}

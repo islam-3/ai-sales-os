@@ -38,6 +38,7 @@ export function ChatClient({
   greeting,
   greetingTitle,
   greetingSub,
+  direction,
   starterChips,
 }: {
   slug: string;
@@ -52,6 +53,8 @@ export function ChatClient({
   greeting: string;
   greetingTitle: string;
   greetingSub: string;
+  /** Layout direction, from the language the tenant greets visitors in. */
+  direction: "ltr" | "rtl";
   starterChips: string[];
 }) {
   // One session_id per page load — generated fresh on mount, not persisted
@@ -220,6 +223,10 @@ export function ChatClient({
     <div
       className={`nx-chat ${fontClassName}`}
       data-theme={theme}
+      // Layout direction only. Which side a speaker's bubble sits on is
+      // a property of the tenant's language, not of whatever a single
+      // visitor happens to type, so it stays put for the conversation.
+      dir={direction}
       // The tenant's accent and its derived shadows. Everything else is
       // in chat.css; only what varies per business is inlined.
       style={palette as CSSProperties}
@@ -257,8 +264,14 @@ export function ChatClient({
             monogram={monogram}
             businessName={businessName}
           />
-          <h1 className="nx-greeting__title">{greetingTitle}</h1>
-          {greetingSub && <p className="nx-greeting__sub">{greetingSub}</p>}
+          <h1 className="nx-greeting__title" dir="auto">
+            {greetingTitle}
+          </h1>
+          {greetingSub && (
+            <p className="nx-greeting__sub" dir="auto">
+              {greetingSub}
+            </p>
+          )}
         </section>
 
         {showChips && (
@@ -321,7 +334,16 @@ export function ChatClient({
                     </div>
                   )}
 
-                  {msg.content && <div className="nx-bubble">{msg.content}</div>}
+                  {msg.content && (
+                    <div className="nx-bubble">
+                      {/* Per message, not per layout: the visitor may write
+                          Arabic to an English clinic and both must read
+                          correctly in the same thread. */}
+                      <span className="nx-bubble__text" dir="auto">
+                        {msg.content}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -389,6 +411,7 @@ export function ChatClient({
             <input
               ref={inputRef}
               className="nx-input"
+              dir="auto"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}

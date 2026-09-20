@@ -387,13 +387,20 @@
   color: var(--text);
   border: var(--bubble-bot-brd);
   box-shadow: var(--sh-bot);
-  border-bottom-left-radius: var(--r-tail);
+  border-end-start-radius: var(--r-tail);
 }
 .nx-msg--user .nx-bubble {
   background: var(--nx-brand);
   color: var(--nx-on-brand);
   box-shadow: var(--nx-sh-user);
-  border-bottom-right-radius: var(--r-tail);
+  border-end-end-radius: var(--r-tail);
+}
+
+/* Text inside a bubble resolves its own direction, so an Arabic message
+   in a left-to-right layout reads correctly without dragging the bubble,
+   its tail or the avatar across with it. */
+.nx-bubble__text {
+  display: block;
 }
 
 /* tappable image bubble */
@@ -411,10 +418,10 @@
   width: 100%;
 }
 .nx-msg--bot .nx-bubble--image {
-  border-bottom-left-radius: var(--r-tail);
+  border-end-start-radius: var(--r-tail);
 }
 .nx-msg--user .nx-bubble--image {
-  border-bottom-right-radius: var(--r-tail);
+  border-end-end-radius: var(--r-tail);
 }
 .nx-bubble--image:hover {
   transform: scale(1.015);
@@ -437,11 +444,11 @@
 }
 .nx-msg--bot .nx-msg__meta {
   justify-content: flex-start;
-  padding-left: var(--meta-indent-bot);
+  padding-inline-start: var(--meta-indent-bot);
 }
 .nx-msg--user .nx-msg__meta {
   justify-content: flex-end;
-  padding-right: var(--meta-indent-user);
+  padding-inline-end: var(--meta-indent-user);
 }
 
 /* ---------- typing indicator ---------- */
@@ -459,7 +466,7 @@
   background: var(--bubble-bot);
   border: var(--bubble-bot-brd);
   border-radius: var(--r-bubble);
-  border-bottom-left-radius: var(--r-tail);
+  border-end-start-radius: var(--r-tail);
   box-shadow: var(--sh-bot);
 }
 .nx-typing__bubble i {
@@ -756,7 +763,7 @@
 .nx-lightbox__close {
   position: absolute;
   top: max(var(--sp-7), env(safe-area-inset-top, 0px));
-  right: var(--sp-7);
+  inset-inline-end: var(--sp-7);
   width: 36px;
   height: 36px;
   border: 0;
