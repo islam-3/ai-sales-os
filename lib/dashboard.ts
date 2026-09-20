@@ -32,6 +32,8 @@ export function isLeadStatus(value: string): value is LeadStatus {
 }
 
 export type QualificationData = {
+  /** The language the visitor wrote in, in canonical English, for routing. */
+  visitor_language?: string | null;
   age?: number;
   main_concern?: string;
   priority?: string;

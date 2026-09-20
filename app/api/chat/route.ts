@@ -24,6 +24,7 @@ import {
 } from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
+import { resolveVisitorLanguage } from "@/lib/visitor-language";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -276,6 +277,7 @@ type ExtractedLead = {
   timeline: string | null;
   travel_country: string | null;
   notes: string | null;
+  visitor_language: string | null;
   ai_summary: string | null;
   qualification_score: number | null;
 };
@@ -372,7 +374,9 @@ async function extractAndSaveLead(
   tenantId: string,
   transcript: string,
   /** The language the team reads leads in. */
-  language: string
+  language: string,
+  /** The visitor's own messages, for deciding what language to route this lead in. */
+  visitorMessages: string[]
 ) {
   try {
     // The transcript handed in here is the visitor's words as they typed
@@ -449,6 +453,26 @@ async function extractAndSaveLead(
       }
     }
 
+    // Which language to route this lead to a salesperson in.
+    //
+    // The model proposes it; the script the visitor actually typed in
+    // vetoes it. Script cannot NAME a language - Arabic script covers
+    // Persian and Urdu, Cyrillic covers Ukrainian - but it can prove one
+    // wrong, and a lead labelled German that is really Arabic goes to the
+    // wrong rep and sits there. Judged on the visitor's own messages
+    // only, never the assistant's replies and never the tenant settings:
+    // someone may write in a language the clinic never configured.
+    const visitorLanguage = resolveVisitorLanguage(extracted.visitor_language, visitorMessages);
+    if (visitorLanguage.vetoed) {
+      console.warn("[lead] visitor language contradicted by script", {
+        sessionId,
+        tenantId,
+        proposed: visitorLanguage.proposed,
+        script: visitorLanguage.script,
+      });
+    }
+    extracted.visitor_language = visitorLanguage.language;
+
     // Only fields with a real (non-null) value this pass get written —
     // a field the model didn't detect this time shouldn't erase a value
     // that was already saved from an earlier, more complete transcript.
@@ -461,6 +485,7 @@ async function extractAndSaveLead(
       "timeline",
       "travel_country",
       "notes",
+      "visitor_language",
     ] as const;
     for (const field of qualificationFields) {
       const value = extracted[field];
@@ -841,7 +866,19 @@ export async function POST(req: NextRequest) {
       { role: "user", content: userContent },
       { role: "assistant", content: reply },
     ]);
-    void extractAndSaveLead(sessionId, tenantId, transcript, leadLanguage(tenant.settings));
+    // The visitor's own messages, never the assistant's replies: the
+    // language to route on is the one they wrote in.
+    const visitorMessages = [
+      ...(history ?? []).filter((row) => row.role === "user").map((row) => row.content),
+      userContent,
+    ];
+    void extractAndSaveLead(
+      sessionId,
+      tenantId,
+      transcript,
+      leadLanguage(tenant.settings),
+      visitorMessages
+    );
   }
 
   return NextResponse.json({ reply, media });

@@ -114,6 +114,11 @@ export const GENERATED_LEAD_FIELDS = [
   "ai_summary",
 ] as const;
 
+// visitor_language is deliberately absent above. It is a routing key in
+// canonical English rather than prose for the team to read, and it is
+// checked against the script the visitor actually wrote in rather than
+// against the figures in the transcript.
+
 /**
  * The lead extraction prompt, in the language the team reads.
  *
@@ -137,7 +142,7 @@ THE TEAM READING THIS WORKS IN ${language}. Everything you write about the custo
 
 Read the full conversation transcript and respond with ONLY a JSON object, no other text and no markdown code fences, in exactly this shape:
 
-{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null, "ai_summary": string or null, "qualification_score": integer or null}
+{"name": string or null, "contact_info": string or null, "age": number or null, "main_concern": string or null, "priority": string or null, "duration_of_issue": string or null, "timeline": string or null, "travel_country": string or null, "notes": string or null, "visitor_language": string or null, "ai_summary": string or null, "qualification_score": integer or null}
 
 Only give a field a real value if it was actually mentioned somewhere in the transcript — use null for anything not yet known. Do not guess or infer beyond what was actually said.
 
@@ -152,8 +157,9 @@ CARRY THESE THROUGH UNCHANGED, inside otherwise-${language} text: every number, 
 - "timeline" is when they're looking to move forward, e.g. "soon", "still exploring".
 - "travel_country" is the country they'd be traveling from, if mentioned.
 - "notes" is any other detail useful to the sales team that doesn't fit the fields above.
+- "visitor_language" is the language the CUSTOMER wrote in, judged only from their own messages and never from the assistant's replies. Give it in ENGLISH ("Arabic", "Russian", "German") whatever the rest of this is written in: it is used to route the lead to the right salesperson, so it has to read the same on every lead. If they wrote in more than one, give the one they used most recently at length. Null if they have written too little to tell.
 - "ai_summary" is a concise 2-3 sentence briefing written for a sales rep who hasn't read the conversation: who the customer is, what they want, their main concern or objection, and their timeline or intent. Write it fresh each time from the full transcript, not as a diff from a previous summary. Only null if there's genuinely nothing to summarize yet (e.g. the very first message).
 - "qualification_score" is an integer from 0 to 100 estimating how strong and ready this lead is, based on how complete their info is, how clearly they've expressed intent, any urgency they've shown, and how engaged they are in the conversation. Higher means a hotter lead. Only null if there's not yet enough conversation to judge.
 
-Respond with the JSON object only, with every field described above written in ${language} except "name" and "contact_info", which stay exactly as the customer gave them.`;
+Respond with the JSON object only, with every field described above written in ${language} except "name" and "contact_info", which stay exactly as the customer gave them, and "visitor_language", which is always in English.`;
 }

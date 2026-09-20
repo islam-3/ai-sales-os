@@ -274,7 +274,7 @@ export function staleKeys(cached: ChatIntroTranslation | undefined): ChatIntroKe
 }
 
 // Arabic, Hebrew, Persian/Urdu supplements, and their presentation forms.
-const RTL_SCRIPT = /[֑-߿ࢠ-ࣿיִ-﷿ﹰ-﻿]/;
+const RTL_SCRIPT = /[\u0591-\u07FF\u08A0-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
 
 /**
  * Whether text reads right-to-left, judged by script rather than by a

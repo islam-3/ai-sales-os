@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock,
   Flag,
+  Languages,
   MapPin,
   Stethoscope,
   User,
@@ -22,6 +23,10 @@ const FIELDS: { key: keyof QualificationData; label: string; icon: typeof Stetho
   { key: "travel_country", label: "Travel country", icon: MapPin },
   { key: "duration_of_issue", label: "Duration of issue", icon: Calendar },
   { key: "age", label: "Age", icon: User },
+  // Which salesperson this lead should go to. These clinics staff a rep
+  // per language, so it belongs with the other routing facts rather than
+  // buried in the conversation.
+  { key: "visitor_language", label: "Visitor language", icon: Languages },
   { key: "notes", label: "Notes", icon: FileText },
 ];
 
