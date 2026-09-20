@@ -27,6 +27,11 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
   const [leadLanguage, setLeadLanguage] = useState(
     initial.lead_language ?? suggestedLeadLanguage(initial)
   );
+  // Same first-load suggestion, different question: this one decides what
+  // a visitor is greeted in before they have written anything.
+  const [chatLanguage, setChatLanguage] = useState(
+    initial.chat_language ?? suggestedLeadLanguage(initial)
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -37,7 +42,8 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
     languages !== initialLanguages ||
     serviceArea !== (initial.service_area ?? "") ||
     currency !== (initial.currency ?? "") ||
-    leadLanguage !== (initial.lead_language ?? suggestedLeadLanguage(initial));
+    leadLanguage !== (initial.lead_language ?? suggestedLeadLanguage(initial)) ||
+    chatLanguage !== (initial.chat_language ?? suggestedLeadLanguage(initial));
 
   function set<T>(setter: (v: T) => void) {
     return (value: T) => {
@@ -64,6 +70,7 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
         service_area: serviceArea,
         currency: currency,
         lead_language: leadLanguage,
+        chat_language: chatLanguage,
       });
       setSaved(true);
       router.refresh();
@@ -125,6 +132,22 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
             placeholder="e.g. English, Turkish, Arabic"
           />
           <p className="text-xs text-muted-foreground">Separate with commas.</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="chat-language" className="text-xs text-muted-foreground">
+            Default chat language
+          </Label>
+          <Input
+            id="chat-language"
+            value={chatLanguage}
+            onChange={(e) => set(setChatLanguage)(e.target.value)}
+            placeholder="e.g. English"
+          />
+          <p className="text-xs text-muted-foreground">
+            The language visitors are greeted in before they write anything. Once they write, the
+            assistant replies in their language automatically. Review the greeting itself below.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

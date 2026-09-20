@@ -219,6 +219,60 @@ export function resolveChatIntroStrings(
   return builtInTranslation(language) ?? { ...CHAT_INTRO_SOURCE };
 }
 
+/**
+ * What a visitor is actually being greeted in right now, and why.
+ *
+ * Exists so the dashboard can say so plainly. A tenant that picks Russian
+ * and never approves the translation is silently greeting Russian
+ * visitors in English, and the only thing worse than that happening is it
+ * happening invisibly.
+ */
+export type ChatIntroStatus = {
+  /** What a first-time visitor sees this moment. */
+  showing: "english" | "built-in" | "approved";
+  /** The language the owner chose, or null if they have not chosen one. */
+  language: string | null;
+  /** Why the chosen language is not live, when it is not. */
+  pending: null | "not-generated" | "awaiting-approval" | "out-of-date";
+};
+
+export function chatIntroStatus(settings: {
+  chat_language?: string;
+  chat_intro?: ChatIntroTranslation;
+}): ChatIntroStatus {
+  const language = settings.chat_language?.trim() || null;
+  if (!language) return { showing: "english", language: null, pending: null };
+
+  const cached = settings.chat_intro;
+  const hasBuiltIn = builtInTranslation(language) !== null;
+  const fallback = hasBuiltIn ? "built-in" : "english";
+
+  if (!cached || cached.language.trim().toLowerCase() !== language.trim().toLowerCase()) {
+    return { showing: fallback, language, pending: "not-generated" };
+  }
+  if (cached.sourceHash !== chatIntroSourceHash()) {
+    return { showing: fallback, language, pending: "out-of-date" };
+  }
+  if (!cached.approved) {
+    return { showing: fallback, language, pending: "awaiting-approval" };
+  }
+  return { showing: "approved", language, pending: null };
+}
+
+/**
+ * The keys whose English has changed since a translation was made.
+ *
+ * Only these need redoing. Everything else keeps its translation,
+ * including any wording the owner corrected by hand, which is the whole
+ * reason the English is stored alongside.
+ */
+export function staleKeys(cached: ChatIntroTranslation | undefined): ChatIntroKey[] {
+  if (!cached) return [];
+  return (Object.keys(CHAT_INTRO_SOURCE) as ChatIntroKey[]).filter(
+    (key) => cached.source?.[key] !== CHAT_INTRO_SOURCE[key]
+  );
+}
+
 // Arabic, Hebrew, Persian/Urdu supplements, and their presentation forms.
 const RTL_SCRIPT = /[֑-߿ࢠ-ࣿיִ-﷿ﹰ-﻿]/;
 

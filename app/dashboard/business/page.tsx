@@ -5,6 +5,7 @@ import { BusinessIdentityForm } from "@/components/dashboard/business/BusinessId
 import { BrandingForm } from "@/components/dashboard/business/BrandingForm";
 import { LocationContactForm } from "@/components/dashboard/business/LocationContactForm";
 import { OperationsForm } from "@/components/dashboard/business/OperationsForm";
+import { ChatGreetingCard } from "@/components/dashboard/business/ChatGreetingCard";
 
 // Always fresh — edits here change what the AI says on /chat immediately,
 // so a stale view would be actively misleading.
@@ -62,6 +63,7 @@ export default async function BusinessPage() {
         />
         <LocationContactForm initial={settings} />
         <OperationsForm initial={settings} />
+        <ChatGreetingCard settings={settings} businessName={tenant.business_name ?? ""} />
       </div>
     </DashboardShell>
   );

@@ -5,7 +5,9 @@ export type UsageCallType =
   | "chat_reply"
   | "lead_extraction"
   | "rag_embedding"
-  | "knowledge_embedding";
+  | "knowledge_embedding"
+  // One-off per language, from the dashboard rather than a conversation.
+  | "chat_intro_translation";
 
 export type RecordUsageInput = {
   tenantId: string;

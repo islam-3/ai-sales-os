@@ -12,9 +12,11 @@ import {
   CHAT_INTRO_SOURCE,
   buildChatIntroTranslationPrompt,
   builtInTranslation,
+  chatIntroStatus,
   chatIntroSourceHash,
   isRtlText,
   resolveChatIntroStrings,
+  staleKeys,
   translationIsCurrent,
   validateTranslation,
   type ChatIntroStrings,
@@ -185,5 +187,67 @@ check("Turkish does not", !isRtlText(builtInTranslation("Turkish")!.help));
 check("English does not", !isRtlText(CHAT_INTRO_SOURCE.help));
 check("a name in Latin script inside Arabic text still reads RTL", isRtlText("مرحباً! نحن Prof Clinic."));
 
+console.log("\n--- the owner can see what visitors are actually getting ---");
+// A tenant that picks Russian and never approves is greeting Russian
+// visitors in English. The only thing worse than that is it being
+// invisible on the dashboard.
+const status = (over: Record<string, unknown>) =>
+  chatIntroStatus(parseTenantSettings(over) as { chat_language?: string; chat_intro?: ChatIntroTranslation });
+
+const none = status({});
+check("no language chosen reads as plain English", none.showing === "english" && none.pending === null);
+
+const ungenerated = status({ chat_language: "Russian" });
+check(
+  "a language with nothing generated is flagged, not silently English",
+  ungenerated.showing === "english" && ungenerated.pending === "not-generated",
+  JSON.stringify(ungenerated)
+);
+
+const builtInPending = status({ chat_language: "Turkish" });
+check(
+  "a hand-written fallback is reported as such",
+  builtInPending.showing === "built-in" && builtInPending.pending === "not-generated",
+  JSON.stringify(builtInPending)
+);
+
+const unapproved = status({ chat_language: "Deutsch", chat_intro: stored({ approved: false }) });
+check(
+  "generated but unapproved is NOT live",
+  unapproved.showing === "english" && unapproved.pending === "awaiting-approval",
+  JSON.stringify(unapproved)
+);
+
+const approved = status({ chat_language: "Deutsch", chat_intro: stored({}) });
+check("approved is live", approved.showing === "approved" && approved.pending === null);
+
+const outOfDate = status({ chat_language: "Deutsch", chat_intro: stored({ sourceHash: "old" }) });
+check(
+  "an out-of-date translation is flagged",
+  outOfDate.pending === "out-of-date",
+  JSON.stringify(outOfDate)
+);
+
+const switched = status({ chat_language: "Russian", chat_intro: stored({}) });
+check(
+  "switching language invalidates the old translation",
+  switched.pending === "not-generated",
+  JSON.stringify(switched)
+);
+
+console.log("\n--- only the strings whose English changed are stale ---");
+check("nothing stale when the source matches", staleKeys(stored({})).length === 0);
+const drifted = stored({ source: { ...CHAT_INTRO_SOURCE, help: "How may we help?" } });
+check(
+  "exactly the changed string is stale",
+  JSON.stringify(staleKeys(drifted)) === JSON.stringify(["help"]),
+  JSON.stringify(staleKeys(drifted))
+);
+check(
+  "a translation stored without its source is wholly stale, not wrongly trusted",
+  staleKeys(stored({ source: {} })).length === Object.keys(CHAT_INTRO_SOURCE).length
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");
+
 process.exit(bad ? 1 : 0);
