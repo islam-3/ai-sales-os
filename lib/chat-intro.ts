@@ -11,6 +11,12 @@
 // but its name still gets a clean, truthful greeting.
 
 import type { TenantSettings } from "./tenant-settings";
+import {
+  CHAT_INTRO_SOURCE,
+  resolveChatIntroStrings,
+  type ChatIntroKey,
+  type ChatIntroStrings,
+} from "./chat-intro-i18n";
 
 export type ChatIntroInput = {
   businessName: string;
@@ -83,23 +89,30 @@ function shortIntro(description: string, businessName: string): string | null {
  * than all at once: name + place + intro, then name + place, then just a
  * warm line with the name.
  */
-function buildGreeting(input: ChatIntroInput): { title: string; sub: string } {
+function buildGreeting(
+  input: ChatIntroInput,
+  strings: ChatIntroStrings
+): { title: string; sub: string } {
   const { businessName, description, settings } = input;
 
   // City is the useful unit here — a street address is noise in a
   // greeting, and country alone is too vague unless it's all there is.
   const place = settings.location?.city ?? settings.location?.country ?? null;
 
+  // The name and city are substituted in, never translated: whatever
+  // language the greeting is in, a business is called what it is called.
   const opener = place
-    ? `Hi! We're ${businessName} in ${place}.`
-    : `Hi! We're ${businessName}.`;
+    ? strings.opener_with_place.replace("{business}", businessName).replace("{place}", place)
+    : strings.opener.replace("{business}", businessName);
 
+  // The description is the owner's own words and passes through exactly
+  // as written, in whatever language they wrote it.
   const intro = description ? shortIntro(description, businessName) : null;
 
   // The opener leads; everything else is support copy. Splitting here
   // rather than in the component keeps the greeting's assembly in one
   // place, so `greeting` below can stay byte-identical to what it was.
-  const sub = intro ? `${intro} How can we help you today?` : "How can we help you today?";
+  const sub = intro ? `${intro} ${strings.help}` : strings.help;
   return { title: opener, sub };
 }
 
@@ -107,19 +120,19 @@ function buildGreeting(input: ChatIntroInput): { title: string; sub: string } {
 // and "Our history" — inconsistent casing and separators from different
 // owners. This maps the shapes that recur onto phrasing a visitor would
 // actually tap, keyed on normalised text.
-const CATEGORY_LABELS: { match: RegExp; label: string }[] = [
-  { match: /doctor|dentist|surgeon|staff|team|our people/, label: "Meet our team" },
-  { match: /before.?after|result|gallery|portfolio|case/, label: "See before & after" },
-  { match: /pric|cost|fee|payment|finance|package/, label: "Ask about pricing" },
-  { match: /tech|equipment|method|process|how it works|procedure/, label: "How it works" },
-  { match: /guarantee|warrant|aftercare|follow.?up/, label: "Guarantees & aftercare" },
-  { match: /review|testimonial|experience|patient experience/, label: "What clients say" },
-  { match: /history|about|overview|story|who we are/, label: "About the business" },
+const CATEGORY_LABELS: { match: RegExp; key: ChatIntroKey }[] = [
+  { match: /doctor|dentist|surgeon|staff|team|our people/, key: "chip_team" },
+  { match: /before.?after|result|gallery|portfolio|case/, key: "chip_before_after" },
+  { match: /pric|cost|fee|payment|finance|package/, key: "chip_pricing" },
+  { match: /tech|equipment|method|process|how it works|procedure/, key: "chip_how_it_works" },
+  { match: /guarantee|warrant|aftercare|follow.?up/, key: "chip_guarantees" },
+  { match: /review|testimonial|experience|patient experience/, key: "chip_reviews" },
+  { match: /history|about|overview|story|who we are/, key: "chip_about" },
   // No "clinic" here on purpose: it appears in category names like
   // "clinic_overview", which is about the business rather than about
   // getting to it. Those are caught by the "About the business" rule above.
-  { match: /location|travel|transport|accommodation|getting here/, label: "Location & travel" },
-  { match: /hour|open|availab|schedul|book/, label: "Opening hours" },
+  { match: /location|travel|transport|accommodation|getting here/, key: "chip_location" },
+  { match: /hour|open|availab|schedul|book/, key: "chip_hours" },
 ];
 
 /**
@@ -133,7 +146,7 @@ function humanize(category: string): string {
 }
 
 /** Shown when a tenant has no knowledge entries yet, so chips are never empty. */
-const FALLBACK_CHIPS = ["What do you offer?", "How does it work?", "Ask about pricing"];
+const FALLBACK_CHIP_KEYS: ChatIntroKey[] = ["fallback_offer", "fallback_how", "fallback_pricing"];
 
 const MAX_CHIPS = 4;
 
@@ -144,7 +157,7 @@ const MAX_CHIPS = 4;
  * actually answer, so they're derived from what this tenant has written
  * rather than from a generic list.
  */
-function buildChips(categories: string[]): string[] {
+function buildChips(categories: string[], strings: ChatIntroStrings): string[] {
   const chips: string[] = [];
   const seen = new Set<string>();
 
@@ -154,7 +167,9 @@ function buildChips(categories: string[]): string[] {
 
     const normalised = raw.toLowerCase().replace(/[_-]+/g, " ").trim();
     const mapped = CATEGORY_LABELS.find((c) => c.match.test(normalised));
-    const label = mapped ? mapped.label : humanize(raw);
+    // A recognised category gets the translated label; an unrecognised one
+    // is the owner's own word for it, shown exactly as they wrote it.
+    const label = mapped ? strings[mapped.key] : humanize(raw);
 
     if (!label) continue;
     // Two different categories can map to the same friendly label
@@ -166,17 +181,23 @@ function buildChips(categories: string[]): string[] {
     chips.push(label);
   }
 
-  if (chips.length === 0) return FALLBACK_CHIPS;
+  if (chips.length === 0) return FALLBACK_CHIP_KEYS.map((key) => strings[key]);
   return chips;
 }
 
 export function buildChatIntro(input: ChatIntroInput): ChatIntro {
-  const { title, sub } = buildGreeting(input);
+  // English unless the owner has chosen another language AND signed off a
+  // translation of it; otherwise a hand-written one where one exists.
+  const strings = input.settings.chat_language
+    ? resolveChatIntroStrings(input.settings.chat_language, input.settings.chat_intro)
+    : { ...CHAT_INTRO_SOURCE };
+
+  const { title, sub } = buildGreeting(input, strings);
   return {
     // Exactly what the previous single-string version produced.
     greeting: sub ? `${title} ${sub}` : title,
     title,
     sub,
-    chips: buildChips(input.categories),
+    chips: buildChips(input.categories, strings),
   };
 }
