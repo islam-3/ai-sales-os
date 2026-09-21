@@ -14,6 +14,7 @@ import {
   blockedFromPublishing,
   chatIntroStatus,
   isRtlText,
+  ownLabel,
   resolveChatIntroStrings,
   staleKeys,
   type ChatIntroKey,
@@ -46,6 +47,7 @@ export function ChatGreetingCard(props: Props) {
     stored?.sourceHash ?? "-",
     stored?.approved ? "live" : "draft",
     JSON.stringify(stored?.strings ?? null),
+    JSON.stringify(stored?.ownLabels ?? null),
   ].join("|");
   return <GreetingEditor key={revision} {...props} />;
 }
@@ -63,6 +65,12 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
   // looks like a draft is how English gets approved as Arabic.
   const [draft, setDraft] = useState<ChatIntroStrings | null>(
     settings.chat_intro?.strings ?? null
+  );
+  // The owner's own words for their own categories and city. Owner-written,
+  // so they apply as soon as they are saved rather than waiting for
+  // sign-off - there is nothing generated to review.
+  const [labels, setLabels] = useState<Record<string, string>>(
+    settings.chat_intro?.ownLabels ?? {}
   );
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<null | "generate" | "save" | "approve">(null);
@@ -83,7 +91,7 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
       const result =
         kind === "generate"
           ? await generateChatIntroTranslation()
-          : await saveChatIntroTranslation(draft ?? liveStrings, kind === "approve");
+          : await saveChatIntroTranslation(draft ?? liveStrings, kind === "approve", labels);
 
       if (!result.ok) {
         setError(result.error ?? "Something went wrong. Nothing was changed.");
@@ -152,6 +160,7 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
         place={place}
         chipKeys={shownChipKeys}
         ownWordChips={ownWordChips}
+        labels={labels}
         muted
       />
 
@@ -164,6 +173,7 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
             place={place}
             chipKeys={shownChipKeys}
             ownWordChips={ownWordChips}
+            labels={labels}
           />
 
           {stale.length > 0 && (
@@ -212,8 +222,12 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
               businessName={businessName}
               place={place}
               shownChipKeys={shownChipKeys}
+              ownWordChips={ownWordChips}
+              labels={labels}
+              language={language}
               busy={busy !== null}
               onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+              onLabelChange={(original, value) => setLabels({ ...labels, [original]: value })}
               onSaveDraft={() => run("save")}
             />
           )}
@@ -270,6 +284,7 @@ function Preview({
   place,
   chipKeys,
   ownWordChips,
+  labels,
   muted,
 }: {
   label: string;
@@ -278,10 +293,14 @@ function Preview({
   place: string | null;
   chipKeys: ChatIntroKey[];
   ownWordChips: string[];
+  labels: Record<string, string>;
   muted?: boolean;
 }) {
-  const title = place
-    ? fill(strings.opener_with_place, businessName, place)
+  // Shown exactly as the chat will show it, the owner's own words
+  // included - otherwise the preview reads better than the real thing.
+  const shownPlace = place ? ownLabel(place, labels) : null;
+  const title = shownPlace
+    ? fill(strings.opener_with_place, businessName, shownPlace)
     : fill(strings.opener, businessName, null);
   const rtl = isRtlText(`${title} ${strings.help}`);
 
@@ -304,7 +323,7 @@ function Preview({
           ))}
           {ownWordChips.map((chip) => (
             <span key={chip} className="rounded-full border px-2.5 py-1 text-xs">
-              {chip}
+              {ownLabel(chip, labels)}
             </span>
           ))}
         </div>
@@ -325,8 +344,12 @@ function Fields({
   businessName,
   place,
   shownChipKeys,
+  ownWordChips,
+  labels,
+  language,
   busy,
   onChange,
+  onLabelChange,
   onSaveDraft,
 }: {
   draft: ChatIntroStrings;
@@ -334,8 +357,12 @@ function Fields({
   businessName: string;
   place: string | null;
   shownChipKeys: ChatIntroKey[];
+  ownWordChips: string[];
+  labels: Record<string, string>;
+  language: string;
   busy: boolean;
   onChange: (key: ChatIntroKey, value: string) => void;
+  onLabelChange: (original: string, value: string) => void;
   onSaveDraft: () => void;
 }) {
   const [showOthers, setShowOthers] = useState(false);
@@ -368,6 +395,15 @@ function Fields({
         businessName={businessName}
         place={place}
         onChange={onChange}
+      />
+
+      <OwnWordFields
+        language={language}
+        place={place}
+        ownWordChips={ownWordChips}
+        labels={labels}
+        rtl={rtl}
+        onChange={onLabelChange}
       />
 
       {otherChipKeys.length > 0 && (
@@ -517,6 +553,57 @@ function TokenField({
         <summary className="cursor-pointer select-none opacity-70">English original</summary>
         <span>{source}</span>
       </details>
+    </div>
+  );
+}
+
+/**
+ * The owner's own words: their categories and their city.
+ *
+ * These are business details, so nothing may translate them but the
+ * person who owns them - a model guessing a city or a service name is
+ * stating a fact about the business it has no way to know. Left empty,
+ * the original stands, which is why an Arabic greeting could sit above
+ * buttons reading "Dental treatment" until now.
+ */
+function OwnWordFields({
+  language,
+  place,
+  ownWordChips,
+  labels,
+  rtl,
+  onChange,
+}: {
+  language: string;
+  place: string | null;
+  ownWordChips: string[];
+  labels: Record<string, string>;
+  rtl: boolean;
+  onChange: (original: string, value: string) => void;
+}) {
+  const originals = [...(place ? [place] : []), ...ownWordChips];
+  if (originals.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="text-xs font-medium text-muted-foreground">Your own words</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Your categories and city, as they should read in {language}. We never translate these
+          ourselves — they are your details to state. Leave one empty to keep it as it is.
+        </p>
+      </div>
+      {originals.map((original) => (
+        <div key={original} className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">{original}</Label>
+          <Input
+            value={labels[original] ?? ""}
+            dir={rtl ? "rtl" : "ltr"}
+            placeholder={original}
+            onChange={(e) => onChange(original, e.target.value)}
+          />
+        </div>
+      ))}
     </div>
   );
 }

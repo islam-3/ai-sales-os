@@ -65,6 +65,17 @@ export type ChatIntroTranslation = {
    * unreviewed: they speak the language and we do not.
    */
   approved: boolean;
+  /**
+   * The owner's own words for their own things, in this language.
+   *
+   * Keyed by what the thing is called today - a category name, the city -
+   * and holding what it should read as in the chat language. An Arabic
+   * greeting above buttons reading "Dental treatment" and a city reading
+   * "Istanbul" is half-translated, but these are business details and a
+   * model must never invent them. So the owner writes them, and an empty
+   * one falls back to the original.
+   */
+  ownLabels: Record<string, string>;
 };
 
 /** Stable, dependency-free hash of the English source. */
@@ -166,6 +177,18 @@ export function blockedFromPublishing(
   return null;
 }
 
+
+/**
+ * What to show for one of the owner's own words.
+ *
+ * Their translation if they wrote one, otherwise the thing itself. Never
+ * a guess: a category or a city rendered wrongly is a business detail
+ * stated wrongly to a customer.
+ */
+export function ownLabel(original: string, labels: Record<string, string> | undefined): string {
+  return labels?.[original]?.trim() || original;
+}
+
 /** The instruction for translating the fixed strings, and nothing else. */
 export function buildChatIntroTranslationPrompt(language: string): string {
   return `You translate a handful of short interface strings for a business's chat widget into ${language}.
@@ -173,6 +196,12 @@ export function buildChatIntroTranslationPrompt(language: string): string {
 Respond with ONLY a JSON object, no other text and no markdown code fences, with exactly these keys and a ${language} translation of each value:
 
 ${JSON.stringify(CHAT_INTRO_SOURCE, null, 2)}
+
+What each one is for, since some are ambiguous out of context:
+- "chip_about" is a button meaning "about this company" — about the business the customer is talking to, not a project or a product.
+- "chip_how_it_works" is a button meaning "how the treatment or service works".
+- "chip_before_after" is a button meaning "before-and-after photos of previous customers".
+- "help" is the line inviting the customer to start writing.
 
 Rules:
 - {business} and {place} are placeholders that get replaced with the business's own name and city. Keep them EXACTLY as written, including the braces, and put them where they belong in ${language} word order. Never translate them, never remove them, never substitute a real name.

@@ -122,12 +122,22 @@ function parseChatIntro(raw: unknown): ChatIntroTranslation | undefined {
     if (value) source[key] = value;
   }
 
+  // The owner's own words for their own categories and city. Free-form
+  // keys, because they are keyed by what those things are called.
+  const labelsRaw = asObject(root.ownLabels);
+  const ownLabels: Record<string, string> = {};
+  for (const key of Object.keys(labelsRaw)) {
+    const value = asString(labelsRaw[key]);
+    if (value) ownLabels[key] = value;
+  }
+
   return {
     language,
     sourceHash,
     strings: out as ChatIntroStrings,
     source: source as Partial<Record<ChatIntroKey, string>>,
     approved: root.approved === true,
+    ownLabels,
   };
 }
 

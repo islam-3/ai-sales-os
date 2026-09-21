@@ -13,6 +13,7 @@
 import type { TenantSettings } from "./tenant-settings";
 import {
   CHAT_INTRO_SOURCE,
+  ownLabel,
   resolveChatIntroStrings,
   type ChatIntroKey,
   type ChatIntroStrings,
@@ -91,13 +92,17 @@ function shortIntro(description: string, businessName: string): string | null {
  */
 function buildGreeting(
   input: ChatIntroInput,
-  strings: ChatIntroStrings
+  strings: ChatIntroStrings,
+  labels: Record<string, string> | undefined
 ): { title: string; sub: string } {
   const { businessName, description, settings } = input;
 
   // City is the useful unit here — a street address is noise in a
   // greeting, and country alone is too vague unless it's all there is.
-  const place = settings.location?.city ?? settings.location?.country ?? null;
+  const rawPlace = settings.location?.city ?? settings.location?.country ?? null;
+  // The owner's own spelling of their city in this language, if they gave
+  // one. "Istanbul" inside an Arabic greeting is the seam this closes.
+  const place = rawPlace ? ownLabel(rawPlace, labels) : null;
 
   // The name and city are substituted in, never translated: whatever
   // language the greeting is in, a business is called what it is called.
@@ -157,7 +162,11 @@ const MAX_CHIPS = 4;
  * actually answer, so they're derived from what this tenant has written
  * rather than from a generic list.
  */
-function buildChips(categories: string[], strings: ChatIntroStrings): string[] {
+function buildChips(
+  categories: string[],
+  strings: ChatIntroStrings,
+  labels: Record<string, string> | undefined
+): string[] {
   const chips: string[] = [];
   const seen = new Set<string>();
 
@@ -169,7 +178,10 @@ function buildChips(categories: string[], strings: ChatIntroStrings): string[] {
     const mapped = CATEGORY_LABELS.find((c) => c.match.test(normalised));
     // A recognised category gets the translated label; an unrecognised one
     // is the owner's own word for it, shown exactly as they wrote it.
-    const label = mapped ? strings[mapped.key] : humanize(raw);
+    // A recognised category gets the translated label; an unrecognised one
+    // is the owner's own word for it, shown in their own translation of it
+    // where they wrote one, and otherwise exactly as they wrote it.
+    const label = mapped ? strings[mapped.key] : ownLabel(humanize(raw), labels);
 
     if (!label) continue;
     // Two different categories can map to the same friendly label
@@ -229,12 +241,20 @@ export function buildChatIntro(input: ChatIntroInput): ChatIntro {
     ? resolveChatIntroStrings(input.settings.chat_language, input.settings.chat_intro)
     : { ...CHAT_INTRO_SOURCE };
 
-  const { title, sub } = buildGreeting(input, strings);
+  // Owner-written, so they need no review and apply as soon as they are
+  // saved - unlike the generated strings, which wait for sign-off.
+  const labels =
+    input.settings.chat_intro?.language?.trim().toLowerCase() ===
+    input.settings.chat_language?.trim().toLowerCase()
+      ? input.settings.chat_intro?.ownLabels
+      : undefined;
+
+  const { title, sub } = buildGreeting(input, strings, labels);
   return {
     // Exactly what the previous single-string version produced.
     greeting: sub ? `${title} ${sub}` : title,
     title,
     sub,
-    chips: buildChips(input.categories, strings),
+    chips: buildChips(input.categories, strings, labels),
   };
 }

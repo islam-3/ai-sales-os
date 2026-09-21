@@ -16,6 +16,7 @@ import {
   chatIntroStatus,
   chatIntroSourceHash,
   isRtlText,
+  ownLabel,
   resolveChatIntroStrings,
   staleKeys,
   translationIsCurrent,
@@ -112,6 +113,7 @@ const stored = (over: Partial<ChatIntroTranslation>): ChatIntroTranslation => ({
   strings,
   source: { ...CHAT_INTRO_SOURCE },
   approved: true,
+  ownLabels: {},
   ...over,
 });
 
@@ -264,7 +266,10 @@ const arabicStrings: ChatIntroStrings = {
   ...CHAT_INTRO_SOURCE,
   opener_with_place: "أهلاً! نحن {business} في {place}.",
   opener: "أهلاً! نحن {business}.",
-  help: "كيف يمكننا مساعدتك اليوم؟",
+  // Deliberately NOT the same wording as the hand-written Arabic table:
+  // an identical string would make "was the generated one used?" and "was
+  // the fallback used?" indistinguishable.
+  help: "كيف نستطيع خدمتك؟",
 };
 
 check(
@@ -329,7 +334,103 @@ check(
     chipPlanFor(["our_history", "about", "story"]).keys.length
 );
 
+console.log("\n--- the owner's own words, in their own language ---");
+// An Arabic greeting above buttons reading "Dental treatment", beside a
+// city reading "Istanbul", is half-translated. These are business details
+// though, so nothing but the owner may write them.
+const withLabels = parseTenantSettings({
+  chat_language: "Arabic",
+  location: { city: "Istanbul" },
+  chat_intro: stored({
+    language: "Arabic",
+    strings: arabicStrings,
+    ownLabels: { Istanbul: "إسطنبول", "Dental treatment": "زراعة الأسنان" },
+  }),
+});
+const localised = buildChatIntro({ ...BUSINESS, settings: withLabels });
+check("the city reads in the chat language", localised.title.includes("إسطنبول"), localised.title);
+check("the business name still does not", localised.title.includes("Prof Clinic"), localised.title);
+check(
+  "an owner-written category chip reads in the chat language",
+  localised.chips.includes("زراعة الأسنان"),
+  JSON.stringify(localised.chips)
+);
+
+const partial = parseTenantSettings({
+  chat_language: "Arabic",
+  location: { city: "Istanbul" },
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { Istanbul: "إسطنبول" } }),
+});
+const partialIntro = buildChatIntro({ ...BUSINESS, settings: partial });
+check(
+  "anything left empty keeps the original, never a guess",
+  partialIntro.chips.includes("Dental treatment"),
+  JSON.stringify(partialIntro.chips)
+);
+
+check("a blank label falls back", ownLabel("Istanbul", { Istanbul: "   " }) === "Istanbul");
+check("a missing one falls back", ownLabel("Istanbul", {}) === "Istanbul");
+check("no labels at all falls back", ownLabel("Istanbul", undefined) === "Istanbul");
+
+const unapprovedLabels = parseTenantSettings({
+  chat_language: "Arabic",
+  location: { city: "Istanbul" },
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: false, ownLabels: { Istanbul: "إسطنبول" } }),
+});
+const unapprovedIntro = buildChatIntro({ ...BUSINESS, settings: unapprovedLabels });
+check(
+  "owner-written labels apply without waiting for sign-off",
+  unapprovedIntro.title.includes("إسطنبول"),
+  "there is nothing generated to review in them"
+);
+check(
+  "while the generated greeting still waits for it",
+  !unapprovedIntro.sub.includes(arabicStrings.help),
+  unapprovedIntro.sub
+);
+
+const otherLanguage = parseTenantSettings({
+  chat_language: "Russian",
+  location: { city: "Istanbul" },
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { Istanbul: "إسطنبول" } }),
+});
+check(
+  "labels written for another language are not reused",
+  !buildChatIntro({ ...BUSINESS, settings: otherLanguage }).title.includes("إسطنبول")
+);
+
+check(
+  "they survive a settings round-trip",
+  parseTenantSettings({ chat_intro: stored({ ownLabels: { Istanbul: "إسطنبول" } }) }).chat_intro
+    ?.ownLabels.Istanbul === "إسطنبول"
+);
+
+console.log("\n--- translating again must not discard them ---");
+const actionsSrc2 = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
+check(
+  "generation carries the owner's labels across",
+  /ownLabels:\s*\n?\s*settings\.chat_intro\?\.language/.test(actionsSrc2),
+  "they are not something the model produced, so regenerating must not throw them away"
+);
+check(
+  "saving drops an empty label rather than storing it",
+  /if \(trimmed\) cleanedLabels\[key\] = trimmed;/.test(actionsSrc2)
+);
+
+console.log("\n--- the prompt says what the ambiguous strings mean ---");
+check(
+  "about is explained as about the company",
+  /about this company/.test(buildChatIntroTranslationPrompt("Arabic")),
+  "a generated draft rendered it as \"about the project\", which reads oddly for a clinic"
+);
+check(
+  "but the tenant's industry is never sent",
+  !/industry/i.test(buildChatIntroTranslationPrompt("Arabic")),
+  "business details in a cached translation would make changing one invalidate the other"
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");
+
 
 
 process.exit(bad ? 1 : 0);

@@ -322,6 +322,13 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
         strings,
         source: { ...CHAT_INTRO_SOURCE },
         approved: false,
+        // Carried across a regeneration. These are the owner's own words
+        // for their own categories and city, not something the model
+        // produced, so translating again must not throw them away.
+        ownLabels:
+          settings.chat_intro?.language?.trim().toLowerCase() === language.toLowerCase()
+            ? (settings.chat_intro?.ownLabels ?? {})
+            : {},
       },
     });
 
@@ -347,7 +354,9 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
  */
 export async function saveChatIntroTranslation(
   strings: Record<string, string>,
-  approved: boolean
+  approved: boolean,
+  /** The owner's own words for their categories and city, in this language. */
+  ownLabels: Record<string, string> = {}
 ): Promise<{ ok: boolean; error?: string }> {
   const context = await getCurrentTenant();
   if (!context) throw new Error("You must be signed in to do this");
@@ -400,6 +409,15 @@ export async function saveChatIntroTranslation(
     }
   }
 
+  // Trimmed, and an empty one dropped rather than stored: an empty label
+  // means "use the original", and storing it as "" would be a second way
+  // of saying the same thing.
+  const cleanedLabels: Record<string, string> = {};
+  for (const [key, value] of Object.entries(ownLabels)) {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (trimmed) cleanedLabels[key] = trimmed;
+  }
+
   const merged = parseTenantSettings({
     ...settings,
     chat_intro: {
@@ -408,6 +426,7 @@ export async function saveChatIntroTranslation(
       strings: validated,
       source: { ...CHAT_INTRO_SOURCE },
       approved,
+      ownLabels: cleanedLabels,
     },
   });
 
