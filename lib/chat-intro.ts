@@ -15,6 +15,7 @@ import {
   CHAT_INTRO_SOURCE,
   ownLabel,
   resolveChatIntroStrings,
+  resolveIntroLine,
   type ChatIntroKey,
   type ChatIntroStrings,
 } from "./chat-intro-i18n";
@@ -93,7 +94,8 @@ function shortIntro(description: string, businessName: string): string | null {
 function buildGreeting(
   input: ChatIntroInput,
   strings: ChatIntroStrings,
-  labels: Record<string, string> | undefined
+  labels: Record<string, string> | undefined,
+  language: string
 ): { title: string; sub: string } {
   const { businessName, description, settings } = input;
 
@@ -110,9 +112,11 @@ function buildGreeting(
     ? strings.opener_with_place.replace("{business}", businessName).replace("{place}", place)
     : strings.opener.replace("{business}", businessName);
 
-  // The description is the owner's own words and passes through exactly
-  // as written, in whatever language they wrote it.
-  const intro = description ? shortIntro(description, businessName) : null;
+  // The owner's own sentence about their business: shown in their
+  // translation of it where they wrote one, dropped where it is plainly
+  // in the wrong language, and otherwise exactly as they wrote it.
+  const derived = description ? shortIntro(description, businessName) : null;
+  const intro = derived ? resolveIntroLine(derived, labels, language) : null;
 
   // The opener leads; everything else is support copy. Splitting here
   // rather than in the component keeps the greeting's assembly in one
@@ -205,6 +209,19 @@ function buildChips(
  * categories. `ownWords` are the categories that matched no label and are
  * shown in the owner's own wording, so they need no review at all.
  */
+/**
+ * The line the greeting derives from the business description, or null.
+ *
+ * Exported so the dashboard can offer it for translation and show it in
+ * the preview: it is part of what a visitor reads, and a preview that
+ * leaves it out is how an English sentence survived in an otherwise
+ * Arabic greeting without anyone seeing it on the card.
+ */
+export function deriveIntroLine(description: string | null, businessName: string): string | null {
+  if (!description) return null;
+  return shortIntro(description, businessName) || null;
+}
+
 export function chipPlanFor(categories: string[]): {
   keys: ChatIntroKey[];
   ownWords: string[];
@@ -249,7 +266,7 @@ export function buildChatIntro(input: ChatIntroInput): ChatIntro {
       ? input.settings.chat_intro?.ownLabels
       : undefined;
 
-  const { title, sub } = buildGreeting(input, strings, labels);
+  const { title, sub } = buildGreeting(input, strings, labels, input.settings.chat_language ?? "English");
   return {
     // Exactly what the previous single-string version produced.
     greeting: sub ? `${title} ${sub}` : title,

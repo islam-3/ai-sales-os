@@ -18,6 +18,7 @@ import {
   isRtlText,
   ownLabel,
   resolveChatIntroStrings,
+  resolveIntroLine,
   staleKeys,
   translationIsCurrent,
   validateTranslation,
@@ -26,7 +27,7 @@ import {
 } from "../lib/chat-intro-i18n";
 import { parseTenantSettings } from "../lib/tenant-settings";
 import { detectScript, scriptForLanguage } from "../lib/visitor-language";
-import { chipPlanFor } from "../lib/chat-intro";
+import { chipPlanFor, deriveIntroLine } from "../lib/chat-intro";
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -429,7 +430,85 @@ check(
   "business details in a cached translation would make changing one invalidate the other"
 );
 
+console.log("\n--- the line drawn from the description ---");
+// It is a whole sentence of the owner's own prose. Nothing may translate
+// it but them, and an English sentence sitting inside an Arabic greeting
+// is worse than a greeting one sentence shorter.
+const DERIVED = deriveIntroLine(BUSINESS.description, BUSINESS.businessName);
+check("the dashboard can see the line the greeting derives", DERIVED === BUSINESS.description, String(DERIVED));
+check("no description means no line to offer", deriveIntroLine(null, "Prof Clinic") === null);
+
+const arabicIntro = (labels: Record<string, string>) =>
+  buildChatIntro({
+    ...BUSINESS,
+    settings: parseTenantSettings({
+      chat_language: "Arabic",
+      chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: labels }),
+    }),
+  });
+
+const OWN_ARABIC = "نعالج المرضى الدوليين في إسطنبول.";
+check(
+  "the owner's own version is what the visitor reads",
+  arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub.includes(OWN_ARABIC),
+  arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub
+);
+check(
+  "and the English it replaces is gone",
+  !arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub.includes(BUSINESS.description)
+);
+check(
+  "left empty, an English sentence is dropped from an Arabic greeting",
+  !arabicIntro({}).sub.includes(BUSINESS.description),
+  arabicIntro({}).sub
+);
+check(
+  "and the rest of the greeting still stands",
+  arabicIntro({}).sub.includes(arabicStrings.help),
+  "a missing sentence, not a missing greeting"
+);
+check(
+  "a blank label counts as empty, not as a translation",
+  !arabicIntro({ [BUSINESS.description]: "   " }).sub.includes(BUSINESS.description)
+);
+
+// English tenants are exactly where they were.
+check(
+  "a matching script keeps the line",
+  intro({}).sub.includes(BUSINESS.description),
+  intro({}).sub
+);
+
+// The rule in isolation: it may only drop what it can PROVE is wrong.
+check(
+  "a language whose script we cannot name keeps the line",
+  resolveIntroLine("We treat patients.", {}, "Klingon") === "We treat patients."
+);
+check(
+  "a line we cannot read a script from keeps it",
+  resolveIntroLine("2024 — 100%.", {}, "Arabic") === "2024 — 100%."
+);
+check(
+  "a proven mismatch, and only that, drops it",
+  resolveIntroLine("We treat patients.", {}, "Arabic") === null
+);
+check(
+  "the owner's own words are never second-guessed",
+  resolveIntroLine("We treat patients.", { "We treat patients.": "Anything they wrote" }, "Arabic") ===
+    "Anything they wrote",
+  "even in the wrong script, it is their sentence to write"
+);
+check("no labels at all still applies the script rule", resolveIntroLine("We treat patients.", undefined, "Arabic") === null);
+
+console.log("\n--- the preview shows what the chat shows ---");
+// The English sentence reached a live Arabic greeting because the card
+// never rendered this line at all.
+const cardSrc = readFileSync(join(process.cwd(), "components/dashboard/business/ChatGreetingCard.tsx"), "utf8");
+check("the preview resolves the line the same way the greeting does", /resolveIntroLine\(introLine, labels, language\)/.test(cardSrc));
+check("and the owner can write it there", /onChange=\{\(e\) => onChange\(introLine, e\.target\.value\)\}/.test(cardSrc));
+
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");
+
 
 
 

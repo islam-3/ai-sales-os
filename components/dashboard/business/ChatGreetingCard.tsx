@@ -16,6 +16,7 @@ import {
   isRtlText,
   ownLabel,
   resolveChatIntroStrings,
+  resolveIntroLine,
   staleKeys,
   type ChatIntroKey,
   type ChatIntroStrings,
@@ -30,6 +31,8 @@ type Props = {
   shownChipKeys: ChatIntroKey[];
   /** Chips built from the owner's own category names, which are never translated. */
   ownWordChips: string[];
+  /** The line the greeting derives from the business description, if any. */
+  introLine: string | null;
 };
 
 /**
@@ -52,7 +55,13 @@ export function ChatGreetingCard(props: Props) {
   return <GreetingEditor key={revision} {...props} />;
 }
 
-function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }: Props) {
+function GreetingEditor({
+  settings,
+  businessName,
+  shownChipKeys,
+  ownWordChips,
+  introLine,
+}: Props) {
   const router = useRouter();
   const language = settings.chat_language?.trim() ?? "";
   const status = chatIntroStatus(settings);
@@ -161,6 +170,8 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
         chipKeys={shownChipKeys}
         ownWordChips={ownWordChips}
         labels={labels}
+        introLine={introLine}
+        language={language}
         muted
       />
 
@@ -174,6 +185,8 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
             chipKeys={shownChipKeys}
             ownWordChips={ownWordChips}
             labels={labels}
+            introLine={introLine}
+            language={language}
           />
 
           {stale.length > 0 && (
@@ -225,6 +238,7 @@ function GreetingEditor({ settings, businessName, shownChipKeys, ownWordChips }:
               ownWordChips={ownWordChips}
               labels={labels}
               language={language}
+              introLine={introLine}
               busy={busy !== null}
               onChange={(key, value) => setDraft({ ...draft, [key]: value })}
               onLabelChange={(original, value) => setLabels({ ...labels, [original]: value })}
@@ -285,6 +299,8 @@ function Preview({
   chipKeys,
   ownWordChips,
   labels,
+  introLine,
+  language,
   muted,
 }: {
   label: string;
@@ -294,11 +310,14 @@ function Preview({
   chipKeys: ChatIntroKey[];
   ownWordChips: string[];
   labels: Record<string, string>;
+  introLine: string | null;
+  language: string;
   muted?: boolean;
 }) {
   // Shown exactly as the chat will show it, the owner's own words
   // included - otherwise the preview reads better than the real thing.
   const shownPlace = place ? ownLabel(place, labels) : null;
+  const shownIntro = introLine ? resolveIntroLine(introLine, labels, language) : null;
   const title = shownPlace
     ? fill(strings.opener_with_place, businessName, shownPlace)
     : fill(strings.opener, businessName, null);
@@ -314,7 +333,12 @@ function Preview({
         dir={rtl ? "rtl" : "ltr"}
       >
         <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{strings.help}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {/* Rendered the way the chat renders it, dropped line and all.
+              Leaving it out of the preview is how an English sentence
+              survived inside an Arabic greeting unnoticed. */}
+          {shownIntro ? `${shownIntro} ${strings.help}` : strings.help}
+        </p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {chipKeys.map((key) => (
             <span key={key} className="rounded-full border px-2.5 py-1 text-xs">
@@ -347,6 +371,7 @@ function Fields({
   ownWordChips,
   labels,
   language,
+  introLine,
   busy,
   onChange,
   onLabelChange,
@@ -360,6 +385,7 @@ function Fields({
   ownWordChips: string[];
   labels: Record<string, string>;
   language: string;
+  introLine: string | null;
   busy: boolean;
   onChange: (key: ChatIntroKey, value: string) => void;
   onLabelChange: (original: string, value: string) => void;
@@ -400,6 +426,7 @@ function Fields({
       <OwnWordFields
         language={language}
         place={place}
+        introLine={introLine}
         ownWordChips={ownWordChips}
         labels={labels}
         rtl={rtl}
@@ -569,6 +596,7 @@ function TokenField({
 function OwnWordFields({
   language,
   place,
+  introLine,
   ownWordChips,
   labels,
   rtl,
@@ -576,13 +604,16 @@ function OwnWordFields({
 }: {
   language: string;
   place: string | null;
+  introLine: string | null;
   ownWordChips: string[];
   labels: Record<string, string>;
   rtl: boolean;
   onChange: (original: string, value: string) => void;
 }) {
   const originals = [...(place ? [place] : []), ...ownWordChips];
-  if (originals.length === 0) return null;
+  const introOmitted =
+    introLine !== null && !labels[introLine]?.trim() && resolveIntroLine(introLine, labels, language) === null;
+  if (originals.length === 0 && introLine === null) return null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -593,6 +624,31 @@ function OwnWordFields({
           ourselves — they are your details to state. Leave one empty to keep it as it is.
         </p>
       </div>
+      {introLine && (
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">
+            The line about your business
+            {introOmitted && (
+              <span className="ml-2 text-amber-700 dark:text-amber-300">
+                · left out until you write it in {language}
+              </span>
+            )}
+          </Label>
+          <textarea
+            value={labels[introLine] ?? ""}
+            dir={rtl ? "rtl" : "ltr"}
+            placeholder={introLine}
+            rows={2}
+            onChange={(e) => onChange(introLine, e.target.value)}
+            className="w-full rounded-md border bg-transparent p-2 text-sm outline-none"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Taken from your business description. Left empty, it is dropped from the greeting rather
+            than shown in another language.
+          </p>
+        </div>
+      )}
+
       {originals.map((original) => (
         <div key={original} className="flex flex-col gap-1">
           <Label className="text-xs text-muted-foreground">{original}</Label>

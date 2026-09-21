@@ -1,3 +1,5 @@
+import { detectScript, scriptForLanguage } from "./visitor-language";
+
 // The greeting and starter chips in the tenant's own language.
 //
 // What a visitor sees before they have typed anything is the one thing
@@ -187,6 +189,38 @@ export function blockedFromPublishing(
  */
 export function ownLabel(original: string, labels: Record<string, string> | undefined): string {
   return labels?.[original]?.trim() || original;
+}
+
+
+/**
+ * The description-derived line, in the chat language, or null to leave it out.
+ *
+ * The owner's own sentence about their business, so nothing may translate
+ * it but them. If they have not, and it is plainly not in the chat
+ * language, it is dropped: a single English sentence in the middle of an
+ * Arabic greeting reads worse than a greeting that is one sentence
+ * shorter, and the rest of the greeting says the same things anyway.
+ *
+ * Only dropped when the mismatch can be PROVEN. A language whose script
+ * we cannot name, or a line we cannot read a script from, keeps the line —
+ * the same rule as everywhere else here, that an incomplete list must
+ * never throw away something correct.
+ */
+export function resolveIntroLine(
+  intro: string,
+  labels: Record<string, string> | undefined,
+  language: string
+): string | null {
+  const written = labels?.[intro]?.trim();
+  if (written) return written;
+
+  const expected = scriptForLanguage(language);
+  if (!expected) return intro;
+
+  const actual = detectScript([intro]);
+  if (!actual) return intro;
+
+  return actual === expected ? intro : null;
 }
 
 /** The instruction for translating the fixed strings, and nothing else. */

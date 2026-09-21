@@ -6,7 +6,7 @@ import { BrandingForm } from "@/components/dashboard/business/BrandingForm";
 import { LocationContactForm } from "@/components/dashboard/business/LocationContactForm";
 import { OperationsForm } from "@/components/dashboard/business/OperationsForm";
 import { ChatGreetingCard } from "@/components/dashboard/business/ChatGreetingCard";
-import { chipPlanFor } from "@/lib/chat-intro";
+import { chipPlanFor, deriveIntroLine } from "@/lib/chat-intro";
 
 // Always fresh — edits here change what the AI says on /chat immediately,
 // so a stale view would be actively misleading.
@@ -58,6 +58,7 @@ export default async function BusinessPage() {
     if (category && !categories.includes(category)) categories.push(category);
   }
   const chipPlan = chipPlanFor(categories);
+  const introLine = deriveIntroLine(tenant.description ?? null, tenant.business_name ?? "");
 
   return (
     <DashboardShell
@@ -85,6 +86,7 @@ export default async function BusinessPage() {
           businessName={tenant.business_name ?? ""}
           shownChipKeys={chipPlan.keys}
           ownWordChips={chipPlan.ownWords}
+          introLine={introLine}
         />
       </div>
     </DashboardShell>
