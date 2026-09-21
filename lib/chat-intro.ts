@@ -146,7 +146,7 @@ function humanize(category: string): string {
 }
 
 /** Shown when a tenant has no knowledge entries yet, so chips are never empty. */
-const FALLBACK_CHIP_KEYS: ChatIntroKey[] = ["fallback_offer", "fallback_how", "fallback_pricing"];
+const FALLBACK_CHIP_KEYS: ChatIntroKey[] = ["fallback_offer", "chip_how_it_works", "chip_pricing"];
 
 const MAX_CHIPS = 4;
 
@@ -183,6 +183,43 @@ function buildChips(categories: string[], strings: ChatIntroStrings): string[] {
 
   if (chips.length === 0) return FALLBACK_CHIP_KEYS.map((key) => strings[key]);
   return chips;
+}
+
+/**
+ * The chips a given tenant actually shows, as keys.
+ *
+ * The review card asked owners to check twelve chip labels when a visitor
+ * only ever sees four, and which four depends on this tenant's own
+ * categories. `ownWords` are the categories that matched no label and are
+ * shown in the owner's own wording, so they need no review at all.
+ */
+export function chipPlanFor(categories: string[]): {
+  keys: ChatIntroKey[];
+  ownWords: string[];
+} {
+  const keys: ChatIntroKey[] = [];
+  const ownWords: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of categories) {
+    if (keys.length + ownWords.length >= MAX_CHIPS) break;
+    if (!raw) continue;
+    const normalised = raw.toLowerCase().replace(/[_-]+/g, " ").trim();
+    const mapped = CATEGORY_LABELS.find((c) => c.match.test(normalised));
+    if (mapped) {
+      if (seen.has(mapped.key)) continue;
+      seen.add(mapped.key);
+      keys.push(mapped.key);
+    } else {
+      const label = humanize(raw);
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      ownWords.push(label);
+    }
+  }
+
+  if (keys.length === 0 && ownWords.length === 0) return { keys: [...FALLBACK_CHIP_KEYS], ownWords: [] };
+  return { keys, ownWords };
 }
 
 export function buildChatIntro(input: ChatIntroInput): ChatIntro {

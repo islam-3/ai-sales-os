@@ -36,9 +36,11 @@ export const CHAT_INTRO_SOURCE = {
   chip_about: "About the business",
   chip_location: "Location & travel",
   chip_hours: "Opening hours",
+  // One fallback only. "How does it work?" and "Ask about pricing" used to
+  // live here too, duplicating chip_how_it_works and chip_pricing word for
+  // word - so the review card asked the owner to translate the same label
+  // twice, and the second copy was never even shown.
   fallback_offer: "What do you offer?",
-  fallback_how: "How does it work?",
-  fallback_pricing: "Ask about pricing",
 } as const;
 
 export type ChatIntroKey = keyof typeof CHAT_INTRO_SOURCE;
@@ -126,6 +128,44 @@ export function validateTranslation(raw: unknown): ChatIntroStrings | null {
   return out;
 }
 
+/**
+ * Why a translation cannot be published yet, or null when it can.
+ *
+ * Approving English as an Arabic greeting is the one mistake here that
+ * silently reaches every visitor, and the card made it easy: its fields
+ * were pre-filled with the English fallback, so one press would have
+ * stored English and marked it live. Checked on the server too, because a
+ * disabled button is a suggestion.
+ *
+ * Two rules, because neither covers the other. Text identical to the
+ * English source is untranslated whatever the language. A script that
+ * disagrees with the chosen language catches a draft that was edited but
+ * never translated. Where the language is written in Latin script, only
+ * the first rule can fire, which is honest: English and German cannot be
+ * told apart by script.
+ */
+export function blockedFromPublishing(
+  language: string,
+  strings: ChatIntroStrings,
+  scriptOf: (text: string) => string | null,
+  scriptFor: (language: string) => string | null
+): "unchanged-from-english" | "wrong-script" | null {
+  const keys = Object.keys(CHAT_INTRO_SOURCE) as ChatIntroKey[];
+  const unchanged = keys.every((key) => strings[key].trim() === CHAT_INTRO_SOURCE[key]);
+  if (unchanged) return "unchanged-from-english";
+
+  const expected = scriptFor(language);
+  if (!expected) return null;
+
+  // Judged on the prose, not the chip labels: a one-word chip left in
+  // English is a wording choice, a whole greeting in English is not.
+  const prose = [strings.opener_with_place, strings.opener, strings.help].join(" ");
+  const actual = scriptOf(prose);
+  if (actual && actual !== expected) return "wrong-script";
+
+  return null;
+}
+
 /** The instruction for translating the fixed strings, and nothing else. */
 export function buildChatIntroTranslationPrompt(language: string): string {
   return `You translate a handful of short interface strings for a business's chat widget into ${language}.
@@ -171,8 +211,6 @@ const BUILT_IN: { match: RegExp; strings: ChatIntroStrings }[] = [
       chip_location: "Konum ve ulaşım",
       chip_hours: "Çalışma saatleri",
       fallback_offer: "Neler sunuyorsunuz?",
-      fallback_how: "Nasıl çalışıyor?",
-      fallback_pricing: "Fiyatları sorun",
     },
   },
   {
@@ -191,8 +229,6 @@ const BUILT_IN: { match: RegExp; strings: ChatIntroStrings }[] = [
       chip_location: "الموقع والوصول",
       chip_hours: "ساعات العمل",
       fallback_offer: "ما الخدمات التي تقدمونها؟",
-      fallback_how: "كيف تتم العملية؟",
-      fallback_pricing: "اسأل عن الأسعار",
     },
   },
 ];

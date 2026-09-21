@@ -10,6 +10,7 @@
 import { buildChatIntro } from "../lib/chat-intro";
 import {
   CHAT_INTRO_SOURCE,
+  blockedFromPublishing,
   buildChatIntroTranslationPrompt,
   builtInTranslation,
   chatIntroStatus,
@@ -23,6 +24,10 @@ import {
   type ChatIntroTranslation,
 } from "../lib/chat-intro-i18n";
 import { parseTenantSettings } from "../lib/tenant-settings";
+import { detectScript, scriptForLanguage } from "../lib/visitor-language";
+import { chipPlanFor } from "../lib/chat-intro";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail?: string) => {
@@ -248,6 +253,83 @@ check(
   staleKeys(stored({ source: {} })).length === Object.keys(CHAT_INTRO_SOURCE).length
 );
 
+console.log("\n--- English can never be published as another language ---");
+// The card pre-filled its fields with the English fallback and kept them
+// after a successful generation, so one press of "Approve & make live"
+// would have stored English AND marked it live as the Arabic greeting.
+const blocked = (language: string, strings: ChatIntroStrings) =>
+  blockedFromPublishing(language, strings, (text) => detectScript([text]), scriptForLanguage);
+
+const arabicStrings: ChatIntroStrings = {
+  ...CHAT_INTRO_SOURCE,
+  opener_with_place: "أهلاً! نحن {business} في {place}.",
+  opener: "أهلاً! نحن {business}.",
+  help: "كيف يمكننا مساعدتك اليوم؟",
+};
+
+check(
+  "the untouched English source cannot go live as Arabic",
+  blocked("Arabic", { ...CHAT_INTRO_SOURCE }) === "unchanged-from-english"
+);
+check(
+  "nor as German, where script cannot tell them apart",
+  blocked("Deutsch", { ...CHAT_INTRO_SOURCE }) === "unchanged-from-english",
+  "the equality rule is what covers Latin-script languages"
+);
+check(
+  "an English greeting with one chip edited is still caught by script",
+  blocked("Arabic", { ...CHAT_INTRO_SOURCE, chip_team: "الفريق" }) === "wrong-script"
+);
+check("a real Arabic translation publishes", blocked("Arabic", arabicStrings) === null);
+check(
+  "chips left in English do not block a translated greeting",
+  blocked("Arabic", { ...arabicStrings, chip_hours: "Opening hours" }) === null,
+  "a one-word chip is a wording choice; a whole greeting in English is not"
+);
+check(
+  "a language with no script rule is not blocked on script",
+  blocked("Swahili", { ...CHAT_INTRO_SOURCE, help: "Tunawezaje kukusaidia?" }) === null
+);
+
+console.log("\n--- the server refuses it too, not just the button ---");
+const actionsSrc = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
+check(
+  "approval is checked server-side",
+  /if \(approved\) \{[\s\S]{0,400}blockedFromPublishing\(/.test(actionsSrc),
+  "a disabled button is a suggestion"
+);
+check("and says why it refused", /still the English wording/.test(actionsSrc));
+
+console.log("\n--- only the chips a tenant actually shows ---");
+const dental = chipPlanFor(["Dental treatment", "Our history", "before_after", "pricing"]);
+check(
+  "recognised categories map to keys",
+  dental.keys.includes("chip_about") && dental.keys.includes("chip_before_after"),
+  JSON.stringify(dental)
+);
+check(
+  "an owner-written category is listed separately and never translated",
+  dental.ownWords.includes("Dental treatment"),
+  JSON.stringify(dental.ownWords)
+);
+check(
+  "never more than a visitor sees",
+  dental.keys.length + dental.ownWords.length <= 4,
+  JSON.stringify(dental)
+);
+const empty = chipPlanFor([]);
+check(
+  "a tenant with no categories falls back",
+  empty.keys.length === 3 && empty.ownWords.length === 0,
+  JSON.stringify(empty)
+);
+check(
+  "the same label is never offered twice",
+  new Set(chipPlanFor(["our_history", "about", "story"]).keys).size ===
+    chipPlanFor(["our_history", "about", "story"]).keys.length
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");
+
 
 process.exit(bad ? 1 : 0);

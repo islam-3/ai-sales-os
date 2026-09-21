@@ -99,6 +99,18 @@ const LANGUAGE_SCRIPT: { match: RegExp; script: VisitorScript }[] = [
   { match: /^(chinese|mandarin|cantonese|japanese|korean)$/i, script: "cjk" },
 ];
 
+/**
+ * The script a named language is written in, or null when we cannot say.
+ *
+ * Shared with greeting review, where it answers a different question:
+ * whether a draft is still in English after the owner chose Arabic.
+ */
+export function scriptForLanguage(name: string): VisitorScript | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return LANGUAGE_SCRIPT.find((entry) => entry.match.test(trimmed))?.script ?? null;
+}
+
 export type VisitorLanguageResult =
   | { language: string | null; vetoed: false }
   | { language: null; vetoed: true; proposed: string; script: VisitorScript };

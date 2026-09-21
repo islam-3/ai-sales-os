@@ -6,6 +6,7 @@ import { BrandingForm } from "@/components/dashboard/business/BrandingForm";
 import { LocationContactForm } from "@/components/dashboard/business/LocationContactForm";
 import { OperationsForm } from "@/components/dashboard/business/OperationsForm";
 import { ChatGreetingCard } from "@/components/dashboard/business/ChatGreetingCard";
+import { chipPlanFor } from "@/lib/chat-intro";
 
 // Always fresh — edits here change what the AI says on /chat immediately,
 // so a stale view would be actively misleading.
@@ -42,6 +43,22 @@ export default async function BusinessPage() {
 
   const settings = parseTenantSettings(tenant.settings);
 
+  // Which starter chips this tenant actually shows. Reviewing twelve chip
+  // labels when a visitor sees four was most of what made the card
+  // confusing, and which four depends on this tenant's own categories.
+  const { data: categoryRows } = await supabase
+    .from("knowledge_base")
+    .select("category")
+    .eq("tenant_id", tenantId)
+    .not("category", "is", null);
+
+  const categories: string[] = [];
+  for (const row of categoryRows ?? []) {
+    const category = (row as { category: string | null }).category;
+    if (category && !categories.includes(category)) categories.push(category);
+  }
+  const chipPlan = chipPlanFor(categories);
+
   return (
     <DashboardShell
       clinicName={businessName}
@@ -63,7 +80,12 @@ export default async function BusinessPage() {
         />
         <LocationContactForm initial={settings} />
         <OperationsForm initial={settings} />
-        <ChatGreetingCard settings={settings} businessName={tenant.business_name ?? ""} />
+        <ChatGreetingCard
+          settings={settings}
+          businessName={tenant.business_name ?? ""}
+          shownChipKeys={chipPlan.keys}
+          ownWordChips={chipPlan.ownWords}
+        />
       </div>
     </DashboardShell>
   );

@@ -9,10 +9,12 @@ import { anthropic } from "@/lib/anthropic";
 import { recordUsage } from "@/lib/usage";
 import {
   CHAT_INTRO_SOURCE,
+  blockedFromPublishing,
   buildChatIntroTranslationPrompt,
   chatIntroSourceHash,
   validateTranslation,
 } from "@/lib/chat-intro-i18n";
+import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
 
 export type BusinessIdentityInput = {
   businessName: string;
@@ -373,6 +375,30 @@ export async function saveChatIntroTranslation(
   const settings = parseTenantSettings(current.settings);
   const language = settings.chat_language?.trim();
   if (!language) return { ok: false, error: "Choose a chat language first." };
+
+  // Checked here and not only in the card, because a disabled button is a
+  // suggestion. Publishing English as an Arabic greeting is the one
+  // mistake in this flow that reaches every visitor silently.
+  if (approved) {
+    const blocked = blockedFromPublishing(
+      language,
+      validated,
+      (text) => detectScript([text]),
+      scriptForLanguage
+    );
+    if (blocked === "unchanged-from-english") {
+      return {
+        ok: false,
+        error: `This is still the English wording. Generate a ${language} translation before making it live.`,
+      };
+    }
+    if (blocked === "wrong-script") {
+      return {
+        ok: false,
+        error: `This greeting does not look like ${language}. Check the wording before making it live.`,
+      };
+    }
+  }
 
   const merged = parseTenantSettings({
     ...settings,
