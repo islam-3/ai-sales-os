@@ -8,6 +8,7 @@ import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { BEHAVIOUR_PROMPT, buildSystemPrompt } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
+import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import { buildConversationStateBlock } from "@/lib/conversation-state";
 import {
@@ -845,14 +846,15 @@ export async function POST(req: NextRequest) {
   // because of it. Worst case is an undercount, which is the right way to
   // be wrong.
   if ((history ?? []).length === 0) {
-    void recordConversationStart(tenantId, sessionId);
+    keepAlive(recordConversationStart(tenantId, sessionId), "recordConversationStart");
   }
 
-  // Fire the lead-extraction pass without awaiting it — it must not delay
-  // the reply. Built from the same history already fetched plus this
-  // turn's two new messages, so it doesn't need another DB round trip.
-  // extractAndSaveLead() catches all of its own errors, so this can't
-  // produce an unhandled rejection.
+  // The lead-extraction pass runs after the reply has gone out, so it
+  // never delays it — but through keepAlive(), not dropped on the floor.
+  // The response returning is what used to kill it, and it killed the
+  // last turn of every conversation: the one carrying the name and the
+  // number. Built from the same history already fetched plus this turn's
+  // two new messages, so it doesn't need another DB round trip.
   //
   // Gated by shouldExtractLead (see the constants at the top) so it no
   // longer runs on every message. A skipped turn is recovered by the next
@@ -872,12 +874,15 @@ export async function POST(req: NextRequest) {
       ...(history ?? []).filter((row) => row.role === "user").map((row) => row.content),
       userContent,
     ];
-    void extractAndSaveLead(
-      sessionId,
-      tenantId,
-      transcript,
-      leadLanguage(tenant.settings),
-      visitorMessages
+    keepAlive(
+      extractAndSaveLead(
+        sessionId,
+        tenantId,
+        transcript,
+        leadLanguage(tenant.settings),
+        visitorMessages
+      ),
+      "extractAndSaveLead"
     );
   }
 
