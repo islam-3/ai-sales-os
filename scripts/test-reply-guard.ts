@@ -12,10 +12,10 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { SAFE_FALLBACK } from "../lib/safe-fallback";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
-  SAFE_FALLBACK,
   containsInternalState,
   stripInternalState,
 } from "../lib/reply-guard";
@@ -85,16 +85,30 @@ console.log("\n--- shapes ---");
 const REAL_REPLY =
   "We use Implant Swiss dental implants for their Swiss precision, and the results genuinely last. What matters most to you about the outcome?";
 
-const shapes: [string, string, "clean" | "discard"][] = [
+// The offerable-titles list as it is actually injected, so the leak case
+// below is recognisable the way the guard now recognises it: by matching
+// what we sent, not by counting bullets.
+const TITLES_INJECTED = [
+  "You may OFFER to show the visitor any of these:",
+  "  • Crowns brand",
+  "  • Implants brand",
+].join("\n");
+
+const shapes: [string, string, "clean" | "discard", string[]?][] = [
   ["state block alone leaves nothing to show", LEAKED.split("\n\nI need to show")[0], "discard"],
   ["fenced echo is caught", `${INTERNAL_STATE_OPEN}\nanything at all\n${INTERNAL_STATE_CLOSE}\n\n${REAL_REPLY}`, "clean"],
   ["reasoning without a state block is caught", `I should not promise it's coming.\n\n${REAL_REPLY}`, "clean"],
-  ["a bare bullet list of titles is discarded", "  • Crowns brand\n  • Implants brand", "discard"],
+  [
+    "a bare bullet list of titles is discarded",
+    "  • Crowns brand\n  • Implants brand",
+    "discard",
+    [TITLES_INJECTED],
+  ],
   ["contamination after the reply is discarded, not trimmed", `${REAL_REPLY}\n\nTHIS REPLY CARRIES NO IMAGE, and none is being sent.`, "discard"],
 ];
 
-for (const [name, input, expect] of shapes) {
-  const out = stripInternalState(input);
+for (const [name, input, expect, injectedForCase] of shapes) {
+  const out = stripInternalState(input, injectedForCase ?? []);
   const ok =
     expect === "discard"
       ? out === null
@@ -314,7 +328,18 @@ for (const pattern of forbidden) {
 check(
   "the guard is applied before the reply is derived",
   /const cleaned = stripInternalState\(rawReply, injected\);/.test(routeSrc) &&
-    /const reply = containsInternalState\(candidate, injected\) \? SAFE_FALLBACK : candidate;/.test(routeSrc)
+    /const leaked = containsInternalState\(candidate, injected\);/.test(routeSrc) &&
+    /const reply = leaked \? fallback : candidate;/.test(routeSrc)
+);
+check(
+  "a discarded reply is answered in the visitor's language",
+  /const fallback = safeFallbackFor\(visitorSoFar, tenant\.settings\.chat_language\);/.test(routeSrc),
+  "an English apology to someone writing only Arabic is the bug, not the recovery"
+);
+check(
+  "and a discard is logged rather than silent",
+  /internal state survived cleaning/.test(routeSrc),
+  "this branch had no logging at all, so a discarded reply left no trace"
 );
 // Without the injected text the guard falls back to a hand-written marker
 // list, which is exactly the detector that let two sections through.
@@ -326,5 +351,106 @@ check("the response returns the gated value", /return NextResponse\.json\(\{ rep
 check("the stored row uses the gated value", /content:\s*reply,/.test(routeSrc));
 check("the fallback exists and is non-empty", SAFE_FALLBACK.length > 20 && !containsInternalState(SAFE_FALLBACK));
 
+console.log("\n--- a reply that merely USES a list is not a leak ---");
+// The guard used to ask "is this mostly bullet lines?" and threw away
+// every reply that answered with steps. On production that discarded real
+// replies and left visitors a generic apology twice in a row. Formatting
+// was never the leak: stripMarkup turns a list into prose downstream,
+// which is exactly the right outcome.
+//
+// Six inputs, one per FAILURE CLASS rather than one per language: Latin
+// baseline, right-to-left, Cyrillic, no-spaces-between-words with full
+// width punctuation, dotted/dotless i, and inverted punctuation. A rule
+// that inspects text breaks along those seams, not along borders.
+const LISTY: Record<string, string> = {
+  "English (Latin baseline)": [
+    "Full implants need careful planning, and we have 15 years of experience with exactly this.",
+    "",
+    "It happens over two visits:",
+    "- **First visit (5 days):** we place the implants and fit temporary teeth.",
+    "- **Healing:** around four months.",
+    "- **Second visit (7 days):** we fit the final crowns.",
+  ].join("\n"),
+  "Arabic (right-to-left)": [
+    "الزراعة الكاملة تحتاج تخطيط دقيق، وعندنا خبرة 15 سنة في هذا النوع من الحالات تحديداً.",
+    "",
+    "الزراعة الكاملة تتم على زيارتين:",
+    "- **الزيارة الأولى (5 أيام):** نزرع الغرسات ونضع أسنان مؤقتة.",
+    "- **فترة التعافي:** أربعة أشهر تقريباً.",
+    "- **الزيارة الثانية (7 أيام):** نركب التيجان النهائية.",
+  ].join("\n"),
+  "Russian (Cyrillic)": [
+    "Полная имплантация требует тщательного планирования, и у нас 15 лет опыта.",
+    "",
+    "Это происходит за два визита:",
+    "- **Первый визит (5 дней):** устанавливаем импланты и временные зубы.",
+    "- **Заживление:** около четырёх месяцев.",
+  ].join("\n"),
+  "Chinese (no spaces, full-width punctuation)": [
+    "全口种植需要精心规划，我们在这方面有十五年的经验。",
+    "",
+    "整个过程分两次就诊：",
+    "- **第一次（5天）：** 植入种植体并安装临时牙。",
+    "- **愈合期：** 大约四个月。",
+    "- **第二次（7天）：** 安装最终牙冠。",
+  ].join("\n"),
+  "Turkish (dotted/dotless i)": [
+    "Tam implant dikkatli planlama gerektirir; bu konuda 15 yıllık deneyimimiz var.",
+    "",
+    "İşlem iki ziyarette tamamlanır:",
+    "- **İlk ziyaret (5 gün):** implantlar yerleştirilir.",
+    "- **İyileşme:** yaklaşık dört ay.",
+  ].join("\n"),
+  "Spanish (inverted punctuation)": [
+    "Los implantes completos requieren una planificación cuidadosa. ¿Te explico cómo funciona?",
+    "",
+    "Se hace en dos visitas:",
+    "- **Primera visita (5 días):** colocamos los implantes.",
+    "- **Cicatrización:** unos cuatro meses.",
+  ].join("\n"),
+};
+
+const realInjected = [BEHAVIOUR_PROMPT];
+Object.entries(LISTY).forEach(([label, reply]) => {
+  check(
+    `kept: ${label}`,
+    stripInternalState(reply, realInjected) !== null,
+    "discarded a legitimate reply, so the visitor got an apology instead"
+  );
+});
+
+console.log("\n--- but OUR list of titles is still a leak ---");
+// The leak this rule exists for: the offerable-titles list, reaching a
+// visitor as bare items with no instruction wording to recognise it by.
+// It is caught by CONTENT now — the items are the ones we injected — so
+// it is caught whether or not it still carries its bullets.
+const injectedWithTitles = [
+  "You may OFFER to show the visitor any of these:",
+  "• Implants brand",
+  "• Crowns brand",
+  "• Before and after gallery",
+].join("\n");
+
+const leakedWithBullets = ["• Implants brand", "• Crowns brand", "• Before and after gallery"].join("\n");
+const leakedWithoutBullets = ["Implants brand", "Crowns brand", "Before and after gallery"].join("\n");
+
+check(
+  "a bare list of our titles is discarded",
+  stripInternalState(leakedWithBullets, [injectedWithTitles]) === null
+);
+check(
+  "and still discarded once the bullets are gone",
+  stripInternalState(leakedWithoutBullets, [injectedWithTitles]) === null,
+  "stripMarkup runs downstream, so the leak must be recognised by content"
+);
+check(
+  "a reply that mentions one title in a sentence is fine",
+  stripInternalState(
+    "We use Implants brand for this, and the results last a lifetime. What matters most to you?",
+    [injectedWithTitles]
+  ) !== null
+);
+
 console.log(bad ? `\n${bad} FAILING` : `\nall reply-guard tests passed`);
 process.exit(bad ? 1 : 0);
+

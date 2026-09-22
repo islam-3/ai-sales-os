@@ -129,23 +129,59 @@ export function containsInternalState(text: string, injected: string[] = []): bo
 }
 
 /**
- * Whether a reply is mostly a bullet list.
+ * The list items we put into the instructions — offerable titles and the
+ * assistant's own quoted offers.
  *
- * The offerable-titles list leaks as bare bullets with no instruction
- * wording attached to recognise it by — "• Crowns brand / • Implants
- * brand" contains nothing incriminating on its own, and that shape
- * reached a visitor. So the shape is the tell: the assistant writes
- * conversational prose and is told never to use lists, which makes a
- * reply that is mostly bullets not a reply at all.
+ * injectedSentences() skips bullet lines, because quoting the assistant's
+ * own sentence back is a repetition problem rather than a leak. These are
+ * collected separately so the leak they DO represent is still catchable:
+ * a reply that is mostly our own list items is the offerable-titles list
+ * reaching a visitor.
  */
-function isMostlyBullets(text: string): boolean {
+function injectedListItems(injected: string[]): Set<string> {
+  const items = new Set<string>();
+  for (const block of injected) {
+    for (const line of block.split("\n")) {
+      const trimmed = line.trim();
+      if (!/^[•\-*]\s/.test(trimmed)) continue;
+      const flat = normalise(trimmed.replace(/^[•\-*]\s+/, ""));
+      if (flat.length >= 3) items.add(flat);
+    }
+  }
+  return items;
+}
+
+/**
+ * Whether a reply is mostly OUR list, rather than its own prose.
+ *
+ * This used to ask a much cruder question — is the reply mostly bullet
+ * lines? — and the answer threw away every reply that happened to use a
+ * list to explain something. The model formats treatment steps as a list
+ * routinely ("first visit: 5 days / healing: 4 months / second visit"),
+ * and all of it was discarded unread, leaving the visitor a generic
+ * apology instead. On production that hit real conversations; it is not a
+ * language bug, though Arabic is where it surfaced.
+ *
+ * Formatting was never the leak. stripMarkup() downstream turns a list
+ * into prose, which is exactly what should happen to a reply that merely
+ * looks like one. What must not get out is our own list of internal
+ * titles — and that is recognisable by CONTENT: its items are the items
+ * we injected. So that is what this asks.
+ */
+function echoesInjectedList(text: string, items: Set<string>): boolean {
+  if (items.size === 0) return false;
   const lines = text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  if (lines.length === 0) return false;
-  const bullets = lines.filter((line) => /^[•\-*]\s/.test(line)).length;
-  return bullets / lines.length >= 0.5;
+  if (lines.length < 2) return false;
+
+  const ours = lines.filter((line) => {
+    const flat = normalise(line.replace(/^[•\-*]\s+/, ""));
+    return flat.length >= 3 && items.has(flat);
+  }).length;
+
+  return ours >= 2 && ours / lines.length >= 0.5;
 }
 
 /**
@@ -164,8 +200,10 @@ function isMostlyBullets(text: string): boolean {
  */
 export function stripInternalState(text: string, injected: string[] = []): string | null {
   const sentences = injectedSentences(injected);
+  const listItems = injectedListItems(injected);
   const internal = (chunk: string) =>
     hits(chunk, INTERNAL_MARKERS) || hits(chunk, REASONING_MARKERS) || echoes(chunk, sentences);
+  const isMostlyBullets = (chunk: string) => echoesInjectedList(chunk, listItems);
 
   if (!internal(text) && !isMostlyBullets(text)) return text;
 

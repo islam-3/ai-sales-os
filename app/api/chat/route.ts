@@ -29,10 +29,10 @@ import { resolveVisitorLanguage } from "@/lib/visitor-language";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
-  SAFE_FALLBACK,
   containsInternalState,
   stripInternalState,
 } from "@/lib/reply-guard";
+import { safeFallbackFor } from "@/lib/safe-fallback";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -776,11 +776,31 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const candidate =
-    cleaned === null ? SAFE_FALLBACK : enforceSingleQuestion(stripMarkup(cleaned));
+  // Answered in the language the visitor is writing in. An English
+  // apology to someone who has written only Arabic reads as broken
+  // software, and it is the one reply we are certain they will see.
+  const visitorSoFar = [
+    ...(history ?? []).filter((row) => row.role === "user").map((row) => row.content),
+    userContent,
+  ];
+  const fallback = safeFallbackFor(visitorSoFar, tenant.settings.chat_language);
+
+  const candidate = cleaned === null ? fallback : enforceSingleQuestion(stripMarkup(cleaned));
 
   // Belt and braces: whatever happened above, nothing internal is served.
-  const reply = containsInternalState(candidate, injected) ? SAFE_FALLBACK : candidate;
+  //
+  // Logged, unlike before. This branch was silent, so a reply discarded
+  // here left no trace at all and the only evidence was a visitor being
+  // apologised to twice in a row.
+  const leaked = containsInternalState(candidate, injected);
+  if (leaked) {
+    console.error("[chat] internal state survived cleaning", {
+      sessionId,
+      tenantId,
+      sample: candidate.slice(0, 200),
+    });
+  }
+  const reply = leaked ? fallback : candidate;
 
   // Figures the reply states that the business never did. WATCHING ONLY:
   // nothing is changed or withheld on the strength of it yet.
