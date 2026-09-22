@@ -55,6 +55,12 @@ export type TenantSettings = {
    */
   chat_theme?: "light" | "dark";
   /**
+   * Marks a tenant as existing only for automated runs. Set by
+   * scripts/create-test-tenant.ts and by nothing else — a real business
+   * must never carry it. See lib/test-tenant.ts for what it gates.
+   */
+  is_test?: boolean;
+  /**
    * Getting-started checklist state. Only the parts that can't be
    * derived from real data live here — whether the owner has completed
    * their business info or added a knowledge entry is read from those
@@ -194,6 +200,14 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
   if (root.chat_theme === "dark" || root.chat_theme === "light") {
     parsed.chat_theme = root.chat_theme;
   }
+
+  // Strictly true, and carried through every save. Automated runs refuse
+  // to hold a conversation with a tenant that lacks it (see
+  // lib/test-tenant.ts), so a settings round-trip that silently dropped
+  // it would lock the test tenant out of its own scripts. There is no UI
+  // for this and there should not be: a real tenant acquiring it is the
+  // failure the flag exists to prevent.
+  if (root.is_test === true) parsed.is_test = true;
 
   const onboarding = asObject(root.onboarding);
   const chatLinkCopied = onboarding.chat_link_copied === true;

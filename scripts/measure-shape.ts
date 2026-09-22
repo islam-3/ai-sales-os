@@ -8,8 +8,10 @@
 //
 //   RUNS=3 LABEL=baseline npx tsx scripts/measure-shape.ts
 
-const BASE = process.env.BASE_URL ?? "http://localhost:3000";
-const SLUG = process.env.SLUG ?? "prof-clinic";
+// say() refuses to run against anything but a test tenant, and carries
+// the one retry this loop used to do for itself.
+import { say } from "./_chat-client";
+
 const RUNS = Number(process.env.RUNS ?? 3);
 const LABEL = process.env.LABEL ?? "run";
 
@@ -60,23 +62,7 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
   const shapes: Shape[] = [];
   let tenYear = "";
   for (let i = 0; i < TURNS.length; i++) {
-    // One retry: a single upstream timeout should not throw away a run of
-    // seventy-two calls, and a retried turn measures the same thing.
-    let res: Response | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      res = await fetch(`${BASE}/api/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: TURNS[i], sessionId, slug: SLUG }),
-      });
-      if (res.ok) break;
-      if (attempt === 0) {
-        console.log(`    (retrying turn ${i + 1} after ${res.status})`);
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
-    if (!res || !res.ok) throw new Error(`${res?.status} ${res ? await res.text() : ""}`);
-    const { reply, media } = (await res.json()) as { reply: string; media: unknown };
+    const { reply, media } = await say(sessionId, TURNS[i]);
     if (i === 1) tenYear = reply;
     shapes.push({
       paras: reply.split(/\n\n+/).filter(Boolean).length,

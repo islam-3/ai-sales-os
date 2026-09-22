@@ -10,20 +10,9 @@
 //
 //   npx tsx scripts/live-media-check.ts
 
-const BASE = process.env.BASE_URL ?? "http://localhost:3000";
-const SLUG = "prof-clinic";
-
-type Reply = { reply: string; media: { url: string; type: string | null } | null };
-
-async function say(sessionId: string, message: string): Promise<Reply> {
-  const res = await fetch(`${BASE}/api/chat`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, sessionId, slug: SLUG }),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-  return res.json();
-}
+// say() refuses to run against anything but a test tenant. The target is
+// SLUG in the environment, defaulting to the shared test tenant.
+import { say, type Reply } from "./_chat-client";
 
 // The route requires a real UUID.
 const newSession = () => crypto.randomUUID();
