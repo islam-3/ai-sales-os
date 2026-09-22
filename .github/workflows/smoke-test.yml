@@ -1,0 +1,70 @@
+name: Live smoke test
+
+# Triggered by Vercel telling GitHub a deployment finished — NOT by push.
+#
+# On push the new build is still compiling, so the job would hold a
+# conversation with the PREVIOUS deployment and then pass or fail for
+# code that is not the code being tested. deployment_status fires once
+# the new version is actually serving traffic, which is the only moment
+# this test means anything.
+on:
+  deployment_status:
+
+jobs:
+  smoke:
+    # Production successes only. Vercel also emits this event for preview
+    # deployments and for pending/error states, and a preview URL may sit
+    # behind deployment protection that would fail the request for
+    # reasons unrelated to the code.
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment_status.environment == 'Production'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # One run at a time, and never cancelled halfway: an interrupted run
+    # leaves half a conversation in the test tenant and proves nothing.
+    concurrency:
+      group: smoke-test
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Smoke test against production
+        env:
+          # Encrypted repository secrets, never values in this file.
+          #
+          # Only what the test actually uses:
+          #   PRODUCTION_URL          - the deployment to talk to
+          #   SUPABASE_URL            - to read back the lead it created
+          #   SUPABASE_SERVICE_ROLE_KEY - lead_profile is not readable
+          #                             anonymously, and the smoke test
+          #                             must confirm the lead was saved
+          #
+          # The service-role key is the uncomfortable one and it is worth
+          # being honest about: it can read every tenant's data, not just
+          # the test tenant's. It is here because the assertion that
+          # matters most — the name and number actually landed — cannot be
+          # made without reading that table. If that ever stops being an
+          # acceptable trade, the fix is a narrow read-only endpoint
+          # scoped to a test tenant, not a wider key.
+          BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/smoke-test.ts
+
+      - name: Say what failed
+        if: failure()
+        run: |
+          echo "::error::Live smoke test failed against ${{ github.event.deployment_status.environment_url }}"
+          echo "The deployment is SERVING. This job does not roll anything back."
+          echo "Check the step above for which failure class broke and on which turn."

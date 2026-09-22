@@ -15,6 +15,8 @@
 // enough to hear about another service, which details matter for a
 // particular case.
 
+import { ENDS_WITH_QUESTION, countWords, splitSentences } from "./punctuation";
+
 export type ChatTurn = { role: string; content: string };
 
 /**
@@ -40,11 +42,10 @@ export const OFFER_CUES = [
 
 /** Splits into sentences without cutting on decimals or abbreviations. */
 export function sentencesOf(text: string): string[] {
-  return text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Shared with every other rule that carves sentences. The old split
+  // was ASCII-only and collapsed a three-sentence Chinese message into
+  // one, because CJK puts no space after 。.
+  return splitSentences(text);
 }
 
 /**
@@ -766,10 +767,13 @@ const MEDIUM_MAX_WORDS = 90;
 export function shapeOf(text: string): ReplyShape {
   const trimmed = text.trim();
   const paragraphCount = trimmed.split(/\n\s*\n+/).filter((p) => p.trim()).length;
-  const words = trimmed.split(/\s+/).filter(Boolean).length;
+  // countWords, not a whitespace split: Chinese and Japanese separate
+  // no words with spaces, so splitting returned 1 for a whole paragraph
+  // and every length band below took the wrong branch on every turn.
+  const words = countWords(trimmed);
   return {
     paragraphs: paragraphCount >= 3 ? 3 : paragraphCount <= 1 ? 1 : 2,
-    endsWithQuestion: /\?\s*$/.test(trimmed),
+    endsWithQuestion: ENDS_WITH_QUESTION.test(trimmed),
     length: words <= SHORT_MAX_WORDS ? "short" : words <= MEDIUM_MAX_WORDS ? "medium" : "long",
     words,
   };

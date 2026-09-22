@@ -13,6 +13,8 @@
  * only the punctuation around them goes. Image embeds ARE deleted, since
  * a caption for an image that was never sent is worse than nothing.
  */
+import { ENDS_WITH_QUESTION, SENTENCE_CHUNK } from "./punctuation";
+
 export function stripMarkup(text: string): string {
   return (
     text
@@ -62,22 +64,25 @@ export function stripMarkup(text: string): string {
  * removing it would take the answer's subject with it.
  */
 export function enforceSingleQuestion(text: string): string {
-  if (!/\?\s*$/.test(text.trim())) return text;
+  // ENDS_WITH_QUESTION rather than /\?$/: Arabic closes a question with
+  // ؟ and CJK with ？, so this never fired outside Latin at all,
+  // which is how an Arabic reply came to ask two questions at once.
+  if (!ENDS_WITH_QUESTION.test(text.trim())) return text;
 
   const paragraphs = text.split(/\n\n+/).map((paragraph) => {
-    const sentences = paragraph.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
+    const sentences = paragraph.match(SENTENCE_CHUNK);
     return sentences ?? [paragraph];
   });
 
   const flat = paragraphs.flat();
-  const questionCount = flat.filter((s) => /\?\s*$/.test(s.trim())).length;
+  const questionCount = flat.filter((s) => ENDS_WITH_QUESTION.test(s.trim())).length;
   if (questionCount < 2) return text;
 
   let seen = 0;
   const kept = paragraphs.map((sentences) =>
     sentences
       .filter((s) => {
-        if (!/\?\s*$/.test(s.trim())) return true;
+        if (!ENDS_WITH_QUESTION.test(s.trim())) return true;
         seen += 1;
         return seen === questionCount; // keep only the final question
       })

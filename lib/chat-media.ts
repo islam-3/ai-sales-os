@@ -758,10 +758,18 @@ export function decideMedia(
  * promise about a later message, and a promise the server has no way to
  * keep is the same broken experience one turn deferred.
  */
+// The third line used to read "You cannot send images", and a visitor was
+// told exactly that, in Arabic: "unfortunately I can't send pictures
+// here." It is false — the product sends images, the server decides when
+// — and it made the clinic look less capable than it is, in the middle of
+// a conversation about showing results. The instruction now says the true
+// thing, which is narrower: this reply has none, and the model is not the
+// one who attaches them, so it cannot promise a later one either.
 const NOTHING_ATTACHED = [
   "THIS REPLY CARRIES NO IMAGE, and none is being sent.",
   "That is information for you, not for the visitor: never say it to them, never mention what is or is not attached, and never explain how images work here. Just write as though no picture were part of the exchange — no \"here you go\", no \"as you can see\", no \"take a look at this\", no describing something they can see.",
-  "And never promise one is coming in a later message. You cannot send images, so \"the photos will follow right after\" is a promise you have no way to keep.",
+  "And never promise one is coming in a later message. Attaching is not yours to do, so \"the photos will follow right after\" is a promise you have no way to keep.",
+  "NEVER tell the visitor that images cannot be sent, or that you are unable to show them anything. That is false — this business does share photos — and saying it makes them look less capable than they are. If you have nothing to show right now, simply do not raise the subject.",
 ].join(" ");
 
 /**
