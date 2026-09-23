@@ -318,5 +318,13 @@ async function main() {
 
 main().catch((e) => {
   console.error(e);
+  // The stack goes to the log, which needs repository admin to read. The
+  // message goes to an annotation, which does not — otherwise a crash
+  // here is indistinguishable from any other "exit code 2" to whoever is
+  // actually looking at the run.
+  if (process.env.CI) {
+    const message = String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 400);
+    console.log(`::error title=Smoke test crashed::${message}`);
+  }
   process.exit(2);
 });
