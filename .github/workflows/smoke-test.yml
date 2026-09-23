@@ -39,6 +39,27 @@ jobs:
 
       - run: npm ci
 
+      # Belt and braces, in shell, so the answer appears even if the
+      # script cannot start at all. Annotations are readable without admin
+      # rights on the repository; workflow logs are not, which is why two
+      # failed runs said nothing more than "exit code 2".
+      #
+      # Presence only — never a value, never a length.
+      - name: Check configuration
+        env:
+          BASE_URL: ${{ secrets.PRODUCTION_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=""
+          for v in BASE_URL NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; else echo "present: $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Smoke test secrets missing::Not set:$missing. If these were added as ENVIRONMENT secrets, this job must declare a matching 'environment:' to see them; repository secrets need no such declaration."
+            exit 1
+          fi
+
       - name: Smoke test against production
         env:
           # Encrypted repository secrets, never values in this file.

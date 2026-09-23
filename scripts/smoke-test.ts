@@ -264,7 +264,10 @@ function preflight(): void {
     // Names and presence only. Never a value, and never a length: both
     // leak more about a secret than a failure message should.
     if (process.env.CI) {
-      console.error(
+      // stdout, not stderr: GitHub parses workflow commands from stdout
+      // only, and the first attempt at this annotation went to stderr and
+      // silently never appeared.
+      console.log(
         `::error title=Smoke test not configured::Missing: ${missing
           .map(([n]) => n)
           .join(", ")} | Present: ${present.map(([n]) => n).join(", ") || "none"} | ` +
