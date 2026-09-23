@@ -229,8 +229,44 @@ async function runCase(c: Case): Promise<Failure[]> {
   return failures;
 }
 
+/**
+ * Refuses to start unless it can actually do its job.
+ *
+ * Without this, a missing environment variable looks like a product
+ * failure: every turn reports REQUEST FAILED and the run dies on an
+ * opaque "supabaseUrl is required" forty lines later. The first CI run
+ * failed exactly that way and the logs could not be read, so the cause
+ * had to be reproduced locally to be guessed at. A smoke test must say
+ * what is wrong with ITSELF before it accuses the deployment.
+ *
+ * Names only, never values: these are secrets.
+ */
+function preflight(): void {
+  const required = [
+    ["BASE_URL", "the deployment to test (secrets.PRODUCTION_URL)"],
+    ["NEXT_PUBLIC_SUPABASE_URL", "to read back the lead (secrets.SUPABASE_URL)"],
+    ["SUPABASE_SERVICE_ROLE_KEY", "lead_profile is not readable anonymously"],
+  ];
+
+  const missing = required.filter(([name]) => !(process.env[name] ?? "").trim());
+  if (missing.length > 0) {
+    console.error("\nSMOKE TEST CANNOT START — missing configuration, not a product failure:\n");
+    missing.forEach(([name, why]) => console.error(`    ${name}  — ${why}`));
+    console.error("\n  In CI these come from repository secrets. Check the names match exactly.\n");
+    process.exit(2);
+  }
+
+  const base = process.env.BASE_URL!.trim();
+  if (process.env.CI && /localhost|127\.0\.0\.1/.test(base)) {
+    console.error(`\nSMOKE TEST CANNOT START — BASE_URL is ${base} in CI.`);
+    console.error("  There is no server there. Set secrets.PRODUCTION_URL.\n");
+    process.exit(2);
+  }
+}
+
 async function main() {
-  console.log(`smoke test against ${process.env.BASE_URL ?? "http://localhost:3000"}`);
+  preflight();
+  console.log(`smoke test against ${process.env.BASE_URL}`);
   // ONLY lets a single class be re-run while chasing one problem.
   const only = (process.env.ONLY ?? "").trim().toLowerCase();
   const cases = only ? CASES.filter((c) => c.label.toLowerCase().includes(only)) : CASES;
