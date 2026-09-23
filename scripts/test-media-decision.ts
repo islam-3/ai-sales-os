@@ -764,6 +764,86 @@ for (const [label, history] of liveFailure) {
   );
 }
 
+console.log("\n--- no instruction may state a limitation the product does not have ---");
+// A visitor asked to see results and was told, in Arabic, "unfortunately
+// I can't send pictures here." The model did not invent that. We told it:
+// NOTHING_ATTACHED carried the sentence "You cannot send images."
+//
+// It is false. The product sends images; the server decides when, and the
+// model is simply not the one attaching them. Saying it made a clinic look
+// less capable than it is, in the middle of a conversation about showing
+// results - and prompt wording is the one thing that reaches a visitor
+// verbatim when the model decides to relay it.
+//
+// So: every branch is checked, not the one that broke.
+const LIMITATION_CLAIMS: [RegExp, string][] = [
+  [/\byou cannot send\b/i, "asserts the model cannot send"],
+  [/\byou can'?t send\b/i, "asserts the model cannot send"],
+  [/\bcannot send (?:images|photos|pictures)\b/i, "asserts images cannot be sent"],
+  [/\bcan'?t send (?:images|photos|pictures)\b/i, "asserts images cannot be sent"],
+  [/\bunable to (?:send|show|share)\b/i, "asserts an inability"],
+  [/\bnot able to (?:send|show|share)\b/i, "asserts an inability"],
+  [/\bwe do(?:n'?t| not) (?:send|share) (?:images|photos|pictures)\b/i, "asserts the business does not"],
+  [/\bimages? (?:are|is) not (?:supported|available|possible)\b/i, "asserts unsupported"],
+];
+
+// The instruction legitimately FORBIDS saying these things, and a
+// prohibition necessarily quotes what it forbids. A sentence only counts
+// as a claim when it is not itself a prohibition.
+const FORBIDS = /\b(?:never|do not|don'?t|must not|no need to)\b/i;
+
+const everyInstruction: [string, string][] = [];
+everyInstruction.push(["send", buildMediaInstruction(sendDecision)!]);
+everyInstruction.push([
+  "send with alsoAvailable",
+  buildMediaInstruction({
+    send: true,
+    title: "Implants brand",
+    alsoAvailable: ["Crowns brand", "Before and after"],
+    reason: "direct-request",
+  } as MediaDecision)!,
+]);
+for (const reason of ["no-request", "no-match", "ambiguous", "already-sent", "no-media"]) {
+  const instr = buildMediaInstruction({ send: false, reason } as MediaDecision);
+  if (instr) everyInstruction.push([`no-send: ${reason}`, instr]);
+}
+
+for (const [label, instr] of everyInstruction) {
+  const sentences = instr.split(/(?<=[.!?])\s+/);
+  const offending: string[] = [];
+  for (const sentence of sentences) {
+    for (const [pattern, why] of LIMITATION_CLAIMS) {
+      if (pattern.test(sentence) && !FORBIDS.test(sentence)) {
+        offending.push(`${why}: "${sentence.trim().slice(0, 90)}"`);
+      }
+    }
+  }
+  check(
+    `${label}: states no product limitation`,
+    offending.length === 0,
+    offending.join("\n      ")
+  );
+}
+
+// And the positive half: the no-image branches must actively forbid it,
+// because silence is what let the model reach for the excuse on its own.
+for (const reason of ["no-request", "no-match", "ambiguous", "already-sent", "no-media"]) {
+  const instr = buildMediaInstruction({ send: false, reason } as MediaDecision);
+  if (!instr) continue;
+  check(
+    `no-send: ${reason}: forbids claiming images cannot be sent`,
+    /NEVER tell the visitor that images cannot be sent/i.test(instr),
+    "with nothing attached and no rule against it, the model invents a limitation to explain itself"
+  );
+}
+
+// The exact sentence that reached a real visitor, pinned by its words.
+check(
+  "the sentence that caused this is gone from every branch",
+  !everyInstruction.some(([, instr]) => /You cannot send images/.test(instr)),
+  "NOTHING_ATTACHED used to say exactly this"
+);
+
 console.log(
   `\n${cases.length + 1 - failures}/${cases.length + 1} decision tests passed` +
     (failures ? `  — ${failures} FAILING` : "")
