@@ -313,6 +313,27 @@ async function main() {
     console.log(`    ${f.what}`);
     console.log(`    ${f.detail}`);
   });
+
+  // Each failure as an annotation too. Without this the run reports only
+  // "exit code 1" to anyone who cannot download the log, which is the
+  // whole point of running this automatically — the person who needs to
+  // act on it is not always the person with admin on the repository.
+  //
+  // GitHub shows at most 10 annotations per level, so the rest are
+  // summarised rather than silently dropped.
+  if (process.env.CI) {
+    const shown = failures.slice(0, 9);
+    shown.forEach((f) => {
+      const line = `${f.case} — ${f.what}: ${f.detail}`.replace(/\s+/g, " ").slice(0, 400);
+      console.log(`::error title=Smoke test failure::${line}`);
+    });
+    if (failures.length > shown.length) {
+      console.log(
+        `::error title=Smoke test failures continued::` +
+          `${failures.length - shown.length} further problem(s) not listed here; see the log.`
+      );
+    }
+  }
   process.exit(1);
 }
 
