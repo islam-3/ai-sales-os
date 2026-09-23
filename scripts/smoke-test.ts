@@ -248,11 +248,30 @@ function preflight(): void {
     ["SUPABASE_SERVICE_ROLE_KEY", "lead_profile is not readable anonymously"],
   ];
 
+  const present = required.filter(([name]) => (process.env[name] ?? "").trim());
   const missing = required.filter(([name]) => !(process.env[name] ?? "").trim());
+
   if (missing.length > 0) {
     console.error("\nSMOKE TEST CANNOT START — missing configuration, not a product failure:\n");
     missing.forEach(([name, why]) => console.error(`    ${name}  — ${why}`));
     console.error("\n  In CI these come from repository secrets. Check the names match exactly.\n");
+
+    // As a GitHub annotation too, not only on stdout. Workflow LOGS need
+    // admin rights on the repo to download; annotations do not. Without
+    // this the run says only "exit code 2" to anyone who cannot read the
+    // log, which is how the first two runs failed uninformatively.
+    //
+    // Names and presence only. Never a value, and never a length: both
+    // leak more about a secret than a failure message should.
+    if (process.env.CI) {
+      console.error(
+        `::error title=Smoke test not configured::Missing: ${missing
+          .map(([n]) => n)
+          .join(", ")} | Present: ${present.map(([n]) => n).join(", ") || "none"} | ` +
+          `If these are set as ENVIRONMENT secrets rather than repository secrets, ` +
+          `the job must declare a matching environment: to see them.`
+      );
+    }
     process.exit(2);
   }
 
