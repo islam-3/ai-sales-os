@@ -32,9 +32,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 24, matching the machine this suite is verified on.
+      #
+      # Node 20 here cost four failed runs: @supabase/supabase-js needs a
+      # global WebSocket, which did not exist before Node 22, so the
+      # script died on import with "native WebSocket not found" while the
+      # identical command passed locally on 24. A CI runtime older than
+      # the development one turns every version-sensitive dependency into
+      # a failure that cannot be reproduced where it is being debugged.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
