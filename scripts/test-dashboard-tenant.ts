@@ -121,6 +121,35 @@ async function main() {
   const none = await resolve([]);
   check("no business at all is still null", none === null);
 
+  console.log("\n--- the banner must be detectable in rendered HTML ---");
+  // React server-rendering splits interpolated values out of the text
+  // around them. The page really contains:
+  //
+  //   This account has <!-- -->2<!-- --> businesses.
+  //
+  // A pattern expecting "has 2 businesses" never matches, and checking
+  // for that produced a false alarm — "the banner does not render on
+  // production" — when it rendered perfectly. This string is the exact
+  // markup captured from production, so the smoke test's detector is
+  // pinned to what a server emits rather than to what the source reads
+  // like.
+  const AS_RENDERED =
+    "This account has <!-- -->2<!-- --> businesses. You&#x27;re seeing<!-- --> " +
+    "<strong>TEST — Prof Clinic (automated runs)</strong>, the oldest one. " +
+    "Switching between them isn&#x27;t built yet";
+
+  const dashSrc = readFileSync(join(process.cwd(), "scripts/smoke-dashboard.ts"), "utf8");
+  const declared = /const BANNER = \/(.+)\/;/.exec(dashSrc);
+  check("the smoke test declares a banner pattern", declared !== null);
+  if (declared) {
+    const re = new RegExp(declared[1]);
+    check("it matches the banner as a server actually renders it", re.test(AS_RENDERED), declared[0]);
+    check(
+      "and it does not match a page without the banner",
+      !re.test("<div>Leads (3)</div><div>Most Requested Services</div>")
+    );
+  }
+
   console.log("\n--- the test tenant must never take the owner ---");
   const creator = readFileSync(join(process.cwd(), "scripts/create-test-tenant.ts"), "utf8");
   check(

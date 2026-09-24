@@ -58,9 +58,12 @@ jobs:
           BASE_URL: ${{ secrets.PRODUCTION_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TEST_OWNER_EMAIL: ${{ secrets.TEST_OWNER_EMAIL }}
+          TEST_OWNER_PASSWORD: ${{ secrets.TEST_OWNER_PASSWORD }}
         run: |
           missing=""
-          for v in BASE_URL NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+          for v in BASE_URL NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY                    NEXT_PUBLIC_SUPABASE_ANON_KEY TEST_OWNER_EMAIL TEST_OWNER_PASSWORD; do
             if [ -z "${!v}" ]; then missing="$missing $v"; else echo "present: $v"; fi
           done
           if [ -n "$missing" ]; then
@@ -89,6 +92,12 @@ jobs:
           BASE_URL: ${{ secrets.PRODUCTION_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # The dashboard half signs in as a dedicated account that owns
+          # ONLY the test tenant, never a real person's. RLS confines it
+          # there even if something else goes wrong.
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TEST_OWNER_EMAIL: ${{ secrets.TEST_OWNER_EMAIL }}
+          TEST_OWNER_PASSWORD: ${{ secrets.TEST_OWNER_PASSWORD }}
         run: npx tsx scripts/smoke-test.ts
 
       - name: Say what failed

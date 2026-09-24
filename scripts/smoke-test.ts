@@ -30,6 +30,7 @@
 import { say } from "./_chat-client";
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { detectScript, type VisitorScript } from "../lib/visitor-language";
+import { runDashboardChecks } from "./smoke-dashboard";
 
 type Case = {
   label: string;
@@ -246,6 +247,9 @@ function preflight(): void {
     ["BASE_URL", "the deployment to test (secrets.PRODUCTION_URL)"],
     ["NEXT_PUBLIC_SUPABASE_URL", "to read back the lead (secrets.SUPABASE_URL)"],
     ["SUPABASE_SERVICE_ROLE_KEY", "lead_profile is not readable anonymously"],
+    ["NEXT_PUBLIC_SUPABASE_ANON_KEY", "to sign in as the test owner (secrets.SUPABASE_ANON_KEY)"],
+    ["TEST_OWNER_EMAIL", "the dedicated test-tenant owner (secrets.TEST_OWNER_EMAIL)"],
+    ["TEST_OWNER_PASSWORD", "its password (secrets.TEST_OWNER_PASSWORD)"],
   ];
 
   const present = required.filter(([name]) => (process.env[name] ?? "").trim());
@@ -298,6 +302,15 @@ async function main() {
   for (const c of cases) {
     failures.push(...(await runCase(c)));
     await pause(PAUSE_BETWEEN_CASES_MS);
+  }
+
+  // The dashboard, signed in. The chat half of this suite could not see
+  // the lockout that told an owner their account had no business: nothing
+  // automated had ever signed in. Skipped when a single class is being
+  // re-run, since ONLY means "just chase this one conversation".
+  if (!only) {
+    const dashboard = await runDashboardChecks(process.env.BASE_URL!);
+    failures.push(...dashboard.map((d) => ({ case: "Dashboard", what: d.what, detail: d.detail })));
   }
 
   console.log(`\n${"═".repeat(70)}`);
