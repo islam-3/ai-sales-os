@@ -233,7 +233,7 @@ ${JSON.stringify(CHAT_INTRO_SOURCE, null, 2)}
 
 What each one is for, since some are ambiguous out of context:
 - "chip_about" is a button meaning "about this company" — about the business the customer is talking to, not a project or a product.
-- "chip_how_it_works" is a button meaning "how the treatment or service works".
+- "chip_how_it_works" is a button meaning "how the service works".
 - "chip_before_after" is a button meaning "before-and-after photos of previous customers".
 - "help" is the line inviting the customer to start writing.
 

@@ -12,6 +12,14 @@ export type DashboardContext = {
    * email and user_metadata, and this saves a second round trip.
    */
   user: User;
+  /**
+   * How many businesses this account owns, almost always 1.
+   *
+   * Exposed so the UI can say so when it is more than that. Choosing one
+   * silently would be the worse bug: an owner would manage one location,
+   * never see the other's leads, and have nothing to tell them why.
+   */
+  ownedCount: number;
 };
 
 // Resolves the tenant owned by the currently signed-in user, replacing
@@ -35,13 +43,29 @@ export async function getCurrentTenant(): Promise<DashboardContext | null> {
 
   if (!user) return null;
 
-  const { data: tenant, error } = await supabase
+  // Ordered and unbounded, NOT .maybeSingle().
+  //
+  // maybeSingle() tolerates zero rows but ERRORS on two, and the line
+  // below turns any error into "no business for your account". So an
+  // owner with two businesses was not shown one of them — they were
+  // locked out of the dashboard entirely, told their account had nothing,
+  // with no way to tell a data condition from a broken login. That
+  // happened, to this project's own owner, for a day.
+  //
+  // Oldest first, and id as a tiebreak so the choice is total even if two
+  // rows share a timestamp. Stability is the property that matters: the
+  // dashboard must not show a different business because a query came
+  // back in a different order.
+  const { data: tenants, error } = await supabase
     .from("tenants")
     .select("id, business_name, slug")
     .eq("owner_user_id", user.id)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
-  if (error || !tenant) return null;
+  if (error || !tenants || tenants.length === 0) return null;
+
+  const tenant = tenants[0];
 
   return {
     supabase,
@@ -49,5 +73,6 @@ export async function getCurrentTenant(): Promise<DashboardContext | null> {
     businessName: tenant.business_name,
     slug: tenant.slug,
     user,
+    ownedCount: tenants.length,
   };
 }

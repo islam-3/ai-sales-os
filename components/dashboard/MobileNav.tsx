@@ -17,7 +17,7 @@ import { Logo } from "@/components/brand/Logo";
 // trapping, Escape-to-close, body scroll locking and the right ARIA
 // wiring, all of which are easy to get subtly wrong and invisible when
 // they're broken.
-export function MobileNav({ clinicName }: { clinicName: string }) {
+export function MobileNav({ businessName }: { businessName: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -59,7 +59,7 @@ export function MobileNav({ clinicName }: { clinicName: string }) {
 
           <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
             <span className="min-w-0 truncate text-sm font-semibold tracking-tight text-foreground">
-              {clinicName}
+              {businessName}
             </span>
             <DialogPrimitive.Close asChild>
               <button

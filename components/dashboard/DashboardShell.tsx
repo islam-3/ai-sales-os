@@ -9,14 +9,14 @@ import { DashboardHeader } from "./DashboardHeader";
 // No `dark` class here — the theme now lives on <html>, driven by
 // next-themes, so every surface follows the user's choice.
 export function DashboardShell({
-  clinicName,
+  businessName,
   title,
   description,
   headerSlot,
   contentWidth = "default",
   children,
 }: {
-  clinicName: string;
+  businessName: string;
   title: ReactNode;
   description?: ReactNode;
   /** Rendered between the header and the page title (e.g. the chat link card). */
@@ -34,7 +34,7 @@ export function DashboardShell({
 }) {
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader clinicName={clinicName} />
+      <DashboardHeader businessName={businessName} />
 
       <main className="mx-auto max-w-container px-page-x py-page-y">
         <div className={contentWidth === "narrow" ? "mx-auto w-full max-w-2xl" : undefined}>

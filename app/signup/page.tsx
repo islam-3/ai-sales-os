@@ -165,7 +165,7 @@ export default function SignupPage() {
               list="signup-industry-suggestions"
               value={industry}
               onChange={(e) => setIndustry(e.target.value)}
-              placeholder="e.g. Dental clinic"
+              placeholder="e.g. Dental clinic, law firm, salon"
               required
             />
             <datalist id="signup-industry-suggestions">

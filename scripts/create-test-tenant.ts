@@ -38,7 +38,15 @@ async function main() {
     description: source.description,
     brand_color: source.brand_color,
     logo_url: source.logo_url,
-    owner_user_id: source.owner_user_id,
+    // NOT the owner. Copying it gave one account two tenants, and
+    // getCurrentTenant() resolved the dashboard with .maybeSingle(),
+    // which errors on two rows — so this project's owner was told their
+    // account had no business at all, for a day, on production.
+    //
+    // The test tenant needs no owner: its chat resolves by slug, and
+    // nobody signs in to it. getCurrentTenant() is now robust to this
+    // too, but the two mistakes were independent and so are the fixes.
+    owner_user_id: null,
     settings,
     // Never inherit billing. A test tenant that looks subscribed would
     // distort every usage and revenue figure it appears in.

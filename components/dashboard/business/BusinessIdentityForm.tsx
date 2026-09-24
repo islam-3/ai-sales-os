@@ -89,7 +89,7 @@ export function BusinessIdentityForm({
             id="business-name"
             value={businessName}
             onChange={(e) => touch(setBusinessName)(e.target.value)}
-            placeholder="e.g. Northside Dental"
+            placeholder="e.g. Northside Studio"
             required
           />
         </div>
@@ -105,7 +105,7 @@ export function BusinessIdentityForm({
             list="industry-suggestions"
             value={industry}
             onChange={(e) => touch(setIndustry)(e.target.value)}
-            placeholder="e.g. Dental clinic"
+            placeholder="e.g. Dental clinic, law firm, salon"
           />
           <datalist id="industry-suggestions">
             {INDUSTRY_SUGGESTIONS.map((s) => (

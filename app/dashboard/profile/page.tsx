@@ -16,7 +16,7 @@ export default async function ProfilePage() {
   if (!context) {
     return (
       <DashboardMessage>
-        We couldn&apos;t find a clinic for your account. Please log in again.
+        We couldn&apos;t find a business for your account. Please log in again.
       </DashboardMessage>
     );
   }
@@ -32,7 +32,7 @@ export default async function ProfilePage() {
 
   return (
     <DashboardShell
-      clinicName={businessName}
+      businessName={businessName}
       title="Profile"
       description="Your personal account details, separate from your business information."
       contentWidth="narrow"

@@ -19,7 +19,7 @@ import { NAV_LINKS } from "@/lib/dashboard-nav";
 //
 // The business name stays visible at every width; it just gains min-w-0
 // and truncate so a long one can't reintroduce that same overflow.
-export function DashboardHeader({ clinicName }: { clinicName: string }) {
+export function DashboardHeader({ businessName }: { businessName: string }) {
   const pathname = usePathname();
 
   return (
@@ -30,7 +30,7 @@ export function DashboardHeader({ clinicName }: { clinicName: string }) {
             It renders nothing at md and above. The drawer itself is
             portalled to the body, so its position here doesn't affect
             where the panel appears. */}
-        <MobileNav clinicName={clinicName} />
+        <MobileNav businessName={businessName} />
 
         {/* Platform brand, then the tenant's own. Grouped together with a
             single gap so the hairline gets equal space on both sides —
@@ -57,10 +57,10 @@ export function DashboardHeader({ clinicName }: { clinicName: string }) {
 
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
-              {clinicName.charAt(0).toUpperCase()}
+              {businessName.charAt(0).toUpperCase()}
             </div>
             <span className="truncate text-sm font-semibold tracking-tight text-foreground">
-              {clinicName}
+              {businessName}
             </span>
           </div>
         </div>

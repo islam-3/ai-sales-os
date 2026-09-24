@@ -25,7 +25,7 @@ export function InsightsSection({
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-sm font-medium text-foreground">
-            Most Requested Services &amp; Treatments
+            Most Requested Services
           </CardTitle>
         </CardHeader>
         <CardContent>

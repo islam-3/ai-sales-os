@@ -62,7 +62,7 @@ export default async function BusinessPage() {
 
   return (
     <DashboardShell
-      clinicName={businessName}
+      businessName={businessName}
       title="Business"
       description="What your AI assistant knows about your business when it talks to visitors."
       contentWidth="narrow"

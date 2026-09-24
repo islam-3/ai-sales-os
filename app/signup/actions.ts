@@ -13,7 +13,7 @@ function slugify(businessName: string): string {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return base || "clinic";
+  return base || "business";
 }
 
 // Inserts a new tenant row owned by the given auth user, generating a slug

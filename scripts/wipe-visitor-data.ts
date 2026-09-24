@@ -38,9 +38,16 @@ async function main() {
   if (!SLUG) throw new Error("SLUG is required, e.g. SLUG=prof-clinic");
   const { supabaseServer } = await import("../lib/supabase-server");
 
+  // select("*"), not a handful of columns.
+  //
+  // This exported four fields, so the "full export" backing a destructive
+  // run could not have restored the tenant row at all — and when that row
+  // was later suspected of having changed, the comparison against the
+  // backup was mostly noise about columns the backup had simply never
+  // captured. A backup that cannot restore is not a backup.
   const { data: tenant } = await supabaseServer
     .from("tenants")
-    .select("id, business_name, slug, current_period_conversations")
+    .select("*")
     .eq("slug", SLUG)
     .single();
   if (!tenant) throw new Error(`no tenant with slug "${SLUG}"`);

@@ -50,7 +50,7 @@ export default async function SettingsPage() {
 
   return (
     <DashboardShell
-      clinicName={businessName}
+      businessName={businessName}
       title={
         <>
           Knowledge Base{" "}

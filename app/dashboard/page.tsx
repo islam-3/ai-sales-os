@@ -23,12 +23,12 @@ export default async function DashboardPage() {
   if (!context) {
     return (
       <DashboardMessage>
-        We couldn&apos;t find a clinic for your account. Please log in again.
+        We couldn&apos;t find a business for your account. Please log in again.
       </DashboardMessage>
     );
   }
 
-  const { supabase, tenantId, businessName, slug } = context;
+  const { supabase, tenantId, businessName, slug, ownedCount } = context;
 
   // Fetched alongside the leads rather than in series — the checklist
   // renders above the fold, so it shouldn't add a round trip to the
@@ -99,7 +99,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardShell
-      clinicName={businessName}
+      businessName={businessName}
       title={
         <>
           Leads <span className="font-normal text-muted-foreground">({leads.length})</span>
@@ -107,6 +107,18 @@ export default async function DashboardPage() {
       }
       headerSlot={
         <>
+          {/* Never choose one of several businesses silently. An owner
+              who saw only one of their two locations, with its leads
+              missing and nothing to explain why, would be worse off than
+              one who is simply told. A switcher is the real answer; this
+              is the honest placeholder until there is one. */}
+          {ownedCount > 1 && (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+              This account has {ownedCount} businesses. You&apos;re seeing{" "}
+              <strong>{businessName}</strong>, the oldest one. Switching between them isn&apos;t
+              built yet — get in touch and we&apos;ll sort it out.
+            </div>
+          )}
           <UsageBanner state={subscription} />
           {onboarding.visible && <OnboardingChecklist state={onboarding} />}
           <ChatLinkCard

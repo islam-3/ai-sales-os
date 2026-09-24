@@ -40,7 +40,7 @@ export default async function BillingPage() {
   });
 
   return (
-    <DashboardShell clinicName={businessName} title="Plan & usage">
+    <DashboardShell businessName={businessName} title="Plan & usage">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-section-y">
         <UsageSummary state={subscription} />
 
