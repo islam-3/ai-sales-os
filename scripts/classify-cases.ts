@@ -45,6 +45,13 @@ const OFFER_ZH = "您想看看类似案例的前后对比照片吗？";
 const OFFER_TR = "Benzer vakaların öncesi ve sonrası fotoğraflarını görmek ister misiniz?";
 const OFFER_ES = "¿Quieres ver fotos de antes y después de casos como el tuyo?";
 
+/**
+ * The offers themselves, so a test can tell "an offer is pending" from
+ * "the assistant said something". isAffirmative() is only ever asked the
+ * question when one of these is outstanding.
+ */
+export const OFFERS = [OFFER_EN, OFFER_AR, OFFER_RU, OFFER_ZH, OFFER_TR, OFFER_ES];
+
 export const CASES: Case[] = [
   // ── English (Latin baseline) ────────────────────────────────────────
   { klass: "English", ...none, prior: OFFER_EN, text: "yes please", accepts_offer: true },
