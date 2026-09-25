@@ -1,0 +1,83 @@
+model: claude-haiku-4-5-20251001   runs: 3   cases: 70
+
+════════════════════════════════════════════════════════════════════════
+  CURRENT REGEXES
+════════════════════════════════════════════════════════════════════════
+
+accepts_offer  —  precision 100%  recall 17%  F1 29%
+    English   P 100%  R 100%   tp=2 fp=0 fn=0
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+direct_request  —  precision 100%  recall 0%  F1 0%
+    English   P 100%  R   0%   tp=0 fp=0 fn=2
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+hesitation  —  precision 100%  recall 17%  F1 29%
+    English   P 100%  R 100%   tp=2 fp=0 fn=0
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+impatience  —  precision 100%  recall 8%  F1 15%
+    English   P 100%  R  50%   tp=1 fp=0 fn=1
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+run 1/3: ......................................................................
+run 2/3: ......................................................................
+run 3/3: ......................................................................
+
+════════════════════════════════════════════════════════════════════════
+  CLASSIFIER (claude-haiku-4-5-20251001, 3 runs, 0 call failures)
+════════════════════════════════════════════════════════════════════════
+
+accepts_offer  —  precision 100%  recall 100%  F1 100%
+    English   P 100%  R 100%   tp=6 fp=0 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+direct_request  —  precision 100%  recall 100%  F1 100%
+    English   P 100%  R 100%   tp=6 fp=0 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+hesitation  —  precision 95%  recall 100%  F1 97%
+    English   P  75%  R 100%   tp=6 fp=2 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+impatience  —  precision 100%  recall 100%  F1 100%
+    English   P 100%  R 100%   tp=6 fp=0 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+────────────────────────────────────────────────────────────────────────
+  DISAGREEMENTS ON RUN 1 (1) — check the LABEL first
+────────────────────────────────────────────────────────────────────────
+  [English] hesitation: labelled false, model said true
+      "should I send you a photo of my teeth?"
