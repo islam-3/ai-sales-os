@@ -15,6 +15,7 @@ import {
   validateTranslation,
 } from "@/lib/chat-intro-i18n";
 import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
+import { languageName } from "@/lib/languages";
 
 export type BusinessIdentityInput = {
   businessName: string;
@@ -268,14 +269,18 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
 
   const settings = parseTenantSettings(current.settings);
   const language = settings.chat_language?.trim();
+  // The stored value is a code; a model is told the NAME. "Translate
+  // into ar" is a markedly worse instruction than "Translate into
+  // Arabic", and the name is what the owner reads on the review card.
+  const languageForModel = languageName(language ?? "") || language;
   if (!language) return { ok: false, error: "Choose a chat language first." };
 
   try {
     const response = await anthropic.messages.create({
       model: TRANSLATION_MODEL,
       max_tokens: 1024,
-      system: buildChatIntroTranslationPrompt(language),
-      messages: [{ role: "user", content: `Translate into ${language}.` }],
+      system: buildChatIntroTranslationPrompt(languageForModel!),
+      messages: [{ role: "user", content: `Translate into ${languageForModel}.` }],
     });
 
     void recordUsage({

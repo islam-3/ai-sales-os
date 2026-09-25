@@ -20,6 +20,8 @@
 // conditional: there is no pass to skip. It is also one model call rather
 // than two, and one fewer place for a number to be mangled.
 
+import { languageName } from "./languages";
+
 import type { TenantSettings } from "./tenant-settings";
 
 /**
@@ -33,7 +35,9 @@ export const DEFAULT_LEAD_LANGUAGE = "English";
 
 /** The language the team reads leads in. */
 export function leadLanguage(settings: TenantSettings): string {
-  return settings.lead_language ?? DEFAULT_LEAD_LANGUAGE;
+  // A NAME, not a code. This goes into "write the summary in X", and
+  // "write it in ar" is not an instruction a model follows reliably.
+  return languageName(settings.lead_language) || DEFAULT_LEAD_LANGUAGE;
 }
 
 /**
@@ -47,7 +51,7 @@ export function leadLanguage(settings: TenantSettings): string {
  * silently changed the language of every future lead.
  */
 export function suggestedLeadLanguage(settings: TenantSettings): string {
-  return settings.languages?.[0] ?? DEFAULT_LEAD_LANGUAGE;
+  return languageName(settings.languages?.[0]) || DEFAULT_LEAD_LANGUAGE;
 }
 
 /**

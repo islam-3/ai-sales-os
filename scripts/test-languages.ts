@@ -9,8 +9,10 @@ import {
   languageByCode,
   languageLabel,
   resolveLanguageCode,
+  languageName,
   searchLanguages,
 } from "../lib/languages";
+import { parseTenantSettings } from "../lib/tenant-settings";
 
 let bad = 0;
 const check = (name: string, pass: boolean, detail?: string) => {
@@ -108,6 +110,63 @@ check(
   "and not twice when they are the same",
   languageLabel(languageByCode("en")!) === "English",
   "\"English — English\" reads like a bug"
+);
+
+console.log("\n--- codes are for matching, names are for reading ---");
+// The split that makes this safe: everything stored and compared is a
+// code, and everything a person or a model reads is a name. Mixing them
+// is how "ar" ends up in a prompt, or on a lead card in front of a rep.
+check("a code becomes a name", languageName("ar") === "Arabic");
+check("a name stays a name", languageName("Arabic") === "Arabic");
+check("a native name becomes the English name", languageName("العربية") === "Arabic");
+check("an alias becomes the canonical name", languageName("Mandarin") === "Chinese");
+check(
+  "an unrecognised value passes through unchanged",
+  languageName("Klingon") === "Klingon",
+  "degrading to the old free-text behaviour beats showing nothing"
+);
+check("empty stays empty", languageName("") === "");
+check("null becomes empty", languageName(null) === "");
+
+console.log("\n--- settings normalise on the single read path ---");
+check(
+  "chat_language becomes a code",
+  parseTenantSettings({ chat_language: "Arabic" }).chat_language === "ar"
+);
+check(
+  "languages spoken become codes",
+  JSON.stringify(parseTenantSettings({ languages: ["Arabic", "Türkçe", "en"] }).languages) ===
+    JSON.stringify(["ar", "tr", "en"])
+);
+check(
+  "an unresolvable language survives as written",
+  JSON.stringify(parseTenantSettings({ languages: ["Arabic", "Klingon"] }).languages) ===
+    JSON.stringify(["ar", "Klingon"])
+);
+
+// The one that would break silently: chat_intro.language is COMPARED
+// against chat_language to decide whether an approved translation still
+// applies. Moving one to codes without the other marks every translation
+// stale and drops every greeting back to English, with nothing on screen
+// to say why.
+const withIntro = parseTenantSettings({
+  chat_language: "Arabic",
+  chat_intro: {
+    language: "Arabic",
+    sourceHash: "abc",
+    strings: { help: "كيف يمكننا مساعدتك اليوم؟" },
+    approved: true,
+  },
+});
+check(
+  "chat_intro.language moves to a code with chat_language",
+  withIntro.chat_intro?.language === "ar",
+  String(withIntro.chat_intro?.language)
+);
+check(
+  "so the two still match",
+  withIntro.chat_intro?.language === withIntro.chat_language,
+  "a mismatch here silently falls every greeting back to English"
 );
 
 console.log(bad ? `\n${bad} FAILING` : "\nall language tests passed");

@@ -10,14 +10,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { SectionCard, SectionCardFooter } from "@/components/dashboard/SectionCard";
 import type { TenantSettings } from "@/lib/tenant-settings";
 import { suggestedLeadLanguage } from "@/lib/lead-language";
+import { LanguageMultiPicker, LanguagePicker } from "@/components/dashboard/LanguagePicker";
+import { resolveLanguageCode } from "@/lib/languages";
 import { updateBusinessSettings } from "@/app/dashboard/business/actions";
 
 export function OperationsForm({ initial }: { initial: TenantSettings }) {
   const router = useRouter();
-  const initialLanguages = (initial.languages ?? []).join(", ");
+  // Codes, not free text. parseTenantSettings has already normalised
+  // whatever was stored, so this is a list of codes for anything it
+  // recognised and the original string for anything it did not.
+  const initialLanguages = initial.languages ?? [];
 
   const [openingHours, setOpeningHours] = useState(initial.opening_hours ?? "");
-  const [languages, setLanguages] = useState(initialLanguages);
+  const [languages, setLanguages] = useState<string[]>(initialLanguages);
   const [serviceArea, setServiceArea] = useState(initial.service_area ?? "");
   const [currency, setCurrency] = useState(initial.currency ?? "");
   // Pre-filled from the first spoken language the FIRST time this is seen,
@@ -25,12 +30,12 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
   // answers a different question, and reordering "languages spoken" must
   // not silently change the language of every future lead.
   const [leadLanguage, setLeadLanguage] = useState(
-    initial.lead_language ?? suggestedLeadLanguage(initial)
+    initial.lead_language ?? resolveLanguageCode(suggestedLeadLanguage(initial)) ?? "en"
   );
   // Same first-load suggestion, different question: this one decides what
   // a visitor is greeted in before they have written anything.
   const [chatLanguage, setChatLanguage] = useState(
-    initial.chat_language ?? suggestedLeadLanguage(initial)
+    initial.chat_language ?? resolveLanguageCode(suggestedLeadLanguage(initial)) ?? "en"
   );
 
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +44,11 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
 
   const isDirty =
     openingHours !== (initial.opening_hours ?? "") ||
-    languages !== initialLanguages ||
+    languages.join(",") !== initialLanguages.join(",") ||
     serviceArea !== (initial.service_area ?? "") ||
     currency !== (initial.currency ?? "") ||
-    leadLanguage !== (initial.lead_language ?? suggestedLeadLanguage(initial)) ||
-    chatLanguage !== (initial.chat_language ?? suggestedLeadLanguage(initial));
+    leadLanguage !== (initial.lead_language ?? resolveLanguageCode(suggestedLeadLanguage(initial)) ?? "en") ||
+    chatLanguage !== (initial.chat_language ?? resolveLanguageCode(suggestedLeadLanguage(initial)) ?? "en");
 
   function set<T>(setter: (v: T) => void) {
     return (value: T) => {
@@ -61,12 +66,9 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
     try {
       await updateBusinessSettings({
         opening_hours: openingHours,
-        // Comma-separated in the UI, an array in storage. Blank entries
-        // are dropped by the settings parser.
-        languages: languages
-          .split(",")
-          .map((l) => l.trim())
-          .filter(Boolean),
+        // Already a list of canonical codes: the picker cannot produce
+        // anything else, which is the point of it being a fixed list.
+        languages,
         service_area: serviceArea,
         currency: currency,
         lead_language: leadLanguage,
@@ -125,24 +127,25 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
           <Label htmlFor="languages" className="text-xs text-muted-foreground">
             Languages spoken
           </Label>
-          <Input
+          <LanguageMultiPicker
             id="languages"
             value={languages}
-            onChange={(e) => set(setLanguages)(e.target.value)}
-            placeholder="e.g. English, Turkish, Arabic"
+            onChange={(codes) => set(setLanguages)(codes)}
           />
-          <p className="text-xs text-muted-foreground">Separate with commas.</p>
+          <p className="text-xs text-muted-foreground">
+            Who the assistant can serve. Type to search in English or in the language&apos;s own
+            script.
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="chat-language" className="text-xs text-muted-foreground">
             Default chat language
           </Label>
-          <Input
+          <LanguagePicker
             id="chat-language"
             value={chatLanguage}
-            onChange={(e) => set(setChatLanguage)(e.target.value)}
-            placeholder="e.g. English"
+            onChange={(code) => set(setChatLanguage)(code)}
           />
           <p className="text-xs text-muted-foreground">
             The language visitors are greeted in before they write anything. Once they write, the
@@ -154,11 +157,10 @@ export function OperationsForm({ initial }: { initial: TenantSettings }) {
           <Label htmlFor="lead-language" className="text-xs text-muted-foreground">
             Language for lead summaries
           </Label>
-          <Input
+          <LanguagePicker
             id="lead-language"
             value={leadLanguage}
-            onChange={(e) => set(setLeadLanguage)(e.target.value)}
-            placeholder="e.g. English"
+            onChange={(code) => set(setLeadLanguage)(code)}
           />
           <p className="text-xs text-muted-foreground">
             The language your team reads leads in — summaries, notes and qualification details are

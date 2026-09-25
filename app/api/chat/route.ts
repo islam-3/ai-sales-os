@@ -26,6 +26,7 @@ import {
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { resolveVisitorLanguage } from "@/lib/visitor-language";
+import { resolveLanguageCode } from "@/lib/languages";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -472,7 +473,17 @@ async function extractAndSaveLead(
         script: visitorLanguage.script,
       });
     }
-    extracted.visitor_language = visitorLanguage.language;
+    // Stored as a canonical code, so routing keys off one value per
+    // language rather than on whatever the model happened to call it.
+    // The model is asked for an English name and usually gives one, but
+    // "Mandarin", "Farsi" and "Brazilian Portuguese" all arrive too, and
+    // each would have been its own bucket on the leads filter.
+    //
+    // An unrecognised name is kept as the model wrote it rather than
+    // dropped: an odd label a rep can read beats an empty field.
+    extracted.visitor_language = visitorLanguage.language
+      ? resolveLanguageCode(visitorLanguage.language) ?? visitorLanguage.language
+      : null;
 
     // Only fields with a real (non-null) value this pass get written —
     // a field the model didn't detect this time shouldn't erase a value

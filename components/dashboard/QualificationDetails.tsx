@@ -1,5 +1,6 @@
 "use client";
 
+import { languageName } from "@/lib/languages";
 import { useState } from "react";
 import {
   Calendar,
@@ -45,7 +46,13 @@ export function QualificationDetails({
 
   const entries = FIELDS.map((field) => ({
     ...field,
-    value: data?.[field.key],
+    // visitor_language is stored as a canonical code so routing and
+    // filtering key off one value per language. A rep reads "Arabic",
+    // not "ar" - the code is for matching, never for showing.
+    value:
+      field.key === "visitor_language"
+        ? languageName(data?.visitor_language) || data?.visitor_language
+        : data?.[field.key],
   })).filter((e) => e.value !== undefined && e.value !== null && e.value !== "");
 
   const attachmentCount = data?.attachments?.length ?? 0;

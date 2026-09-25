@@ -16,6 +16,7 @@
 // language breaks the tie, and English is the last resort.
 
 import { detectScript } from "./visitor-language";
+import { resolveLanguageCode } from "./languages";
 
 /**
  * Deliberately bland and true in every language here: it says nothing
@@ -91,8 +92,12 @@ export function safeFallbackFor(
   // tenant's own setting decides — it is the language this chat greets
   // people in, which is the best available guess for a Latin-script
   // visitor who has not said otherwise.
-  const named = NAMED[(chatLanguage ?? "").trim().toLowerCase()];
-  if (named && FALLBACKS[named]) return FALLBACKS[named];
+  // resolveLanguageCode first, because settings now store codes. The
+  // NAMED table stays as the fallback for values stored before that, and
+  // for anything typed by hand.
+  const code =
+    resolveLanguageCode(chatLanguage) ?? NAMED[(chatLanguage ?? "").trim().toLowerCase()];
+  if (code && FALLBACKS[code]) return FALLBACKS[code];
 
   return FALLBACKS.en;
 }

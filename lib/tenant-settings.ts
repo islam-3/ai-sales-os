@@ -1,4 +1,5 @@
 import type { ChatIntroKey, ChatIntroStrings, ChatIntroTranslation } from "./chat-intro-i18n";
+import { resolveLanguageCode } from "./languages";
 
 // Shape of tenants.settings — the flexible, secondary business fields
 // that don't warrant their own typed columns.
@@ -138,7 +139,11 @@ function parseChatIntro(raw: unknown): ChatIntroTranslation | undefined {
   }
 
   return {
-    language,
+    // Normalised alongside chat_language. These two are COMPARED to decide
+    // whether a cached translation still matches the chosen language, so
+    // moving one to codes without the other would mark every approved
+    // translation stale and silently fall the greeting back to English.
+    language: resolveLanguageCode(language) ?? language,
     sourceHash,
     strings: out as ChatIntroStrings,
     source: source as Partial<Record<ChatIntroKey, string>>,
@@ -177,14 +182,19 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
   const openingHours = asString(root.opening_hours);
   if (openingHours) parsed.opening_hours = openingHours;
 
+  // Language fields are normalised to canonical codes HERE, on the single
+  // read path, rather than by a migration that would have to be repeated
+  // for every row written before it ran. A value that does not resolve is
+  // kept exactly as stored: an owner's unusual entry degrades to its old
+  // free-text behaviour rather than disappearing.
   const languages = asStringArray(root.languages);
-  if (languages) parsed.languages = languages;
+  if (languages) parsed.languages = languages.map((l) => resolveLanguageCode(l) ?? l);
 
   const leadLanguage = asString(root.lead_language);
-  if (leadLanguage) parsed.lead_language = leadLanguage;
+  if (leadLanguage) parsed.lead_language = resolveLanguageCode(leadLanguage) ?? leadLanguage;
 
   const chatLanguage = asString(root.chat_language);
-  if (chatLanguage) parsed.chat_language = chatLanguage;
+  if (chatLanguage) parsed.chat_language = resolveLanguageCode(chatLanguage) ?? chatLanguage;
 
   const chatIntro = parseChatIntro(root.chat_intro);
   if (chatIntro) parsed.chat_intro = chatIntro;

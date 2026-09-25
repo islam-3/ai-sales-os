@@ -1,3 +1,5 @@
+import { languageName } from "./languages";
+
 import type { TenantSettings } from "./tenant-settings";
 
 export type BusinessIdentity = {
@@ -83,7 +85,8 @@ function buildIdentityBlock(business: BusinessIdentity): string {
   if (place) lines.push(`Location: ${place}`);
 
   if (settings.opening_hours) lines.push(`Opening hours: ${settings.opening_hours}`);
-  if (settings.languages?.length) lines.push(`Languages spoken: ${settings.languages.join(", ")}`);
+  if (settings.languages?.length)
+    lines.push(`Languages spoken: ${settings.languages.map(languageName).join(", ")}`);
   if (settings.service_area) lines.push(`Service area: ${settings.service_area}`);
   if (settings.currency) lines.push(`Prices are quoted in: ${settings.currency}`);
 

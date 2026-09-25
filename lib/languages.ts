@@ -117,6 +117,21 @@ export function languageLabel(language: Language): string {
     : `${language.name} — ${language.native}`;
 }
 
+/**
+ * The English name for a stored value, for anywhere a person or a model
+ * has to read it.
+ *
+ * Codes are for matching, never for showing. "Write the summary in ar"
+ * is not an instruction a model follows as reliably as "in Arabic", and
+ * "Languages spoken: ar, tr" in a prompt is worse still. Falls back to
+ * whatever was passed in, so an unrecognised value degrades to its old
+ * free-text behaviour rather than vanishing.
+ */
+export function languageName(value: string | null | undefined): string {
+  const code = resolveLanguageCode(value);
+  return (code && BY_CODE.get(code)?.name) || (value ?? "").trim();
+}
+
 /** Whether a code names a right-to-left language. */
 export function isRtlLanguageCode(code: string | null | undefined): boolean {
   return languageByCode(code)?.rtl === true;

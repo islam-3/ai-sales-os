@@ -16,6 +16,8 @@
 // Cyrillic covers Ukrainian and Bulgarian. The model can tell those
 // apart. So the model proposes and the script vetoes.
 
+import { languageName } from "./languages";
+
 export type VisitorScript = "arabic" | "cyrillic" | "hebrew" | "greek" | "cjk" | "latin";
 
 // Written as escapes on purpose: several of these bounds are invisible or
@@ -108,7 +110,15 @@ const LANGUAGE_SCRIPT: { match: RegExp; script: VisitorScript }[] = [
 export function scriptForLanguage(name: string): VisitorScript | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
-  return LANGUAGE_SCRIPT.find((entry) => entry.match.test(trimmed))?.script ?? null;
+  // Accepts a canonical code as well as a name, since settings now store
+  // codes: "ar" and "Arabic" must answer the same, or RTL layout and the
+  // publish guard would disagree about the same tenant.
+  const asName = languageName(trimmed) || trimmed;
+  return (
+    LANGUAGE_SCRIPT.find((entry) => entry.match.test(asName))?.script ??
+    LANGUAGE_SCRIPT.find((entry) => entry.match.test(trimmed))?.script ??
+    null
+  );
 }
 
 export type VisitorLanguageResult =

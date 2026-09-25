@@ -34,7 +34,22 @@ const check = (name: string, ok: boolean, detail?: string) => {
 
 console.log("--- which language the team reads ---");
 check("defaults to English when unset", leadLanguage({}) === DEFAULT_LEAD_LANGUAGE);
-check("uses the explicit setting", leadLanguage({ lead_language: "Türkçe" }) === "Türkçe");
+// The stored value is normalised to a code, and this returns the NAME,
+// because it goes into "write the summary in X" and a model follows
+// "Turkish" more reliably than "tr". So the owner's own spelling of
+// their language resolves to the canonical English name here - the same
+// language, named the way a prompt wants it.
+check(
+  "an owner's own spelling resolves to the canonical name",
+  leadLanguage({ lead_language: "Türkçe" }) === "Turkish",
+  leadLanguage({ lead_language: "Türkçe" })
+);
+check("a code resolves to the same name", leadLanguage({ lead_language: "tr" }) === "Turkish");
+check(
+  "an unrecognised language is still passed through",
+  leadLanguage({ lead_language: "Klingon" }) === "Klingon",
+  "refusing to guess beats relabelling it"
+);
 check(
   "is NOT taken from the languages the assistant speaks",
   leadLanguage({ languages: ["Arabic", "English"] }) === DEFAULT_LEAD_LANGUAGE,
@@ -55,15 +70,23 @@ check(
 );
 
 console.log("\n--- settings round-trip ---");
+// Stored as a canonical code from here on: "Deutsch", "German" and "de"
+// were three different languages to every feature that keyed off this.
 check(
-  "lead_language survives parsing",
-  parseTenantSettings({ lead_language: "Deutsch" }).lead_language === "Deutsch"
+  "lead_language is normalised to a code",
+  parseTenantSettings({ lead_language: "Deutsch" }).lead_language === "de",
+  parseTenantSettings({ lead_language: "Deutsch" }).lead_language
+);
+check(
+  "an unresolvable value is kept exactly as stored",
+  parseTenantSettings({ lead_language: "Klingon" }).lead_language === "Klingon",
+  "degrading to the old free-text behaviour beats dropping the field"
 );
 check("blank is dropped rather than stored", parseTenantSettings({ lead_language: "   " }).lead_language === undefined);
 check(
   "it is stored separately from languages spoken",
   JSON.stringify(parseTenantSettings({ languages: ["Arabic"], lead_language: "English" })) ===
-    JSON.stringify({ languages: ["Arabic"], lead_language: "English" })
+    JSON.stringify({ languages: ["ar"], lead_language: "en" })
 );
 
 console.log("\n--- which numbers have to be traceable ---");
