@@ -105,12 +105,37 @@ export const MEDIA_SIMILARITY_FLOOR = Number(process.env.MEDIA_SIMILARITY_FLOOR 
 /**
  * How much clearer the best match must be than the runner-up.
  *
- * Sending the Hollywood-smile photo to an implant patient has happened on
- * this product. When two entries are barely separable neither is clearly
- * the one they mean, and showing nothing beats showing the wrong thing.
- * Modest, because the two top entries are often both reasonable answers.
+ * REMOVED, and the reason is worth keeping. It was set at 1.04 by eye -
+ * the same tuning-by-eye this file criticises elsewhere - and measured
+ * against a real request it rejected a CORRECT pick: an Arabic "can I
+ * see before and afters of implant cases" scored
+ *
+ *     0.347  "Before and after ( dental implants )"   <- right
+ *     0.338  "Before and after"                        <- generic
+ *     0.316  "Before and after ( Hollywood smile )"
+ *
+ * a margin of 1.03, and nothing was sent.
+ *
+ * The guard was there because this product once sent a Hollywood-smile
+ * photo to an implant patient. But look at what a margin can actually
+ * see: the harmless ambiguity here (two before-and-after galleries,
+ * either of which answers the request) is TIGHTER than the harmful one
+ * it was meant to catch (implants vs Hollywood, 1.10 apart). A single
+ * ratio cannot tell those apart, so it blocks the safe case and lets the
+ * dangerous one through - the worst of both.
+ *
+ * What protects against the wrong photo instead:
+ *   - INTENT gates the decision. Nothing is sent unless the visitor
+ *     asked or took up an offer, which is what actually went wrong in
+ *     the original incident (accept-all bypassed the topic tie-break).
+ *   - RANKING is measured at 9 of 9 correct across six languages, and
+ *     it puts Hollywood first for a Hollywood question and implants
+ *     first for an implant one.
+ *   - The floor below still refuses a catalogue with nothing related.
+ *
+ * If a wrong photo is ever seen again, this is the first place to look,
+ * and the honest fix would be a subject check rather than a ratio.
  */
-export const MEDIA_SIMILARITY_MARGIN = Number(process.env.MEDIA_SIMILARITY_MARGIN ?? 1.04);
 
 /**
  * The entry whose photo best matches this text, or null.
@@ -133,11 +158,6 @@ export function selectByMeaning(
   if (scored.length === 0) return null;
   const best = scored[0];
   if (best.similarity < MEDIA_SIMILARITY_FLOOR) return null;
-
-  const runnerUp = scored[1];
-  if (runnerUp && runnerUp.similarity > 0 && best.similarity / runnerUp.similarity < MEDIA_SIMILARITY_MARGIN) {
-    return null;
-  }
 
   return best;
 }

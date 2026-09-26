@@ -46,7 +46,6 @@ async function main() {
     // The test tenant needs no owner: its chat resolves by slug, and
     // nobody signs in to it. getCurrentTenant() is now robust to this
     // too, but the two mistakes were independent and so are the fixes.
-    owner_user_id: null,
     settings,
     // Never inherit billing. A test tenant that looks subscribed would
     // distort every usage and revenue figure it appears in.
@@ -66,6 +65,12 @@ async function main() {
 
   let tenantId: string;
   if (existing) {
+    // owner_user_id is NOT written on an update. Setting it null here
+    // once wiped the dedicated test owner that create-test-owner.ts had
+    // created, and the next smoke run failed every dashboard check with
+    // "the test tenant has no owner" - one script silently undoing
+    // another's work, which is exactly the kind of difference that makes
+    // a green run meaningless.
     const { error } = await supabaseServer.from("tenants").update(fields).eq("id", existing.id);
     if (error) throw error;
     tenantId = existing.id;
@@ -73,7 +78,9 @@ async function main() {
   } else {
     const { data, error } = await supabaseServer
       .from("tenants")
-      .insert({ ...fields, slug: TEST_TENANT_SLUG })
+      // No owner on creation; scripts/create-test-owner.ts assigns the
+      // dedicated account afterwards.
+      .insert({ ...fields, slug: TEST_TENANT_SLUG, owner_user_id: null })
       .select("id")
       .single();
     if (error) throw error;

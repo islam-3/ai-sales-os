@@ -41,8 +41,21 @@ export const NO_SIGNALS: VisitorSignals = {
 
 export const SIGNAL_MODEL = "claude-haiku-4-5-20251001";
 
-/** How long a visitor may wait for this, over and above the reply. */
-export const SIGNAL_BUDGET_MS = Number(process.env.SIGNAL_BUDGET_MS ?? 900);
+/**
+ * How long a visitor may wait for this, counted from the start of the
+ * turn so the database work runs inside it rather than after it.
+ *
+ * Was 900ms, which I set from the measured p50 of 916ms without noticing
+ * that a budget AT the p50 is a coin flip. Measured on the real text it
+ * aborted 2 calls in 3, so the signal was usually absent and an Arabic
+ * request for photos got nothing - the feature failing for a reason that
+ * had nothing to do with language.
+ *
+ * 2000ms leaves room for the p95 of 1216ms plus the queries it overlaps.
+ * The end-to-end cost of that is measured, not assumed: see
+ * docs/latency-*.txt.
+ */
+export const SIGNAL_BUDGET_MS = Number(process.env.SIGNAL_BUDGET_MS ?? 2000);
 
 const PROMPT = `You read ONE message from a visitor to a business's chat and report what it does.
 
