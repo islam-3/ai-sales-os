@@ -1,0 +1,25 @@
+5 entries with photos, on test-clinic
+
+  [English    ] lift 1.39  best 0.548  "Before and after ( dental implan"  correct
+  [English    ] lift 1.34  best 0.597  "Before and after ( dental implan"  correct
+  [English    ] lift 1.45  best 0.505  "Before and after ( Hollywood smi"  correct
+  [Arabic     ] lift 1.54  best 0.171  "Before and after ( dental implan"  correct
+  [Arabic     ] lift 2.04  best 0.231  "Before and after ( Hollywood smi"  correct
+  [Russian    ] lift 1.28  best 0.436  "Before and after ( dental implan"  correct
+  [Chinese    ] lift 1.25  best 0.390  "Before and after ( dental implan"  correct
+  [Turkish    ] lift 1.41  best 0.461  "Before and after ( dental implan"  correct
+  [Spanish    ] lift 1.33  best 0.448  "Before and after ( dental implan"  correct
+  [English-neg] lift 1.14  best 0.229  "Before and after ( dental implan"  (should show NOTHING)
+  [English-neg] lift 1.17  best 0.151  "Before and after ( dental implan"  (should show NOTHING)
+  [English-neg] lift 1.34  best 0.153  "Before and after ( dental implan"  (should show NOTHING)
+  [Arabic-neg ] lift 1.28  best 0.111  "Before and after ( dental implan"  (should show NOTHING)
+  [Chinese-neg] lift 2.03  best 0.109  "Before and after"  (should show NOTHING)
+  [Russian-neg] lift 1.11  best 0.111  "Before and after ( dental implan"  (should show NOTHING)
+
+================================================================
+  top-1 correct      : 9/9
+  lift, should show  : min 1.25  median 1.39  max 2.04
+  lift, should not   : min 1.11  median 1.28  max 2.03
+
+  OVERLAPS: 2.03 vs 1.25. Lift alone is not enough.
+================================================================
