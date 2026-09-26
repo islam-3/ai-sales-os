@@ -82,6 +82,9 @@ const Q = charClass(QUESTION_MARKS);
 const S = charClass(SENTENCE_ENDS);
 const C = charClass(CLOSERS);
 
+/** Whether text contains a question mark anywhere, in any script. */
+export const CONTAINS_QUESTION = new RegExp(`[${Q}]`);
+
 /** Whether text ends on a question, whatever script it is written in. */
 export const ENDS_WITH_QUESTION = new RegExp(`[${Q}][${C}]*\\s*$`);
 

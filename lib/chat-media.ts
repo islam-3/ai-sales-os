@@ -632,7 +632,29 @@ export type PhotoOffer = {
 export function suggestPhotoOffer(
   history: ChatTurn[],
   entries: MediaCandidate[],
-  alreadySent: ReadonlySet<string> = new Set()
+  alreadySent: ReadonlySet<string> = new Set(),
+  /**
+   * Overrides for the two gates that can only read English.
+   *
+   * Measured: for the SAME conversation, assessCaseSignificance returns
+   * "significant" in English and "standard" in Arabic, and lexical
+   * relevance scores 0.148 in English and 0.000 in Arabic. Between them
+   * those two vetoed every proactive offer in every language - 0 of 24
+   * opportunities across six failure classes, including English. They
+   * were a silent veto on the whole photo feature.
+   *
+   * This is the minimum honest fix, not a rewrite: a gate that CANNOT
+   * READ the language stops vetoing, rather than being replaced. Both
+   * detectors still deserve the structural pass they are queued for -
+   * they read OUR OWN output, so the server may already know the answer
+   * without reading any words at all.
+   */
+  options: {
+    /** An entry chosen by meaning, used instead of lexical ranking. */
+    semanticPick?: { id?: string; title: string } | null;
+    /** True when significance was judged in a language it can read. */
+    significanceReadable?: boolean;
+  } = {}
 ): PhotoOffer | null {
   const visitorTurns = history.filter((t) => t.role === "user");
   if (visitorTurns.length < 2) return null;
@@ -640,7 +662,13 @@ export function suggestPhotoOffer(
 
   if (!detectEngagement(history).engaged) return null;
   if (hasAlreadyClosed(history) || isNearingClose(history)) return null;
-  if (assessCaseSignificance(history, entries) !== "significant") return null;
+  // Only allowed to veto when it could actually read the conversation.
+  if (
+    options.significanceReadable !== false &&
+    assessCaseSignificance(history, entries) !== "significant"
+  ) {
+    return null;
+  }
 
   const assistantTurns = history.filter((t) => t.role === "assistant");
   const offersIn = (turns: ChatTurn[]) =>
@@ -656,7 +684,10 @@ export function suggestPhotoOffer(
       r.score >= MEDIA_MATCH_THRESHOLD &&
       r.entry.media.some((m) => !alreadySent.has(m.url))
   );
-  if (relevant.length === 0) return null;
+  // Not an early return any more: lexical relevance scoring zero is
+  // usually "cannot read this language", not "nothing is relevant".
+  const lexicalFound = relevant.length > 0;
+  if (!lexicalFound && !options.semanticPick) return null;
 
   // Never the same photo twice, however it was worded the first time.
   const earlierOffers = offersIn(assistantTurns).join(" ");
@@ -668,7 +699,20 @@ export function suggestPhotoOffer(
       : []
   );
   const fresh = relevant.find((r) => !alreadyOffered.has(r.entry));
-  return fresh ? { title: fresh.entry.title, entryId: fresh.entry.id } : null;
+  if (fresh) return { title: fresh.entry.title, entryId: fresh.entry.id };
+
+  // Lexical ranking found nothing, which in any language but English
+  // means it could not read rather than that nothing was relevant. The
+  // semantic pick stands in, still subject to every gate above.
+  if (options.semanticPick) {
+    const pick = entries.find(
+      (e) => (options.semanticPick!.id && e.id === options.semanticPick!.id) || e.title === options.semanticPick!.title
+    );
+    if (pick && pick.media.some((m) => !alreadySent.has(m.url)) && !alreadyOffered.has(pick)) {
+      return { title: pick.title, entryId: pick.id };
+    }
+  }
+  return null;
 }
 
 /**

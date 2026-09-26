@@ -25,11 +25,13 @@ import {
 } from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
-import { resolveVisitorLanguage } from "@/lib/visitor-language";
+import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
 import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
 import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
 import { isAffirmative } from "@/lib/affirmative";
+import { generateEmbedding } from "@/lib/embeddings";
+import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -206,6 +208,8 @@ async function getRelevantContext(
 type KnowledgeEntry = {
   /** Needed so an offer can name an entry without naming its words. */
   id: string;
+  /** The stored vector, for choosing WHICH photo. Null if never embedded. */
+  embedding: number[] | null;
   title: string;
   category: string;
   content: string;
@@ -219,7 +223,7 @@ type KnowledgeEntry = {
 async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("id, title, category, content, knowledge_base_media(media_url, media_type)")
+    .select("id, title, category, content, embedding, knowledge_base_media(media_url, media_type)")
     .eq("tenant_id", tenantId)
     .not("category", "is", null)
     .order("category");
@@ -236,6 +240,7 @@ async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> 
     )
     .map((row) => ({
       id: row.id,
+      embedding: parseEmbedding(row.embedding),
       title: row.title ?? "",
       category: row.category,
       content: row.content,
@@ -585,6 +590,21 @@ export async function POST(req: NextRequest) {
     ? readVisitorSignals(trimmedMessage, { startedAt: turnStartedAt })
     : Promise.resolve(NO_SIGNALS);
 
+  // The visitor's message as a vector, for choosing WHICH photo when one
+  // is wanted. Started here for the same reason as the signals: it
+  // overlaps the queries below rather than queuing behind them.
+  //
+  // This is NOT RAG. Nothing from it reaches the prompt - it only ranks
+  // the tenant's own photos. RAG retrieval stays off (see
+  // RAG_RETRIEVAL_ENABLED) because it was duplicating the knowledge dump
+  // already in the prompt.
+  const queryVectorPromise: Promise<number[] | null> = trimmedMessage
+    ? generateEmbedding(trimmedMessage, tenantId).catch((error) => {
+        console.warn("[media] could not embed the message:", String(error?.message).slice(0, 100));
+        return null;
+      })
+    : Promise.resolve(null);
+
   const [
     { data: history, error: historyError },
     relevantContext,
@@ -750,14 +770,44 @@ export async function POST(req: NextRequest) {
   // assistant still answers, it is just less sharp.
   const signals = await signalsPromise;
 
-  const mediaDecision = takenEntry
+  // ── Intent decides whether; similarity decides which ───────────────
+  //
+  // Calibrated across six languages: embedding rank puts the right entry
+  // first 9 times out of 9, but the MAGNITUDE is meaningless across
+  // languages - the same correct match scores 0.55 in English and 0.17
+  // in Arabic - and neither an absolute bar nor a relative one separates
+  // "should show" from "should not". Negatives overlap positives
+  // outright. So similarity is never asked whether a photo is wanted.
+  //
+  // Two things establish that, both of them intent rather than topic:
+  // the visitor took up an offer we made, or they asked. The old path
+  // used lexical overlap for both questions and scored 0.148 for the
+  // obviously-right entry against a bar of 0.25, in English.
+  const queryVector = await queryVectorPromise;
+  const embeddedCandidates = knowledgeEntries.map((e) => ({
+    id: e.id,
+    title: e.title,
+    media: e.media,
+    embedding: e.embedding,
+  }));
+  const requested = signals.direct_request
+    ? selectByMeaning(queryVector, embeddedCandidates, alreadySent)
+    : null;
+
+  const chosen = takenEntry
+    ? { entry: takenEntry, reason: "accepted-offer" as const }
+    : requested
+      ? { entry: requested.entry, reason: "direct-request" as const }
+      : null;
+
+  const mediaDecision = chosen
     ? ({
         send: true as const,
-        title: takenEntry.title,
-        url: takenEntry.media[0].url,
-        type: takenEntry.media[0].type,
+        title: chosen.entry.title,
+        url: chosen.entry.media[0].url,
+        type: chosen.entry.media[0].type,
         alsoAvailable: [],
-        reason: "accepted-offer" as const,
+        reason: chosen.reason,
       } as ReturnType<typeof decideMedia>)
     : decideMedia(turnsWithLatest, mediaCandidates, alreadySent);
 
@@ -766,9 +816,35 @@ export async function POST(req: NextRequest) {
   // An unprompted offer is only considered on a turn with no request of
   // any kind. While the visitor is asking to see something, the answer to
   // that is the whole job of this reply.
+  // A proactive offer, with the two English-only gates told when they
+  // cannot read the conversation. Significance is judged from the
+  // visitor's own words, so its verdict only counts when those words are
+  // in a script it was written for.
+  // Significance is judged from English scale words, so its verdict only
+  // counts when the conversation is actually in English.
+  //
+  // My first attempt used script - Latin means readable - and that was
+  // wrong for the obvious reason: Turkish and Spanish are written in
+  // Latin and are not English. Measured, that left both at 0 of 4
+  // opportunities while Arabic and Russian reached 3 of 4, which is a
+  // strange enough result to be worth the correction in the comment.
+  //
+  // The tenant's configured chat language is a DECLARED fact rather than
+  // a guess, and a visitor writing in a non-Latin script is plainly not
+  // writing English whatever the tenant configured.
+  const visitorScript = detectScript(turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content));
+  const significanceReadable =
+    visitorScript !== null &&
+    visitorScript === "latin" &&
+    (tenant.settings.chat_language ?? "en").toLowerCase().startsWith("en");
+  const semanticPick = selectByMeaning(queryVector, embeddedCandidates, alreadySent);
+
   const offerToMake =
     !mediaDecision.send && mediaDecision.reason === "no-request"
-      ? suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent)
+      ? suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent, {
+          semanticPick: semanticPick ? { id: semanticPick.entry.id, title: semanticPick.entry.title } : null,
+          significanceReadable,
+        })
       : null;
   const photoOffer = buildPhotoOfferInstruction(offerToMake);
 

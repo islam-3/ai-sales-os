@@ -15,7 +15,7 @@
 // enough to hear about another service, which details matter for a
 // particular case.
 
-import { ENDS_WITH_QUESTION, countWords, splitSentences } from "./punctuation";
+import { CONTAINS_QUESTION, ENDS_WITH_QUESTION, countWords, splitSentences } from "./punctuation";
 
 export type ChatTurn = { role: string; content: string };
 
@@ -571,8 +571,19 @@ const RECEPTIVE_CUES = [
   /\bhow (?:do|does|long|many)\b/i,
 ];
 
-/** A message long enough that they are explaining rather than acknowledging. */
-const ELABORATION_CHARS = 55;
+/**
+ * A message long enough that they are explaining rather than
+ * acknowledging.
+ *
+ * Counted in WORDS, not characters. The old 55-character bar was written
+ * against English, and Chinese says in about 30 characters what English
+ * needs 55 for - so a visitor explaining their situation at length in
+ * Chinese read as a one-word acknowledgement, engagement came back
+ * false, and the proactive photo offer was vetoed before any other gate
+ * was consulted. Measured: Chinese sat at 0 of 4 opportunities while
+ * English and Arabic reached 3 of 4.
+ */
+const ELABORATION_WORDS = 10;
 
 export type EngagementSignal = {
   engaged: boolean;
@@ -600,10 +611,12 @@ export function detectEngagement(history: ChatTurn[]): EngagementSignal {
   const recent = userMessages.slice(-3);
   const reasons: string[] = [];
 
-  if (recent.some((m) => m.includes("?"))) {
+  // Any script's question mark. "?" alone missed Arabic's and CJK's,
+  // which is the same ASCII assumption fixed in lib/punctuation.ts.
+  if (recent.some((m) => CONTAINS_QUESTION.test(m))) {
     reasons.push("they are asking questions back");
   }
-  if (recent.some((m) => m.trim().length >= ELABORATION_CHARS)) {
+  if (recent.some((m) => countWords(m) >= ELABORATION_WORDS)) {
     reasons.push("they are explaining their situation rather than replying in one word");
   }
   if (RECEPTIVE_CUES.some((cue) => cue.test(latest))) {

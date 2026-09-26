@@ -31,6 +31,7 @@ import { say } from "./_chat-client";
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { detectScript, type VisitorScript } from "../lib/visitor-language";
 import { runDashboardChecks } from "./smoke-dashboard";
+import { runMediaChecks } from "./smoke-media";
 
 type Case = {
   label: string;
@@ -311,6 +312,13 @@ async function main() {
   if (!only) {
     const dashboard = await runDashboardChecks(process.env.BASE_URL!);
     failures.push(...dashboard.map((d) => ({ case: "Dashboard", what: d.what, detail: d.detail })));
+
+    // A photo must actually arrive, by both routes, in two languages.
+    // The test tenant had no photos at all for days and every run still
+    // reported green, which is the worst kind of test: one that is
+    // believed.
+    const media = await runMediaChecks(process.env.BASE_URL!);
+    failures.push(...media.map((m) => ({ case: "Media", what: m.what, detail: m.detail })));
   }
 
   console.log(`\n${"═".repeat(70)}`);

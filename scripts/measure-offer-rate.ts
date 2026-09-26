@@ -14,30 +14,9 @@
 // link, not its most recently repaired one.
 
 import { suggestPhotoOffer, type MediaCandidate } from "../lib/chat-media";
-
-const ENTRIES: MediaCandidate[] = [
-  {
-    id: "e1",
-    title: "Before and after gallery",
-    content: "Photos of previous full mouth dental implant cases, before and after treatment.",
-    category: "Dental treatment",
-    media: [{ url: "a", type: "image/jpeg" }],
-  },
-  {
-    id: "e2",
-    title: "Implants brand",
-    content: "We use Implant Swiss implants, known for Swiss precision and a lifetime guarantee.",
-    category: "Dental treatment",
-    media: [{ url: "b", type: "image/jpeg" }],
-  },
-  {
-    id: "e3",
-    title: "Our clinic",
-    content: "Photos of the clinic interior and treatment rooms in Istanbul.",
-    category: "About",
-    media: [{ url: "c", type: "image/jpeg" }],
-  },
-];
+import { generateEmbedding } from "../lib/embeddings";
+import { parseEmbedding, selectByMeaning } from "../lib/media-selection";
+import { detectScript } from "../lib/visitor-language";
 
 type Turn = { role: "user" | "assistant"; content: string };
 
@@ -122,8 +101,42 @@ const CONVERSATIONS: Conversation[] = [
   },
 ];
 
-function main() {
-  console.log(`${CONVERSATIONS.length} conversations, offers counted at every assistant turn\n`);
+async function main() {
+  // The REAL catalogue with its real vectors. Stub entries hid this
+  // problem once already: significance reads the knowledge material, so
+  // thin stubs made even English look broken for the wrong reason.
+  const { supabaseServer } = await import("../lib/supabase-server");
+  const slug = process.env.SLUG ?? "test-clinic";
+  const { data: tenant } = await supabaseServer
+    .from("tenants")
+    .select("id, settings")
+    .eq("slug", slug)
+    .single();
+  const chatLanguage =
+    ((tenant!.settings as { chat_language?: string } | null)?.chat_language ?? "en");
+  const { data: rows } = await supabaseServer
+    .from("knowledge_base")
+    .select("id, title, content, category, embedding, knowledge_base_media(media_url, media_type)")
+    .eq("tenant_id", tenant!.id);
+
+  const ENTRIES: MediaCandidate[] = (rows ?? []).map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    content: r.content,
+    category: r.category,
+    media: (r.knowledge_base_media ?? []).map((m) => ({ url: m.media_url, type: m.media_type })),
+  }));
+  const EMBEDDED = (rows ?? []).map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    media: (r.knowledge_base_media ?? []).map((m) => ({ url: m.media_url, type: m.media_type })),
+    embedding: parseEmbedding(r.embedding),
+  }));
+
+  console.log(
+    `${CONVERSATIONS.length} conversations against ${slug} ` +
+      `(${ENTRIES.length} entries, ${EMBEDDED.filter((e) => e.media.length > 0).length} with photos)\n`
+  );
 
   let totalPoints = 0;
   let totalOffers = 0;
@@ -140,7 +153,18 @@ function main() {
       const history = conv.turns.slice(0, i);
       if (history[history.length - 1].role !== "user") continue;
       points++;
-      const offer = suggestPhotoOffer(history, ENTRIES, new Set());
+      // Exactly what the route does, including the overrides.
+      const visitorText = history.filter((x) => x.role === "user").map((x) => x.content).join(" ");
+      const vector = await generateEmbedding(visitorText);
+      const pick = selectByMeaning(vector, EMBEDDED, new Set());
+      const script = detectScript(history.filter((x) => x.role === "user").map((x) => x.content));
+      const offer = suggestPhotoOffer(history, ENTRIES, new Set(), {
+        semanticPick: pick ? { id: pick.entry.id, title: pick.entry.title } : null,
+        // Exactly the route's rule, including the tenant's declared chat
+        // language - script alone says Turkish and Spanish are readable,
+        // and they are Latin but not English.
+        significanceReadable: script === "latin" && chatLanguage.toLowerCase().startsWith("en"),
+      });
       if (offer) {
         offers++;
         if (!first) first = `turn ${points}: "${offer.title}"${offer.entryId ? ` (${offer.entryId})` : ""}`;
@@ -169,4 +193,9 @@ function main() {
   );
 }
 
-main();
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+
+export {};
