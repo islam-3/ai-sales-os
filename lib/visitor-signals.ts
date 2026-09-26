@@ -57,16 +57,70 @@ export const SIGNAL_MODEL = "claude-haiku-4-5-20251001";
  */
 export const SIGNAL_BUDGET_MS = Number(process.env.SIGNAL_BUDGET_MS ?? 2000);
 
-const PROMPT = `You read ONE message from a visitor to a business's chat and report what it does.
+/**
+ * The instruction, exported so scripts/classify-eval.ts measures the
+ * REAL one rather than a copy that can drift from it.
+ *
+ * A shorter variant lives beside it because most of the ~900ms this call
+ * costs is time to first token, and a shorter prompt is the cheapest
+ * thing to try. Which one is used is decided by measurement, not by
+ * preference: see SIGNAL_PROMPT below.
+ */
+export const SIGNAL_PROMPT_LONG = `You read ONE message from a visitor to a business's chat and report what it does.
 
 Reply with ONLY this JSON object, no other text:
-{"direct_request": bool, "hesitation": bool, "impatience": bool}
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
 
+accepts_offer — the visitor is taking up something the assistant JUST offered to show them. "Yes" answering "what is your name?" is not this.
 direct_request — the visitor is asking to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
 hesitation — the visitor is stepping back: needs to think, wants to consult someone, is not ready to decide.
 impatience — the visitor is frustrated: repeating a question, or saying they were not answered.
 
 The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
+
+/**
+ * The same job in about half the tokens.
+ *
+ * accepts_offer is asked for and then IGNORED, which looks wasteful and
+ * is not. Acceptance is decided in code (lib/affirmative.ts); the key is
+ * here so the model has somewhere to put "yes please". Without it,
+ * measured, every acceptance was filed as a direct_request and precision
+ * on that signal fell from 100% to about 55% in every language - a fault
+ * I introduced by removing the category when acceptance moved into code.
+ * A classifier needs a box for the thing it is seeing, even one nobody
+ * reads.
+ */
+export const SIGNAL_PROMPT_SHORT = `Report what this visitor message does. Reply with JSON only:
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
+
+accepts_offer: agreeing to something just offered ("yes please", "go on").
+direct_request: asking to be SHOWN something (photos, results, examples). Offering to send their own photo is not.
+hesitation: stepping back - needs to think, wants to consult someone, not ready.
+impatience: frustrated - repeating a question, or saying they were not answered.
+
+Any language. Judge intent, not wording. Usually all false.`;
+
+/**
+ * Which one is live.
+ *
+ * Switched by measurement against the labelled set, never by preference.
+ * Accuracy is not traded for speed: if precision or recall drops on ANY
+ * failure class, the longer prompt stays.
+ */
+export const SIGNAL_PROMPT =
+  process.env.SIGNAL_PROMPT_VARIANT === "short" ? SIGNAL_PROMPT_SHORT : SIGNAL_PROMPT_LONG;
+
+/**
+ * A budget for turns where the answer cannot change anything.
+ *
+ * The signals are only needed BEFORE the reply when direct_request could
+ * send a photo this turn. When the tenant has no photos at all, or an
+ * offer is already outstanding and acceptance is decided in code, the
+ * answer arrives too late to matter - so the reply does not wait for it.
+ */
+export const SIGNAL_BUDGET_NON_BLOCKING_MS = Number(
+  process.env.SIGNAL_BUDGET_NON_BLOCKING_MS ?? 250
+);
 
 /**
  * The first balanced {...} in a response.
@@ -116,7 +170,7 @@ export async function readVisitorSignals(
       {
         model: SIGNAL_MODEL,
         max_tokens: 150,
-        system: PROMPT,
+        system: SIGNAL_PROMPT,
         messages: [{ role: "user", content: message }],
       },
       { signal: controller.signal }

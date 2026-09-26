@@ -30,6 +30,7 @@
 // reads this next should know which of those two it was.
 
 import { anthropic } from "../lib/anthropic";
+import { SIGNAL_PROMPT } from "../lib/visitor-signals";
 import { CASES, SIGNAL_KEYS, type Case, type Signals } from "./classify-cases";
 import { decideMedia } from "../lib/chat-media";
 import { detectHesitation, detectImpatience } from "../lib/conversation-state";
@@ -37,19 +38,12 @@ import { detectHesitation, detectImpatience } from "../lib/conversation-state";
 const MODEL = process.env.CLASSIFIER_MODEL ?? "claude-haiku-4-5-20251001";
 const RUNS = Number(process.env.RUNS ?? 3);
 
-const PROMPT = `You read ONE message from a visitor to a business's chat and report what it does.
+// The REAL prompt, imported rather than copied, so this cannot drift
+// from what production sends. Which variant is measured is chosen by
+// SIGNAL_PROMPT_VARIANT, the same switch the route reads.
+const PROMPT = SIGNAL_PROMPT;
 
-Reply with ONLY this JSON object, no other text:
-{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
-
-accepts_offer — the visitor is taking up something the assistant JUST offered to show them. Only true if the assistant's previous message actually offered to show something. "Yes" answering "what is your name?" is not this.
-direct_request — the visitor is asking, unprompted, to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
-hesitation — the visitor is stepping back: needs to think, wants to consult someone, is not ready to decide.
-impatience — the visitor is frustrated: repeating a question, or saying they were not answered.
-
-The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
-
-/** The first balanced {...} in a response, ignoring anything around it. */
+/** The first balanced {...}; the model explains itself after the JSON. */
 function firstJsonObject(text: string): string {
   const start = text.indexOf("{");
   if (start === -1) throw new Error("no JSON object in response");

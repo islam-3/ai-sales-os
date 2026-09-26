@@ -27,8 +27,8 @@ import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
-import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
-import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
+import { NO_SIGNALS, SIGNAL_BUDGET_NON_BLOCKING_MS, readVisitorSignals } from "@/lib/visitor-signals";
+import { acceptedOffer, offerIsLive, parsePendingOffer } from "@/lib/pending-offer";
 import { isAffirmative } from "@/lib/affirmative";
 import { generateEmbedding } from "@/lib/embeddings";
 import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
@@ -768,7 +768,32 @@ export async function POST(req: NextRequest) {
   // Signals, if they arrived inside their budget. A turn without them
   // behaves exactly as every non-English turn behaved until now: the
   // assistant still answers, it is just less sharp.
-  const signals = await signalsPromise;
+  // ── Only wait when waiting can change this turn ────────────────────
+  //
+  // direct_request is the only signal that decides something BEFORE the
+  // reply: whether a photo goes out now. Two cases where it cannot, and
+  // the reply should not pay for it:
+  //
+  //   * the tenant has no photos at all - nothing to send whatever the
+  //     answer is;
+  //   * an offer is already outstanding - acceptance is decided in code
+  //     (lib/affirmative.ts), which costs nothing and does not need this.
+  //
+  // Hesitation and impatience shape tone rather than gate anything, so
+  // on those turns they are simply absent, exactly as they were for
+  // every non-English visitor until this week.
+  const tenantHasPhotos = knowledgeEntries.some((e) => e.media.length > 0);
+  const offerOutstanding = offerIsLive(pendingOffer, thisTurn);
+  const signalsCanMatter = tenantHasPhotos && !offerOutstanding;
+
+  const signals = signalsCanMatter
+    ? await signalsPromise
+    : await Promise.race([
+        signalsPromise,
+        new Promise<typeof NO_SIGNALS>((resolve) =>
+          setTimeout(() => resolve(NO_SIGNALS), SIGNAL_BUDGET_NON_BLOCKING_MS)
+        ),
+      ]);
 
   // ── Intent decides whether; similarity decides which ───────────────
   //
