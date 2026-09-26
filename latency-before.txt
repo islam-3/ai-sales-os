@@ -1,0 +1,22 @@
+  conversation 1: ✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+7.1s 3.3s 6.4s 3.1s 2s 2.3s 
+  conversation 2: 3.6s 3.5s 5.5s 3.9s 3.8s 2.5s 
+  conversation 3: 4s 3.4s 5.3s 2.7s 2.8s 2.5s 
+  conversation 4: 3.4s 2.6s 6.3s 2.9s 1.9s 2.4s 
+
+══════════════════════════════════════════════════════════
+  [before]  24 turns
+══════════════════════════════════════════════════════════
+  p50  3351ms
+  p90  6295ms
+  p95  6404ms
+  mean 3630ms    min 1882ms    max 7141ms
+
+  by turn number:
+    turn 1  mean  4518ms   "hi, I'm looking into dental implants"
+    turn 2  mean  3199ms   "I lost most of my upper teeth about five y"
+    turn 3  mean  5879ms   "how much does it cost?"
+    turn 4  mean  3131ms   "can I see photos of results like mine?"
+    turn 5  mean  2609ms   "yes please"
+    turn 6  mean  2446ms   "David"

@@ -40,6 +40,14 @@ import {
 
 /** A knowledge entry as the media decision needs it. */
 export type MediaCandidate = {
+  /**
+   * The entry's own id, where the caller has it.
+   *
+   * Carried so an offer can be written down as "this entry" rather than
+   * recovered afterwards by matching words. Optional only because the
+   * pure-function tests construct candidates without one.
+   */
+  id?: string;
   title: string;
   content: string;
   media: { url: string; type: string | null }[];
@@ -590,7 +598,15 @@ function resolveEntry(
 }
 
 /** A photo worth offering this turn, named by its entry title. */
-export type PhotoOffer = { title: string };
+export type PhotoOffer = {
+  title: string;
+  /**
+   * Which entry this offer is FOR, so the server can remember it and
+   * resolve a later "yes" by lookup instead of by language. The whole
+   * reason acceptance used to fail outside English.
+   */
+  entryId?: string;
+};
 
 /**
  * A photo the reply could offer, unprompted, or null.
@@ -652,7 +668,7 @@ export function suggestPhotoOffer(
       : []
   );
   const fresh = relevant.find((r) => !alreadyOffered.has(r.entry));
-  return fresh ? { title: fresh.entry.title } : null;
+  return fresh ? { title: fresh.entry.title, entryId: fresh.entry.id } : null;
 }
 
 /**
@@ -661,9 +677,10 @@ export function suggestPhotoOffer(
  * The entry title is given as a label to understand, never as words to
  * say: titles are written by the business, and for at least one tenant
  * they are SEO headings. The model is also asked to name the subject
- * plainly, because acceptance is matched against the wording of its
- * offer — "one of our full-mouth implant cases, before and after" can be
- * resolved to a photo, "a transformation like yours" cannot.
+ * plainly, because a visitor deciding whether they want to see it needs
+ * to know what it is. Acceptance itself no longer depends on this
+ * wording at all: the server records which entry was offered, so a later
+ * "yes" is resolved by lookup rather than by re-reading the sentence.
  */
 export function buildPhotoOfferInstruction(offer: PhotoOffer | null): string | null {
   if (!offer) return null;

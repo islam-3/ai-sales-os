@@ -875,11 +875,35 @@ export function buildConversationStateBlock(
   /** Ready-made media instruction from lib/chat-media.ts, or null. */
   mediaInstruction: string | null = null,
   /** Ready-made instruction to offer a specific photo, from lib/chat-media.ts, or null. */
-  photoOffer: string | null = null
+  photoOffer: string | null = null,
+  /**
+   * What the visitor's latest message is doing, read by a model.
+   *
+   * Replaces the keyword lists that used to answer this. Those scored
+   * ZERO recall on every signal in Arabic, Russian, Chinese, Turkish and
+   * Spanish - not degraded, zero - so hesitation and impatience were
+   * simply never detected for any visitor not writing English, and every
+   * instruction that depended on them was dead.
+   *
+   * Absent means "we do not know", never "no". A turn whose signals did
+   * not arrive inside their budget behaves exactly as every non-English
+   * turn behaved until now.
+   */
+  signals: { hesitation: boolean; impatience: boolean; direct_request: boolean } | null = null
 ): string | null {
   const offers = extractPriorOffers(history);
-  const impatience = detectImpatience(history);
-  const hesitation = detectHesitation(history);
+  const impatience = signals
+    ? { impatient: signals.impatience, reasons: signals.impatience ? ["they sound frustrated"] : [] }
+    : detectImpatience(history);
+  const hesitation = signals
+    ? {
+        hesitating: signals.hesitation,
+        // The count still comes from the transcript: how MANY times they
+        // have stepped back is a property of the conversation, not of
+        // this message, and the instruction escalates on repetition.
+        occurrences: signals.hesitation ? detectHesitation(history).occurrences || 1 : 0,
+      }
+    : detectHesitation(history);
   const engagement = detectEngagement(history);
   const contactKnown = hasContactDetails(history);
   const alreadyClosed = hasAlreadyClosed(history);

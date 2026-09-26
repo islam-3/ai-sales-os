@@ -27,6 +27,9 @@ import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
+import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
+import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
+import { isAffirmative } from "@/lib/affirmative";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -201,6 +204,8 @@ async function getRelevantContext(
 }
 
 type KnowledgeEntry = {
+  /** Needed so an offer can name an entry without naming its words. */
+  id: string;
   title: string;
   category: string;
   content: string;
@@ -214,7 +219,7 @@ type KnowledgeEntry = {
 async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("title, category, content, knowledge_base_media(media_url, media_type)")
+    .select("id, title, category, content, knowledge_base_media(media_url, media_type)")
     .eq("tenant_id", tenantId)
     .not("category", "is", null)
     .order("category");
@@ -230,6 +235,7 @@ async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> 
         typeof row.category === "string" && row.category.length > 0
     )
     .map((row) => ({
+      id: row.id,
       title: row.title ?? "",
       category: row.category,
       content: row.content,
@@ -569,8 +575,22 @@ export async function POST(req: NextRequest) {
       ? openingMessage.trim()
       : null;
 
-  const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
-    await Promise.all([
+  // Started here, with the database work, not after it. The classifier
+  // takes ~900ms on its own; run alongside the queries below it costs
+  // only whatever it still needs once those are done. Its budget is
+  // counted from this moment, so a slow call is abandoned rather than
+  // added to what the visitor waits.
+  const turnStartedAt = Date.now();
+  const signalsPromise = trimmedMessage
+    ? readVisitorSignals(trimmedMessage, { startedAt: turnStartedAt })
+    : Promise.resolve(NO_SIGNALS);
+
+  const [
+    { data: history, error: historyError },
+    relevantContext,
+    knowledgeEntries,
+    { data: sessionRow },
+  ] = await Promise.all([
       supabaseServer
         .from("conversations")
         .select("role, content, media_url")
@@ -584,7 +604,16 @@ export async function POST(req: NextRequest) {
         ? getRelevantContext(trimmedMessage, tenantId, sessionId)
         : Promise.resolve(null),
       getKnowledgeEntries(tenantId),
+      // What we offered to show on the previous turn, if anything.
+      supabaseServer
+        .from("chat_sessions")
+        .select("pending_offer")
+        .eq("tenant_id", tenantId)
+        .eq("session_id", sessionId)
+        .maybeSingle(),
     ]);
+
+  const pendingOffer = parsePendingOffer(sessionRow?.pending_offer);
 
   if (historyError) {
     console.error("Failed to fetch conversation history from Supabase:", historyError);
@@ -691,6 +720,7 @@ export async function POST(req: NextRequest) {
   // The single media decision, made here and nowhere else. The model is
   // told what is attached; it has no way to send anything itself.
   const mediaCandidates = knowledgeEntries.map((e) => ({
+    id: e.id,
     title: e.title,
     content: e.content,
     media: e.media,
@@ -699,23 +729,55 @@ export async function POST(req: NextRequest) {
     category: e.category,
   }));
 
-  const mediaDecision = decideMedia(turnsWithLatest, mediaCandidates, alreadySent);
+  // ── Did they take up what we offered? ──────────────────────────────
+  //
+  // Asked FIRST, and answered without reading a word of the offer or of
+  // any entry title: the server wrote down which entry it offered, so
+  // the only question left is whether this message agrees. That question
+  // has no vocabulary problem, which the old path did - matching an
+  // Arabic "yes" against an English title scored zero recall outside
+  // English, and inside English only worked if the visitor happened to
+  // quote a title close to verbatim.
+  const priorUserTurnCount = (history ?? []).filter((row) => row.role === "user").length;
+  const thisTurn = priorUserTurnCount + 1;
+  const taken = acceptedOffer(pendingOffer, thisTurn, trimmedMessage, isAffirmative);
+  const takenEntry = taken
+    ? knowledgeEntries.find((e) => e.id === taken.entryId && e.media.length > 0)
+    : undefined;
+
+  // Signals, if they arrived inside their budget. A turn without them
+  // behaves exactly as every non-English turn behaved until now: the
+  // assistant still answers, it is just less sharp.
+  const signals = await signalsPromise;
+
+  const mediaDecision = takenEntry
+    ? ({
+        send: true as const,
+        title: takenEntry.title,
+        url: takenEntry.media[0].url,
+        type: takenEntry.media[0].type,
+        alsoAvailable: [],
+        reason: "accepted-offer" as const,
+      } as ReturnType<typeof decideMedia>)
+    : decideMedia(turnsWithLatest, mediaCandidates, alreadySent);
 
   const mediaInstruction = buildMediaInstruction(mediaDecision);
 
   // An unprompted offer is only considered on a turn with no request of
   // any kind. While the visitor is asking to see something, the answer to
   // that is the whole job of this reply.
-  const photoOffer =
+  const offerToMake =
     !mediaDecision.send && mediaDecision.reason === "no-request"
-      ? buildPhotoOfferInstruction(suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent))
+      ? suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent)
       : null;
+  const photoOffer = buildPhotoOfferInstruction(offerToMake);
 
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
     mediaInstruction,
-    photoOffer
+    photoOffer,
+    signals
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by
@@ -878,6 +940,33 @@ export async function POST(req: NextRequest) {
   // be wrong.
   if ((history ?? []).length === 0) {
     keepAlive(recordConversationStart(tenantId, sessionId), "recordConversationStart");
+  }
+
+  // ── Remember what we offered, or forget what was taken up ──────────
+  //
+  // After the reply, so the visitor never waits on it, and through
+  // keepAlive so it is not killed when the response returns.
+  //
+  // Written on the turn the offer is MADE and read on the next one. An
+  // offer that was just consumed is cleared, and so is one that has gone
+  // stale - the row should say what is actually outstanding rather than
+  // leaving an old id for some later "yes" to collide with.
+  const offerToStore = offerToMake?.entryId
+    ? { entryId: offerToMake.entryId, title: offerToMake.title, offeredOnTurn: thisTurn }
+    : null;
+  const offerWasConsumedOrStale = pendingOffer !== null;
+  if (offerToStore || offerWasConsumedOrStale) {
+    keepAlive(
+      (async () => {
+        const { error } = await supabaseServer
+          .from("chat_sessions")
+          .update({ pending_offer: offerToStore })
+          .eq("tenant_id", tenantId)
+          .eq("session_id", sessionId);
+        if (error) console.error("[offer] could not store pending offer:", error.message);
+      })(),
+      "storePendingOffer"
+    );
   }
 
   // The lead-extraction pass runs after the reply has gone out, so it
