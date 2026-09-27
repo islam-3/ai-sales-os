@@ -654,6 +654,13 @@ export function suggestPhotoOffer(
     semanticPick?: { id?: string; title: string } | null;
     /** True when significance was judged in a language it can read. */
     significanceReadable?: boolean;
+    /**
+     * Whether an offer is already outstanding, from the server's own
+     * record rather than from reading the assistant's words back.
+     * Undefined means the caller does not know, and the old text scan
+     * applies.
+     */
+    offerJustMade?: boolean;
   } = {}
 ): PhotoOffer | null {
   const visitorTurns = history.filter((t) => t.role === "user");
@@ -670,10 +677,25 @@ export function suggestPhotoOffer(
     return null;
   }
 
+  // Did we just offer something? The server WROTE THAT DOWN, so it does
+  // not need to recognise its own sentences to find out.
+  //
+  // This used to scan the assistant's last two replies for offer-shaped
+  // sentences, with an English-only test. Live, English prose trips it
+  // constantly - any question containing "see" or "show you" reads as an
+  // offer - so offers were vetoed in English far more often than in
+  // Arabic, which the smoke test caught by failing on English while
+  // Arabic passed.
+  if (options.offerJustMade) return null;
+
   const assistantTurns = history.filter((t) => t.role === "assistant");
   const offersIn = (turns: ChatTurn[]) =>
     turns.flatMap((t) => sentencesOf(t.content).filter(isOfferSentence));
-  if (offersIn(assistantTurns.slice(-2)).length > 0) return null;
+  // Only consulted when the caller cannot tell us, which is the pure
+  // function tests and nothing in production.
+  if (options.offerJustMade === undefined && offersIn(assistantTurns.slice(-2)).length > 0) {
+    return null;
+  }
 
   // Relevant to what the visitor said, which also scopes by treatment: an
   // implant patient scores zero against the Hollywood-smile cases.

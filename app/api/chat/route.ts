@@ -921,6 +921,7 @@ export async function POST(req: NextRequest) {
       ? suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent, {
           semanticPick: semanticPick ? { id: semanticPick.entry.id, title: semanticPick.entry.title } : null,
           significanceReadable,
+          offerJustMade: pendingOffer !== null,
         })
       : null;
   const photoOffer = buildPhotoOfferInstruction(offerToMake);
