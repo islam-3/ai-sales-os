@@ -75,17 +75,51 @@ export function enforceSingleQuestion(text: string): string {
   });
 
   const flat = paragraphs.flat();
-  const questionCount = flat.filter((s) => ENDS_WITH_QUESTION.test(s.trim())).length;
-  if (questionCount < 2) return text;
+  const isQuestion = (s: string) => ENDS_WITH_QUESTION.test(s.trim());
 
-  let seen = 0;
+  const questions = flat.filter(isQuestion);
+  if (questions.length < 2) return text;
+
+  // Which question survives: the closing one, unless it is a LIST.
+  //
+  // The closing question is normally the real ask - "Would you be
+  // comfortable sharing a photo? But first, could I get your name?" -
+  // and that is what this has always kept.
+  //
+  // But a visitor was shown a reply that was nothing but "For example,
+  // dental implants, Hollywood smile, hair transplant, or one of our
+  // other procedures?" The assistant had written "What kind of treatment
+  // are you interested in? For example, ...", and keeping the closing
+  // half orphaned it: no context, no clear question.
+  //
+  // A list is told from an ask by COMMAS, not by words. "For example, A,
+  // B, C, or D?" carries four; "But first, could I get your name?"
+  // carries one; "And what is your name?" none. Commas are punctuation,
+  // so this works the same in every failure class once the Arabic and
+  // full-width forms are included - a list of continuation words like
+  // "for example" would have worked in English and nowhere else.
+  const COMMAS = new RegExp(`[${String.fromCharCode(0x002c, 0x060c, 0xff0c, 0x3001)}]`, "g");
+  const LIST_COMMAS = 3;
+  const isList = (s: string) => (s.match(COMMAS) ?? []).length >= LIST_COMMAS;
+
+  const last = questions[questions.length - 1];
+  const keeper =
+    isList(last) && questions.length >= 2 ? questions[questions.length - 2] : last;
+
+  let used = false;
+  const keep = flat.map((sentence) => {
+    if (!isQuestion(sentence)) return true;
+    if (sentence === keeper && !used) {
+      used = true;
+      return true;
+    }
+    return false;
+  });
+
+  let index = 0;
   const kept = paragraphs.map((sentences) =>
     sentences
-      .filter((s) => {
-        if (!ENDS_WITH_QUESTION.test(s.trim())) return true;
-        seen += 1;
-        return seen === questionCount; // keep only the final question
-      })
+      .filter(() => keep[index++])
       .join("")
       .trim()
   );

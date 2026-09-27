@@ -27,8 +27,8 @@ import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
-import { NO_SIGNALS, SIGNAL_BUDGET_NON_BLOCKING_MS, readVisitorSignals } from "@/lib/visitor-signals";
-import { acceptedOffer, offerIsLive, parsePendingOffer } from "@/lib/pending-offer";
+import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
+import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
 import { isAffirmative } from "@/lib/affirmative";
 import { generateEmbedding } from "@/lib/embeddings";
 import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
@@ -782,18 +782,13 @@ export async function POST(req: NextRequest) {
   // Hesitation and impatience shape tone rather than gate anything, so
   // on those turns they are simply absent, exactly as they were for
   // every non-English visitor until this week.
-  const tenantHasPhotos = knowledgeEntries.some((e) => e.media.length > 0);
-  const offerOutstanding = offerIsLive(pendingOffer, thisTurn);
-  const signalsCanMatter = tenantHasPhotos && !offerOutstanding;
-
-  const signals = signalsCanMatter
-    ? await signalsPromise
-    : await Promise.race([
-        signalsPromise,
-        new Promise<typeof NO_SIGNALS>((resolve) =>
-          setTimeout(() => resolve(NO_SIGNALS), SIGNAL_BUDGET_NON_BLOCKING_MS)
-        ),
-      ]);
+  // With the direct-request route gone, NOTHING the classifier returns
+  // decides whether a photo is sent - acceptance is settled in code. The
+  // signals now only shape tone: hesitation stops the assistant
+  // re-pitching at someone stepping back, impatience stops it asking
+  // another question. Those were the parts that tested best, so the
+  // reply still waits for them, but only that.
+  const signals = await signalsPromise;
 
   // ── Intent decides whether; similarity decides which ───────────────
   //
@@ -815,15 +810,30 @@ export async function POST(req: NextRequest) {
     media: e.media,
     embedding: e.embedding,
   }));
-  const requested = signals.direct_request
-    ? selectByMeaning(queryVector, embeddedCandidates, alreadySent)
-    : null;
-
+  // ── There is no direct-request route any more ──────────────────────
+  //
+  // It was removed after testing, and every photo bug came from it, 3
+  // for 3:
+  //
+  //   * "give me the price" sent a photo, twice out of two, with reply
+  //     text that never mentioned it. The assistant's OWN sentence -
+  //     "if you can share a photo of your teeth" - was read as the
+  //     VISITOR asking for an image. The direction was inverted.
+  //   * an ambiguous "can I see before and afters", naming no service,
+  //     returned HAIR TRANSPLANT photos in a dental conversation, and
+  //     the error propagated into the lead.
+  //
+  // The offer route was clean in every test, and the difference is that
+  // the server knows what IT offered. A request has to be guessed at:
+  // which service, and whether they are asking to see or offering to
+  // send. Both guesses were wrong in front of a patient.
+  //
+  // If it returns, it should be the server ASKING which service rather
+  // than inferring one. A narrower feature that is always right beats a
+  // wider one that embarrasses a clinic.
   const chosen = takenEntry
     ? { entry: takenEntry, reason: "accepted-offer" as const }
-    : requested
-      ? { entry: requested.entry, reason: "direct-request" as const }
-      : null;
+    : null;
 
   const mediaDecision = chosen
     ? ({

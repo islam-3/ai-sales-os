@@ -137,5 +137,48 @@ check(
   "the rhetorical device must survive"
 );
 
+console.log("\n--- a list question defers to the ask before it ---");
+// A visitor was shown a reply that was nothing but "For example, dental
+// implants, Hollywood smile, hair transplant, or one of our other
+// procedures?" — no context, no clear question. The closing question is
+// normally the real ask, but a LIST is a continuation of the one before
+// it, and commas tell them apart without any vocabulary at all.
+const REPORTED =
+  "What kind of treatment are you interested in? For example, dental implants, " +
+  "Hollywood smile, hair transplant, or one of our other procedures?";
+check(
+  "the reported truncation keeps the question carrying the context",
+  enforceSingleQuestion(REPORTED) === "What kind of treatment are you interested in?",
+  enforceSingleQuestion(REPORTED)
+);
+check(
+  "a closing ask still wins when it is not a list",
+  enforceSingleQuestion(
+    "Would you be comfortable sharing a photo? But first, could I get your name?"
+  ) === "But first, could I get your name?"
+);
+check(
+  "and two separate asks are still cut to one",
+  enforceSingleQuestion("Are you travelling from abroad? And what is your name?") ===
+    "And what is your name?"
+);
+
+console.log("\n--- and it works where the rule used to be dead ---");
+// SENTENCE_CHUNK required whitespace after the mark, which CJK does not
+// write, so enforceSingleQuestion could not split a Chinese reply at
+// all. It passed every English test while doing nothing in that class.
+const CN_TWO = "您从哪里来？您叫什么名字？";
+check(
+  "a Chinese reply with two questions is cut to one",
+  enforceSingleQuestion(CN_TWO) === "您叫什么名字？",
+  enforceSingleQuestion(CN_TWO)
+);
+const CN_LIST = "您对哪项感兴趣？例如种植牙、好莱坞美白、植发，或者其他项目？";
+check(
+  "a Chinese list question defers too",
+  enforceSingleQuestion(CN_LIST) === "您对哪项感兴趣？",
+  enforceSingleQuestion(CN_LIST)
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall punctuation tests passed");
 process.exit(bad ? 1 : 0);

@@ -78,6 +78,9 @@ const CLOSERS = chars(
   0xff09 // full-width )
 );
 
+/** Marks that need no following space, because their scripts use none. */
+const NO_SPACE_ENDS = charClass(chars(0x3002, 0xff01, 0xff1f));
+
 const Q = charClass(QUESTION_MARKS);
 const S = charClass(SENTENCE_ENDS);
 const C = charClass(CLOSERS);
@@ -99,10 +102,16 @@ export const ENDS_WITH_SENTENCE = new RegExp(`[${S}][${C}]*\\s*$`);
  * splitSentences() this keeps the trailing whitespace rather than
  * trimming it.
  */
-export const SENTENCE_CHUNK = new RegExp(`[^${S}]+[${S}]+(?:\\s|$)|[^${S}]+$`, "g");
+export const SENTENCE_CHUNK = new RegExp(
+  // The full-width alternative comes FIRST and needs no following space,
+  // exactly as splitSentences already knew. Missing it here meant
+  // enforceSingleQuestion could not split a Chinese reply at all, so a
+  // CJK reply asking two questions was never trimmed — the rule was
+  // silently dead in that class while passing every English test.
+  `[^${S}]+[${NO_SPACE_ENDS}]+|[^${S}]+[${S}]+(?:\\s|$)|[^${S}]+$`,
+  "g"
+);
 
-/** Marks that need no following space, because their scripts use none. */
-const NO_SPACE_ENDS = charClass(chars(0x3002, 0xff01, 0xff1f));
 /** Everything else, which does. */
 const SPACED_ENDS = charClass(chars(0x002e, 0x0021, 0x06d4, 0x0964, 0x0965) + QUESTION_MARKS);
 

@@ -24,7 +24,20 @@
 import { anthropic } from "./anthropic";
 
 export type VisitorSignals = {
-  /** Asking, unprompted, to be shown something. */
+  /**
+   * Asking, unprompted, to be shown something.
+   *
+   * NOTHING READS THIS ANY MORE. The direct-request route was removed
+   * after every photo bug in testing came from it - a reply's own "if
+   * you can share a photo of your teeth" read as the visitor asking for
+   * one, and an ambiguous request returning hair-transplant photos in a
+   * dental conversation.
+   *
+   * It is still asked for, on purpose. Removing accepts_offer when
+   * acceptance moved into code cost direct_request precision in every
+   * language, because the model had nowhere to put what it was seeing.
+   * A classifier needs a box for each thing, even a box nobody reads.
+   */
   direct_request: boolean;
   /** Stepping back: needs to think, wants to consult someone. */
   hesitation: boolean;
