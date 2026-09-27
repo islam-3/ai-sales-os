@@ -1,0 +1,53 @@
+#!/bin/sh
+#
+# Refuses a push that does not compile or build.
+#
+# A broken commit reached master because the build was piped to tail:
+#
+#     npx next build 2>&1 | tail -2 && git push
+#
+# A pipeline reports the exit code of the LAST command, and tail always
+# succeeds, so the push ran on a build that had failed. Vercel refused
+# the deployment and production stayed on the previous commit, which is
+# luck rather than design - the same mistake on a change that happened
+# to build would have shipped.
+#
+# So the check lives here instead of in whatever command someone types.
+# Exit codes are read from the commands directly; nothing is piped.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# Emergency escape, deliberately awkward to type:
+#     SKIP_VERIFY=1 git push
+
+set -e
+
+if [ "$SKIP_VERIFY" = "1" ]; then
+  echo "pre-push: SKIPPED by SKIP_VERIFY=1"
+  exit 0
+fi
+
+echo "pre-push: typecheck..."
+if ! npx tsc --noEmit; then
+  echo ""
+  echo "  PUSH REFUSED: the project does not typecheck."
+  echo "  Fix it, or push with SKIP_VERIFY=1 if you know why that is right."
+  exit 1
+fi
+
+echo "pre-push: production build..."
+# Output to a file rather than a pipe. Piping is what hid the failure.
+BUILD_LOG=$(mktemp)
+if ! npx next build >"$BUILD_LOG" 2>&1; then
+  echo ""
+  echo "  PUSH REFUSED: the production build failed."
+  echo ""
+  tail -30 "$BUILD_LOG"
+  rm -f "$BUILD_LOG"
+  exit 1
+fi
+rm -f "$BUILD_LOG"
+
+echo "pre-push: ok"
+exit 0
