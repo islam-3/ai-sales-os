@@ -15,7 +15,7 @@ export function LocationContactForm({ initial }: { initial: TenantSettings }) {
   const [address, setAddress] = useState(initial.location?.address ?? "");
   const [city, setCity] = useState(initial.location?.city ?? "");
   const [country, setCountry] = useState(initial.location?.country ?? "");
-  const [phone, setPhone] = useState(initial.contact?.phone ?? "");
+  const [ownerPhone, setOwnerPhone] = useState(initial.contact?.owner_phone ?? "");
   const [whatsapp, setWhatsapp] = useState(initial.contact?.whatsapp ?? "");
   const [email, setEmail] = useState(initial.contact?.email ?? "");
   const [website, setWebsite] = useState(initial.contact?.website ?? "");
@@ -28,7 +28,7 @@ export function LocationContactForm({ initial }: { initial: TenantSettings }) {
     address !== (initial.location?.address ?? "") ||
     city !== (initial.location?.city ?? "") ||
     country !== (initial.location?.country ?? "") ||
-    phone !== (initial.contact?.phone ?? "") ||
+    ownerPhone !== (initial.contact?.owner_phone ?? "") ||
     whatsapp !== (initial.contact?.whatsapp ?? "") ||
     email !== (initial.contact?.email ?? "") ||
     website !== (initial.contact?.website ?? "");
@@ -51,7 +51,7 @@ export function LocationContactForm({ initial }: { initial: TenantSettings }) {
       // stored object so the Operations card's fields survive untouched.
       await updateBusinessSettings({
         location: { address, city, country },
-        contact: { phone, whatsapp, email, website },
+        contact: { owner_phone: ownerPhone, whatsapp, email, website },
       });
       setSaved(true);
       router.refresh();
@@ -125,20 +125,23 @@ export function LocationContactForm({ initial }: { initial: TenantSettings }) {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="biz-phone" className="text-xs text-muted-foreground">
-              Phone
+            <Label htmlFor="biz-owner-phone" className="text-xs text-muted-foreground">
+              Your number (private)
             </Label>
             <Input
-              id="biz-phone"
+              id="biz-owner-phone"
               type="tel"
-              value={phone}
-              onChange={(e) => set(setPhone)(e.target.value)}
+              value={ownerPhone}
+              onChange={(e) => set(setOwnerPhone)(e.target.value)}
               placeholder="e.g. +90 212 000 0000"
             />
+            <p className="text-xs text-muted-foreground">
+              How we reach you. Never shown to visitors and never given to the assistant.
+            </p>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="biz-whatsapp" className="text-xs text-muted-foreground">
-              WhatsApp
+              WhatsApp for customers
             </Label>
             <Input
               id="biz-whatsapp"
@@ -147,6 +150,10 @@ export function LocationContactForm({ initial }: { initial: TenantSettings }) {
               onChange={(e) => set(setWhatsapp)(e.target.value)}
               placeholder="e.g. +90 555 000 0000"
             />
+            <p className="text-xs text-muted-foreground">
+              The only number the assistant may share. Leave it empty and it will offer no number
+              at all rather than guess at one.
+            </p>
           </div>
         </div>
 

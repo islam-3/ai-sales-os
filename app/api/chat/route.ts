@@ -32,6 +32,7 @@ import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
 import { isAffirmative } from "@/lib/affirmative";
 import { generateEmbedding } from "@/lib/embeddings";
 import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
+import { coverageProbes, relevantDimensions, type ProbeVectors } from "@/lib/coverage-relevance";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -124,6 +125,46 @@ const RAG_RETRIEVAL_ENABLED = false;
 // Cosine similarity is roughly 0-1 for related text with this model; below
 // this, a match is more likely noise than something worth grounding on.
 const SIMILARITY_THRESHOLD = 0.3;
+
+// ── Coverage relevance, computed once per process ─────────────────────
+//
+// Which pre-close questions a business needs asked is a property of that
+// business, not of the conversation. Derived from its own knowledge
+// entries by meaning, using vectors already stored against them, so it
+// works whatever language the visitor or the entries are written in.
+//
+// The probe vectors are the only new embedding work, and they are
+// embedded ONCE per process in a single batched call - the probes are
+// fixed strings, not tenant data.
+let probeVectorsPromise: Promise<ProbeVectors> | null = null;
+
+function getProbeVectors(): Promise<ProbeVectors> {
+  if (!probeVectorsPromise) {
+    probeVectorsPromise = (async () => {
+      try {
+        const probes = coverageProbes();
+        const res = await openai.embeddings.create({
+          model: EMBEDDING_MODEL,
+          input: probes.map((p) => p.text),
+        });
+        const out: ProbeVectors = {};
+        probes.forEach((probe, i) => {
+          out[probe.id] = res.data[i].embedding;
+        });
+        return out;
+      } catch (error) {
+        // Empty means "we could not tell", and relevantDimensions treats
+        // that as every dimension being relevant. Coverage going SILENT
+        // is the failure being fixed; asking a question already answered
+        // is a much smaller one.
+        console.warn("[coverage] could not embed probes:", String((error as Error)?.message).slice(0, 100));
+        probeVectorsPromise = null;
+        return {};
+      }
+    })();
+  }
+  return probeVectorsPromise;
+}
 
 type EntryMedia = { url: string; type: string | null };
 
@@ -883,12 +924,23 @@ export async function POST(req: NextRequest) {
       : null;
   const photoOffer = buildPhotoOfferInstruction(offerToMake);
 
+  // What this business needs asked before a close, by meaning rather
+  // than by English keywords. Measured at 1 of 6 languages before this:
+  // an Arabic conversation where the assistant had explained "two
+  // visits, four months apart" closed without asking when the visitor
+  // could travel.
+  const relevantFor = relevantDimensions(
+    knowledgeEntries.map((e) => e.embedding),
+    await getProbeVectors()
+  );
+
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
     mediaInstruction,
     photoOffer,
-    signals
+    signals,
+    relevantFor
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by

@@ -1,0 +1,11 @@
+6 conversations against test-clinic
+this business calls for: [dates, duration, origin, health]
+
+  English   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+  Arabic    nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+  Russian   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+  Chinese   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+  Turkish   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+  Spanish   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
+
+  coverage fires in 6/6 classes

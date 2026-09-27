@@ -90,16 +90,29 @@ function buildIdentityBlock(business: BusinessIdentity): string {
   if (settings.service_area) lines.push(`Service area: ${settings.service_area}`);
   if (settings.currency) lines.push(`Prices are quoted in: ${settings.currency}`);
 
+  // ONLY the customer-facing details. contact.owner_phone is the
+  // owner's own number, for the platform to reach them, and it must
+  // never appear here - the assistant was previously handed a single
+  // "phone" field and volunteered it to visitors without the business
+  // ever agreeing that it could be shared.
   const contact = settings.contact;
   if (contact) {
     const parts = [
-      contact.phone && `phone ${contact.phone}`,
       contact.whatsapp && `WhatsApp ${contact.whatsapp}`,
       contact.email && `email ${contact.email}`,
       contact.website && `website ${contact.website}`,
     ].filter(Boolean);
     if (parts.length) lines.push(`Contact details: ${parts.join(", ")}`);
   }
+
+  // Stated whether or not a number exists, because the failure is the
+  // same shape as an invented price: a number given to a patient that
+  // nobody at the business ever agreed to.
+  lines.push(
+    contact?.whatsapp
+      ? "The WhatsApp number above is the ONLY contact number you may ever give a visitor."
+      : "You have NO contact number to give. Never offer one, never invent one, and never guess at one from anything you have been told. If someone asks how to reach the team, say the team will contact them."
+  );
 
   lines.push(
     "",

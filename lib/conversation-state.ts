@@ -513,7 +513,21 @@ export type Coverage = {
  */
 export function assessCoverage(
   history: ChatTurn[],
-  entries: KnowledgeEntryLike[] = []
+  entries: KnowledgeEntryLike[] = [],
+  /**
+   * Which dimensions this BUSINESS calls for, decided by meaning rather
+   * than by wording (lib/coverage-relevance.ts).
+   *
+   * Passed in because relevance is a property of the tenant, not of the
+   * conversation: a clinic whose work spans two visits needs travel
+   * dates asked whatever language the visitor writes in. Inferring it
+   * from the words of a conversation meant coverage fired in 1 of 6
+   * languages on the identical case.
+   *
+   * Omitted, the old word-matching applies - which keeps every existing
+   * pure-function test meaningful.
+   */
+  relevantFor?: ReadonlySet<string>
 ): Coverage {
   const assistantText = history
     .filter((t) => t.role === "assistant")
@@ -530,6 +544,13 @@ export function assessCoverage(
   const caseText = `${assistantText} ${selectRelevantKnowledge(userText, entries)}`;
 
   const relevantDimensions = COVERAGE_DIMENSIONS.filter((d) => {
+    // A dimension read from the CASE is a fact about the business, so the
+    // caller's answer wins when it has one. A dimension read from the
+    // VISITOR - whether THIS person is travelling - is still read from
+    // what they said, because no property of the clinic can tell us that
+    // and asking a local walk-in where they are flying from is exactly
+    // the wrong question.
+    if (d.source === "case" && relevantFor) return relevantFor.has(d.id);
     const subject = d.source === "user" ? userText : caseText;
     return d.trigger.test(subject);
   });
@@ -902,7 +923,9 @@ export function buildConversationStateBlock(
    * not arrive inside their budget behaves exactly as every non-English
    * turn behaved until now.
    */
-  signals: { hesitation: boolean; impatience: boolean; direct_request: boolean } | null = null
+  signals: { hesitation: boolean; impatience: boolean; direct_request: boolean } | null = null,
+  /** Coverage dimensions this business calls for; see assessCoverage. */
+  relevantFor?: ReadonlySet<string>
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = signals
@@ -931,7 +954,7 @@ export function buildConversationStateBlock(
   // hesitation rules exist to prevent.
   const checkCoverage = isNearingClose(history) && !hesitation.hesitating;
   const { gaps } = checkCoverage
-    ? assessCoverage(history, entries)
+    ? assessCoverage(history, entries, relevantFor)
     : { gaps: [] as CoverageGap[] };
 
   // Nothing left to establish, and the lead is reachable. Silence here is

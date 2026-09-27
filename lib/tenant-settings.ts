@@ -39,7 +39,22 @@ export type TenantSettings = {
    */
   chat_intro?: ChatIntroTranslation;
   contact?: {
-    phone?: string;
+    /**
+     * The OWNER's own number, for the platform to reach them.
+     *
+     * PRIVATE. Never shown to a visitor, never given to the assistant,
+     * never in any prompt. It was previously a single "phone" field that
+     * went straight into the system prompt, so the assistant volunteered
+     * it without the business ever agreeing that it could.
+     */
+    owner_phone?: string;
+    /**
+     * The customer-facing WhatsApp number: the ONLY number the assistant
+     * may ever share.
+     *
+     * Empty means the assistant offers no number at all and must not
+     * invent or infer one - the same rule as prices.
+     */
     whatsapp?: string;
     email?: string;
     website?: string;
@@ -166,13 +181,21 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
     parsed.location = { ...(address && { address }), ...(city && { city }), ...(country && { country }) };
   }
 
-  const phone = asString(contact.phone);
+  // The old single "phone" field becomes the OWNER's private number, not
+  // a customer-facing one. It used to go straight into the system prompt.
+  //
+  // Migrating it to the private side is deliberately the conservative
+  // direction: a tenant who filled in only "phone" and never set a
+  // WhatsApp number now shares nothing, because nobody ever agreed that
+  // number could be given out. Silence is recoverable; a number sent to
+  // strangers is not.
+  const ownerPhone = asString(contact.owner_phone) ?? asString(contact.phone);
   const whatsapp = asString(contact.whatsapp);
   const email = asString(contact.email);
   const website = asString(contact.website);
-  if (phone || whatsapp || email || website) {
+  if (ownerPhone || whatsapp || email || website) {
     parsed.contact = {
-      ...(phone && { phone }),
+      ...(ownerPhone && { owner_phone: ownerPhone }),
       ...(whatsapp && { whatsapp }),
       ...(email && { email }),
       ...(website && { website }),

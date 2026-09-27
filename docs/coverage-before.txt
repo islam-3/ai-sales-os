@@ -1,0 +1,12 @@
+6 conversations, the same case in each
+
+  English   nearingClose=true   gaps=2  [dates, duration]   FIRES
+  Arabic    nearingClose=true   gaps=0   silent
+  Russian   nearingClose=true   gaps=0   silent
+  Chinese   nearingClose=true   gaps=0   silent
+  Turkish   nearingClose=true   gaps=0   silent
+  Spanish   nearingClose=true   gaps=0   silent
+
+  coverage fires in 1/6 classes
+  Every class describes the SAME two-visit treatment and the same
+  missing answers, so any difference here is a language failure.
