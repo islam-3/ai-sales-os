@@ -10,7 +10,7 @@ import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
-import { buildConversationStateBlock } from "@/lib/conversation-state";
+import { buildConversationStateBlock, isNearingClose } from "@/lib/conversation-state";
 import {
   buildMediaInstruction,
   buildPhotoOfferInstruction,
@@ -33,6 +33,7 @@ import { isAffirmative } from "@/lib/affirmative";
 import { generateEmbedding } from "@/lib/embeddings";
 import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
 import { coverageProbes, relevantDimensions, type ProbeVectors } from "@/lib/coverage-relevance";
+import { readAnsweredDimensions } from "@/lib/coverage-answered";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -934,13 +935,26 @@ export async function POST(req: NextRequest) {
     await getProbeVectors()
   );
 
+  // What the visitor has already told us, read by a model rather than by
+  // English word matching. Asked ONLY when the conversation is nearing a
+  // close and they are not hesitating - the same condition under which
+  // coverage is assessed at all - so this is a small fraction of turns
+  // rather than a cost on every reply.
+  const coverageWillBeChecked = isNearingClose(turnsWithLatest) && !signals.hesitation;
+  const answeredFor = coverageWillBeChecked
+    ? (await readAnsweredDimensions(
+        turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content)
+      )) ?? undefined
+    : undefined;
+
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
     mediaInstruction,
     photoOffer,
     signals,
-    relevantFor
+    relevantFor,
+    answeredFor
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by

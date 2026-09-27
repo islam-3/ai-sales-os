@@ -1,0 +1,11 @@
+the visitor answers dates, duration and origin in every conversation
+this business calls for: [dates, duration, origin, health]
+
+  English   asked again: 0   (none)
+  Arabic    asked again: 2  [dates, duration]
+  Russian   asked again: 2  [dates, duration]
+  Chinese   asked again: 2  [dates, duration]
+  Turkish   asked again: 2  [dates, duration]
+  Spanish   asked again: 2  [dates, duration]
+
+  1/6 classes do not repeat a question already answered

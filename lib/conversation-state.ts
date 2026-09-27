@@ -527,7 +527,19 @@ export function assessCoverage(
    * Omitted, the old word-matching applies - which keeps every existing
    * pure-function test meaningful.
    */
-  relevantFor?: ReadonlySet<string>
+  relevantFor?: ReadonlySet<string>,
+  /**
+   * What the visitor has ALREADY told us, read by a model rather than by
+   * English word matching (lib/coverage-answered.ts).
+   *
+   * Measured on the identical case in six languages with the visitor
+   * answering dates, duration and origin in each: only English noticed,
+   * so the other five were asked again immediately after answering.
+   *
+   * Undefined means the model could not be asked, and the old word
+   * matching applies - which is exactly today's behaviour, not worse.
+   */
+  answeredFor?: ReadonlySet<string>
 ): Coverage {
   const assistantText = history
     .filter((t) => t.role === "assistant")
@@ -551,6 +563,11 @@ export function assessCoverage(
     // and asking a local walk-in where they are flying from is exactly
     // the wrong question.
     if (d.source === "case" && relevantFor) return relevantFor.has(d.id);
+    // A visitor-sourced dimension whose answer we already have is
+    // plainly relevant - they told us. Without this, "origin" stayed
+    // silent outside English because its trigger looks for English
+    // travel words, so it was never asked rather than asked twice.
+    if (d.source === "user" && answeredFor?.has(d.id)) return true;
     const subject = d.source === "user" ? userText : caseText;
     return d.trigger.test(subject);
   });
@@ -558,7 +575,7 @@ export function assessCoverage(
   return {
     relevant: relevantDimensions.map((d) => d.id),
     gaps: relevantDimensions
-      .filter((d) => !d.covered.test(userText))
+      .filter((d) => (answeredFor ? !answeredFor.has(d.id) : !d.covered.test(userText)))
       .map(({ id, need, because }) => ({ id, need, because })),
   };
 }
@@ -925,7 +942,9 @@ export function buildConversationStateBlock(
    */
   signals: { hesitation: boolean; impatience: boolean; direct_request: boolean } | null = null,
   /** Coverage dimensions this business calls for; see assessCoverage. */
-  relevantFor?: ReadonlySet<string>
+  relevantFor?: ReadonlySet<string>,
+  /** What the visitor has already answered; see assessCoverage. */
+  answeredFor?: ReadonlySet<string>
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = signals
@@ -954,7 +973,7 @@ export function buildConversationStateBlock(
   // hesitation rules exist to prevent.
   const checkCoverage = isNearingClose(history) && !hesitation.hesitating;
   const { gaps } = checkCoverage
-    ? assessCoverage(history, entries, relevantFor)
+    ? assessCoverage(history, entries, relevantFor, answeredFor)
     : { gaps: [] as CoverageGap[] };
 
   // Nothing left to establish, and the lead is reachable. Silence here is

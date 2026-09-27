@@ -1,4 +1,3 @@
-6 conversations against test-clinic
 this business calls for: [dates, duration, origin, health]
 
   English   nearingClose=true   gaps=3  [dates, duration, health]   FIRES
