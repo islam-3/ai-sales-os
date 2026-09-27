@@ -1,18 +1,16 @@
-  conversation 3: 4.5s 3.7s 5.8s 5.3s 2.8s 2.4s 
-  conversation 4: 5.4s 2.9s 6.6s 5.3s 3.8s 2.6s 
 
 ══════════════════════════════════════════════════════════
-  [after-options-1-2]  24 turns
+  [final]  24 turns
 ══════════════════════════════════════════════════════════
-  p50  4513ms
-  p90  6607ms
-  p95  7208ms
-  mean 4479ms    min 2409ms    max 7496ms
+  p50  3910ms
+  p90  5871ms
+  p95  7261ms
+  mean 4242ms    min 2274ms    max 7505ms
 
   by turn number:
     turn 1  mean  5500ms   "hi, I'm looking into dental implants"
-    turn 2  mean  3173ms   "I lost most of my upper teeth about five y"
-    turn 3  mean  6333ms   "how much does it cost?"
-    turn 4  mean  5864ms   "can I see photos of results like mine?"
-    turn 5  mean  3041ms   "yes please"
-    turn 6  mean  2964ms   "David"
+    turn 2  mean  3908ms   "I lost most of my upper teeth about five y"
+    turn 3  mean  6003ms   "how much does it cost?"
+    turn 4  mean  3711ms   "can I see photos of results like mine?"
+    turn 5  mean  2863ms   "yes please"
+    turn 6  mean  3465ms   "David"
