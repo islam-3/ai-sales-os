@@ -79,8 +79,7 @@ export async function runMediaChecks(base: string): Promise<MediaFailure[]> {
     .eq("slug", "test-clinic")
     .maybeSingle();
 
-  console.log("
-── Media (a photo must actually arrive)");
+  console.log("\n── Media (a photo must actually arrive)");
 
   for (const c of CASES) {
     const sessionId = crypto.randomUUID();
