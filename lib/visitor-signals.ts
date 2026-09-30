@@ -8,10 +8,14 @@
 // 100% recall on all six failure classes, and 95-100% precision.
 // See scripts/classify-eval.ts and docs/classifier-measurement-*.log.
 //
-// Acceptance is NOT here. "Is this a yes?" is a closed class and lives in
-// lib/affirmative.ts, in code, at no latency. Hesitation and impatience
-// have as many forms as there are ways to be uncertain or annoyed, which
-// is what a model is actually needed for.
+// Its job is now hesitation and impatience only. Nothing else reads a
+// signal from here: image sending is gone, and with it the only consumer
+// of accepts_offer and direct_request. Those two keys stay in the PROMPT
+// regardless, and the note above SIGNAL_PROMPT records the two separate
+// measurements that say why removing them is not free.
+//
+// Hesitation and impatience have as many forms as there are ways to be
+// uncertain or annoyed, which is what a model is actually needed for.
 //
 // ── The budget ───────────────────────────────────────────────────────
 // This sits before the reply, so a visitor waits for it. It is started
@@ -33,10 +37,12 @@ export type VisitorSignals = {
    * one, and an ambiguous request returning hair-transplant photos in a
    * dental conversation.
    *
-   * It is still asked for, on purpose. Removing accepts_offer when
-   * acceptance moved into code cost direct_request precision in every
-   * language, because the model had nowhere to put what it was seeing.
-   * A classifier needs a box for each thing, even a box nobody reads.
+   * It is still asked for, on purpose, and so is accepts_offer. Removing
+   * either one costs precision on whatever is left, because the model has
+   * nowhere to put what it is seeing: measured twice, at 100% -> 55% on
+   * direct_request and 95% -> 57% on hesitation. See the note above
+   * SIGNAL_PROMPT. A classifier needs a box for each thing, even a box
+   * nobody reads.
    */
   direct_request: boolean;
   /** Stepping back: needs to think, wants to consult someone. */
@@ -94,14 +100,9 @@ The message may be in any language. Judge what it does, not what words it uses. 
 /**
  * The same job in about half the tokens.
  *
- * accepts_offer is asked for and then IGNORED, which looks wasteful and
- * is not. Acceptance is decided in code (lib/affirmative.ts); the key is
- * here so the model has somewhere to put "yes please". Without it,
- * measured, every acceptance was filed as a direct_request and precision
- * on that signal fell from 100% to about 55% in every language - a fault
- * I introduced by removing the category when acceptance moved into code.
- * A classifier needs a box for the thing it is seeing, even one nobody
- * reads.
+ * Both dead keys are kept here too, for the reason recorded under
+ * SIGNAL_PROMPT: they are what stops the model filing "yes" and "can I
+ * see photos?" as hesitation.
  */
 export const SIGNAL_PROMPT_SHORT = `Report what this visitor message does. Reply with JSON only:
 {"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
@@ -112,6 +113,33 @@ hesitation: stepping back - needs to think, wants to consult someone, not ready.
 impatience: frustrated - repeating a question, or saying they were not answered.
 
 Any language. Judge intent, not wording. Usually all false.`;
+
+// ── The two-signal prompt, tried and rejected ────────────────────────
+// Image sending is gone, so accepts_offer and direct_request decide
+// nothing whatsoever, and asking for them looks like pure waste. Cutting
+// them to just {"hesitation", "impatience"} was measured against the same
+// 71 labelled cases over three runs — docs/classifier-two-signal-2026-09-30.log
+// — and it is a serious regression:
+//
+//   hesitation precision   95%  ->  57%    (Arabic 100% -> 35%)
+//   impatience             100% -> 100%
+//
+// The false positives say exactly why. "نعم" ("yes"), "لا شكراً" ("no
+// thank you"), "do you have pictures of the results?" and "¿tenéis
+// imágenes de resultados?" were all filed as HESITATION. With no box for
+// "they are saying yes" or "they are asking to be shown something", the
+// model puts them in the nearest box it has left.
+//
+// That is the second time the same mistake has cost precision: it took
+// direct_request from 100% to 55% when accepts_offer was first removed,
+// and it now takes hesitation from 95% to 57%. A classifier needs a box
+// for each thing it sees, even one nobody reads — the two dead keys are
+// not waste, they are what keeps the live ones clean. The saving was
+// going to be a few hundred output tokens on a Haiku call.
+//
+// A visitor who says "yes" being read as hesitating is not cosmetic: it
+// suppresses pre-close coverage and adds a back-off instruction at the
+// exact moment they agreed.
 
 /**
  * Which one is live.
@@ -124,16 +152,24 @@ export const SIGNAL_PROMPT =
   process.env.SIGNAL_PROMPT_VARIANT === "short" ? SIGNAL_PROMPT_SHORT : SIGNAL_PROMPT_LONG;
 
 /**
- * A budget for turns where the answer cannot change anything.
+ * The keys the live prompt actually asks for.
  *
- * The signals are only needed BEFORE the reply when direct_request could
- * send a photo this turn. When the tenant has no photos at all, or an
- * offer is already outstanding and acceptance is decided in code, the
- * answer arrives too late to matter - so the reply does not wait for it.
+ * scripts/classify-eval.ts scores only these. A prompt never asked for
+ * accepts_offer would otherwise score 0% recall on it and read as a
+ * regression, which is a harness fault reported as a model result — the
+ * exact mistake the JSON-parsing comment below records.
  */
-export const SIGNAL_BUDGET_NON_BLOCKING_MS = Number(
-  process.env.SIGNAL_BUDGET_NON_BLOCKING_MS ?? 250
-);
+export const SIGNAL_PROMPT_KEYS: readonly string[] = [
+  "accepts_offer",
+  "direct_request",
+  "hesitation",
+  "impatience",
+];
+
+// There was a second, much shorter budget here, for turns where
+// direct_request could not change the reply anyway. It is gone with the
+// feature: hesitation is read on every turn and always before the reply,
+// so there is one budget and it always applies.
 
 /**
  * The first balanced {...} in a response.
@@ -161,10 +197,13 @@ let warnedAboutFailure = false;
  *
  * NEVER throws and never returns a partial answer. On a timeout, a
  * malformed response, a missing key or any error at all, every signal
- * reads false — which means no image is attached, the unconditional
- * no-image instruction applies, and the reply still goes out. The
- * pending offer is deliberately NOT cleared by a failure here, so a
- * visitor whose acceptance was missed can simply say it again.
+ * reads false and the reply still goes out — the assistant simply behaves
+ * as it did for every non-English visitor before this existed.
+ *
+ * False is the safe direction for both live signals. False hesitation
+ * means coverage is still checked and the close still held, rather than a
+ * lead let go because we thought they were stepping back; false
+ * impatience means no special handling, which is the ordinary path.
  */
 export async function readVisitorSignals(
   message: string,

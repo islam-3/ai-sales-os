@@ -398,9 +398,8 @@ export const CONVERSATIONAL_FILLER = new Set([
 
 /**
  * How well each entry matches what the visitor asked for, rarity-weighted
- * and length-normalised. Exposed so callers can apply their own cutoff:
- * relevance uses a relative bar, while the media bias only needs to know
- * which entry scored best among those carrying images.
+ * and length-normalised. Separate from the cutoff, so a caller can apply
+ * its own bar to the scores.
  */
 function scoreEntries(userText: string, entries: KnowledgeEntryLike[]): number[] {
   if (entries.length === 0) return [];
@@ -616,10 +615,10 @@ const RECEPTIVE_CUES = [
  * Counted in WORDS, not characters. The old 55-character bar was written
  * against English, and Chinese says in about 30 characters what English
  * needs 55 for - so a visitor explaining their situation at length in
- * Chinese read as a one-word acknowledgement, engagement came back
- * false, and the proactive photo offer was vetoed before any other gate
- * was consulted. Measured: Chinese sat at 0 of 4 opportunities while
- * English and Arabic reached 3 of 4.
+ * Chinese read as a one-word acknowledgement and engagement came back
+ * false, silencing everything downstream of it. Measured at the time:
+ * Chinese sat at 0 of 4 opportunities while English and Arabic reached
+ * 3 of 4.
  */
 const ELABORATION_WORDS = 10;
 
@@ -664,51 +663,6 @@ export function detectEngagement(history: ChatTurn[]): EngagementSignal {
   return { engaged: reasons.length > 0, reasons };
 }
 
-// Generic markers that a decision is a big one. Deliberately not a list
-// of treatments: work that runs over stages, involves a procedure, or
-// carries a long guarantee is a significant commitment in any industry —
-// a full house rewire reads the same way as a full-mouth reconstruction.
-const SIGNIFICANCE_IN_MATERIAL = [
-  MULTI_STAGE,
-  /\b(?:surgery|surgical|surgically|anesthe|anaesthe|sedation|procedure)\b/i,
-  /\b(?:lifetime|\d{2}[- ]year|\d{2} years?) (?:guarantee|warranty)\b/i,
-  /\b(?:package|financing|instal?ments?|investment)\b/i,
-];
-
-// Scale language from the visitor themselves.
-const SIGNIFICANCE_FROM_VISITOR =
-  /\b(?:all|full|whole|entire|complete|everything|both)\b|\b(?:\d{1,2})\s+(?:teeth|units|rooms|items|pieces)\b/i;
-
-export type CaseSignificance = "standard" | "significant";
-
-/**
- * How much confidence this case warrants building before logistics.
- *
- * A whitening enquiry and a full reconstruction should not get the same
- * treatment: one is a small booking, the other is a decision someone will
- * think about for weeks and discuss with their family.
- */
-export function assessCaseSignificance(
-  history: ChatTurn[],
-  entries: KnowledgeEntryLike[]
-): CaseSignificance {
-  const userText = history
-    .filter((t) => t.role === "user")
-    .map((t) => t.content)
-    .join(" ");
-  const assistantText = history
-    .filter((t) => t.role === "assistant")
-    .map((t) => t.content)
-    .join(" ");
-
-  const material = `${assistantText} ${selectRelevantKnowledge(userText, entries)}`;
-
-  let score = SIGNIFICANCE_IN_MATERIAL.filter((p) => p.test(material)).length;
-  if (SIGNIFICANCE_FROM_VISITOR.test(userText)) score += 1;
-
-  return score >= 2 ? "significant" : "standard";
-}
-
 /**
  * Topics relevant to this visitor that the assistant has NOT yet drawn
  * on, as their titles.
@@ -721,24 +675,15 @@ export function assessCaseSignificance(
 /** Length-normalisation floor — see the scoring comment above. */
 const MIN_ENTRY_WORDS = 25;
 
-export const ACCEPTANCE_CUES = [
-  /^\s*(?:yes|yeah|yep|sure|ok|okay|please|go on|why not)\b/i,
-  /\byes please\b/i,
-  /\b(?:i'?d|i would) (?:love|like) to (?:see|have a look)\b/i,
-  /\b(?:show|send) (?:me|it|them|that)\b/i,
-  /\blet'?s see\b/i,
-  /\bplease do\b/i,
-  /\bthat would be (?:great|good|helpful)\b/i,
-];
 
 
 /**
  * Topics relevant to this visitor that the assistant has not yet drawn
  * on, as their titles.
  *
- * Knows nothing about images any more. Media is decided entirely in
- * lib/chat-media.ts, and mixing the two here is what produced topic lists
- * ordered by whether a photo happened to be attached.
+ * Knows nothing about images. It once ordered topics by whether a photo
+ * happened to be attached to them, which is how a visitor asking about
+ * price was told about the gallery.
  */
 export function findUnsharedTopics(
   history: ChatTurn[],
@@ -923,10 +868,6 @@ const MIN_TURNS_BEFORE_CLOSING = 3;
 export function buildConversationStateBlock(
   history: ChatTurn[],
   entries: KnowledgeEntryLike[] = [],
-  /** Ready-made media instruction from lib/chat-media.ts, or null. */
-  mediaInstruction: string | null = null,
-  /** Ready-made instruction to offer a specific photo, from lib/chat-media.ts, or null. */
-  photoOffer: string | null = null,
   /**
    * What the visitor's latest message is doing, read by a model.
    *
@@ -995,30 +936,13 @@ export function buildConversationStateBlock(
     impatience.impatient || hesitation.hesitating || readyToClose
       ? null
       : detectRepeatedShape(history);
-  // An offer suggested this turn only stands while no brake is on — the
-  // suggestion already checks, and this is checked again so the block can
-  // never say "offer a photo" beside "do not make any offer".
-  const offerPhoto =
-    photoOffer && !impatience.impatient && !hesitation.hesitating && !readyToClose ? photoOffer : null;
-
-  // A photo offer is a question, and it is a legitimate change of shape:
-  // offering to show something is a different kind of reply from
-  // information followed by an extraction question. But it is only a
-  // suggestion - the model takes it up when it fits - so the statement
-  // nudge is kept and the offer is carved out as its one exception.
-  //
-  // Dropping the nudge outright whenever an offer was suggested was
-  // measured doing harm: question endings rose from 56% to 69% in two
-  // separate samples, while offers accounted for about three replies in
-  // thirty-six. The nudge had vanished on every eligible turn where the
-  // model chose not to offer.
-  const breakShape = (
-    repeated ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0) : []
-  ).map((change) =>
-    offerPhoto && change === "end it on a statement rather than a question"
-      ? "end it on a statement rather than a question, unless you close with the photo offer described below"
-      : change
-  );
+  // The statement nudge used to carry one exception: a suggested photo
+  // offer was allowed to end on a question, because offering to show
+  // something is a genuinely different reply shape. With image sending
+  // gone there is no exception left, and the nudge applies plainly.
+  const breakShape = repeated
+    ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0)
+    : [];
 
   if (
     offers.length === 0 &&
@@ -1027,9 +951,7 @@ export function buildConversationStateBlock(
     gaps.length === 0 &&
     !readyToClose &&
     logisticsRun < 2 &&
-    breakShape.length === 0 &&
-    !offerPhoto &&
-    !mediaInstruction
+    breakShape.length === 0
   ) {
     return null;
   }
@@ -1055,12 +977,6 @@ export function buildConversationStateBlock(
         ? "Do not make any of these offers again — they have been heard. Offer something DIFFERENT instead: there is more below that you have not shown them yet."
         : "Do not make any of these offers again. They have been heard. If the visitor wanted to take one up, they would have. Offer something different, or — more often the better choice — offer nothing and simply continue the conversation."
     );
-  }
-
-  // Everything about images now comes from lib/chat-media.ts as a
-  // ready-made instruction. This module no longer knows URLs exist.
-  if (mediaInstruction) {
-    lines.push("", mediaInstruction);
   }
 
   // The interest-building section used to sit here: "You have NOT yet
@@ -1095,10 +1011,6 @@ export function buildConversationStateBlock(
       `Your last two replies had the same shape as each other: ${describeShape(shape)}, at ${previous.words} and ${shape.words} words. Give this reply a different shape — ${change}.`,
       "This is about form only. Say whatever this moment actually needs; just do not say it in that same mould a third time."
     );
-  }
-
-  if (offerPhoto) {
-    lines.push("", offerPhoto);
   }
 
   if (impatience.impatient) {

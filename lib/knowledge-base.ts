@@ -1,10 +1,9 @@
-export type MediaType = "image" | "video";
-
-export type KnowledgeMedia = {
-  id: string;
-  url: string;
-  type: MediaType;
-};
+// Knowledge entries used to carry uploaded photos, and the assistant
+// used to send them. Image sending was removed from the chat, and the
+// upload with it: a business uploading twenty before-and-after photos
+// and then watching the assistant never share them is a false
+// expectation, and a worse one than never offering the field. Photos
+// are something to DESCRIBE in an entry now.
 
 export type KnowledgeEntry = {
   id: string;
@@ -12,7 +11,6 @@ export type KnowledgeEntry = {
   category: string | null;
   content: string;
   hasEmbedding: boolean;
-  media: KnowledgeMedia[];
   created_at: string;
 };
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, FormEvent, ChangeEvent } from "react";
-import { AlertTriangle, Paperclip, Video, X } from "lucide-react";
+import { useState, useTransition, FormEvent } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,34 +19,14 @@ export function AddEntryForm({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // One object URL per pending file, rebuilt whenever the file list changes
-  // and always revoked on the way out so they don't leak.
-  const [previews, setPreviews] = useState<{ file: File; url: string }[]>([]);
-  useEffect(() => {
-    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
-    setPreviews(next);
-    return () => {
-      next.forEach((p) => URL.revokeObjectURL(p.url));
-    };
-  }, [files]);
-
-  // Picking files again adds to the current selection rather than
-  // replacing it, so multiple picks (or one multi-select) both work.
-  function handleFilesChange(e: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(e.target.files ?? []);
-    if (selected.length > 0) setFiles((prev) => [...prev, ...selected]);
-    e.target.value = "";
-  }
-
-  function removeFileAt(index: number) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  }
+  // The photo and video upload is gone. Image sending was removed from
+  // the chat, so an attached file would be stored, listed and never
+  // shown to anyone - which is worse than not offering it.
+  //
+  // Visitor uploads in the chat are a DIFFERENT path and are untouched.
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -57,7 +37,6 @@ export function AddEntryForm({
     formData.append("title", title);
     formData.append("content", content);
     formData.append("category", category);
-    files.forEach((file) => formData.append("files", file));
 
     startTransition(async () => {
       try {
@@ -131,56 +110,6 @@ export function AddEntryForm({
             <option key={c} value={c} />
           ))}
         </datalist>
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs text-muted-foreground">Photos or videos (optional)</Label>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          onChange={handleFilesChange}
-          className="hidden"
-        />
-
-        {previews.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {previews.map((p, i) => (
-              <div
-                key={`${p.file.name}-${i}`}
-                className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2 text-xs text-muted-foreground"
-              >
-                {p.file.type.startsWith("image/") ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.url} alt="" className="h-10 w-10 rounded object-cover" />
-                ) : (
-                  <Video className="h-4 w-4 shrink-0" />
-                )}
-                <span className="max-w-[12rem] truncate">{p.file.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFileAt(i)}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${p.file.name}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-fit gap-1.5"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <Paperclip className="h-3.5 w-3.5" />
-          {previews.length > 0 ? "Attach more files" : "Attach files"}
-        </Button>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}

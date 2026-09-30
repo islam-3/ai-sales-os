@@ -92,7 +92,7 @@ async function main() {
   // rather than accumulating two generations of entries.
   const { data: entries, error: kbError } = await supabaseServer
     .from("knowledge_base")
-    .select("id, content, category, title, embedding, knowledge_base_media(media_url, media_type)")
+    .select("id, content, category, title, embedding")
     .eq("tenant_id", source.id);
   if (kbError) throw kbError;
 
@@ -102,47 +102,18 @@ async function main() {
     .eq("tenant_id", tenantId);
   if (clearError) throw clearError;
 
-  let mediaCopied = 0;
+  // Copy EVERY column the source has, embeddings included. The lesson
+  // that produced this comment was a test tenant missing one thing the
+  // real one had, so the smoke test passed on a path it never exercised.
+  // Anything added to knowledge_base later must be added to the select
+  // above, or this copy silently drops it.
   if (entries && entries.length > 0) {
-    // The attached PHOTOS come too. Without them the test tenant has 23
-    // entries and nothing to show, so the entire media feature - offers,
-    // acceptance, the images themselves - is untestable there, and the
-    // smoke test reports green on a path it never exercises. That was
-    // true for days before anyone noticed.
-    const { data: inserted, error: insertError } = await supabaseServer
+    const { error: insertError } = await supabaseServer
       .from("knowledge_base")
-      .insert(
-        entries.map(({ knowledge_base_media: _media, id: _id, ...rest }) => ({
-          ...rest,
-          tenant_id: tenantId,
-        }))
-      )
-      .select("id, title");
+      .insert(entries.map(({ id: _id, ...rest }) => ({ ...rest, tenant_id: tenantId })));
     if (insertError) throw insertError;
-
-    // Matched back by title, which is safe here and nowhere else: both
-    // sides are rows we just wrote, in one process, with no language
-    // involved.
-    const idByTitle = new Map((inserted ?? []).map((r) => [r.title ?? "", r.id]));
-    const mediaRows = entries.flatMap((e) => {
-      const newId = idByTitle.get(e.title ?? "");
-      if (!newId) return [];
-      return (e.knowledge_base_media ?? []).map((m) => ({
-        tenant_id: tenantId,
-        knowledge_base_id: newId,
-        media_url: m.media_url,
-        media_type: m.media_type,
-      }));
-    });
-    if (mediaRows.length > 0) {
-      const { error: mediaError } = await supabaseServer
-        .from("knowledge_base_media")
-        .insert(mediaRows);
-      if (mediaError) throw mediaError;
-      mediaCopied = mediaRows.length;
-    }
   }
-  console.log(`copied ${entries?.length ?? 0} knowledge base entries and ${mediaCopied} photos`);
+  console.log(`copied ${entries?.length ?? 0} knowledge base entries`);
 
   // Proof the guard will actually let scripts through, read back the same
   // way the guard reads it rather than from the object just written.

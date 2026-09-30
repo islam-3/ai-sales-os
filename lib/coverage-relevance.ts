@@ -24,7 +24,7 @@
 // Computed once per process and cached: a knowledge base changes when an
 // owner edits it, not between turns of a conversation.
 
-import { cosineSimilarity } from "./media-selection";
+import { cosineSimilarity } from "./vectors";
 
 export type CoverageDimensionId = "dates" | "duration" | "origin" | "health";
 

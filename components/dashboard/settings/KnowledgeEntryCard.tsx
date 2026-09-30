@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition, ChangeEvent } from "react";
+import { useState, useTransition } from "react";
 import {
   AlertTriangle,
   ChevronRight,
-  Paperclip,
   Pencil,
   Trash2,
-  Video,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,10 +30,8 @@ import {
 } from "@/lib/knowledge-base";
 import {
   deleteKnowledgeEntry,
-  removeKnowledgeMedia,
   updateKnowledgeEntry,
 } from "@/app/dashboard/settings/actions";
-import { MediaThumb } from "./MediaThumb";
 
 // One knowledge entry, as a compact row that expands in place.
 //
@@ -56,28 +51,9 @@ export function KnowledgeEntryCard({
   const [title, setTitle] = useState(entry.title);
   const [content, setContent] = useState(entry.content);
   const [category, setCategory] = useState(entry.category ?? "");
-  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // One object URL per pending new file, rebuilt whenever the list changes
-  // and always revoked on the way out so they don't leak.
-  const [previews, setPreviews] = useState<{ file: File; url: string }[]>([]);
-  useEffect(() => {
-    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
-    setPreviews(next);
-    return () => {
-      next.forEach((p) => URL.revokeObjectURL(p.url));
-    };
-  }, [files]);
-
-  // Removing an already-saved media item happens immediately (its own
-  // server call), independent of the Save button — tracked per media id so
-  // several can be in flight without interfering with each other.
-  const [removingMediaIds, setRemovingMediaIds] = useState<Set<string>>(new Set());
-  const [mediaError, setMediaError] = useState<string | null>(null);
 
   // AlertDialogAction closes the dialog as soon as it's clicked (that's
   // its intended behavior), so a failed delete can't keep the dialog
@@ -85,32 +61,8 @@ export function KnowledgeEntryCard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
 
-  function handleFilesChange(e: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(e.target.files ?? []);
-    if (selected.length > 0) setFiles((prev) => [...prev, ...selected]);
-    e.target.value = "";
-  }
 
-  function removeFileAt(index: number) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  }
 
-  async function handleRemoveExistingMedia(mediaId: string) {
-    setMediaError(null);
-    setRemovingMediaIds((prev) => new Set(prev).add(mediaId));
-    try {
-      await removeKnowledgeMedia(mediaId);
-      // On success the parent re-fetches (revalidatePath) and this item
-      // simply stops appearing in entry.media once fresh props arrive.
-    } catch (err) {
-      setMediaError(err instanceof Error ? err.message : "Failed to remove media");
-      setRemovingMediaIds((prev) => {
-        const next = new Set(prev);
-        next.delete(mediaId);
-        return next;
-      });
-    }
-  }
 
   function handleSave() {
     setError(null);
@@ -120,7 +72,6 @@ export function KnowledgeEntryCard({
     formData.append("title", title);
     formData.append("content", content);
     formData.append("category", category);
-    files.forEach((file) => formData.append("files", file));
 
     startTransition(async () => {
       try {
@@ -142,10 +93,8 @@ export function KnowledgeEntryCard({
     setTitle(entry.title);
     setContent(entry.content);
     setCategory(entry.category ?? "");
-    setFiles([]);
     setError(null);
     setWarning(null);
-    setMediaError(null);
     setIsEditing(false);
   }
 
@@ -191,75 +140,12 @@ export function KnowledgeEntryCard({
           </datalist>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs text-muted-foreground">Photos or videos (optional)</Label>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            onChange={handleFilesChange}
-            className="hidden"
-          />
-
-          {entry.media.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {entry.media.map((m) => (
-                <div key={m.id} className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2">
-                  <MediaThumb url={m.url} type={m.type} size="sm" />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveExistingMedia(m.id)}
-                    disabled={removingMediaIds.has(m.id)}
-                    className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                  >
-                    {removingMediaIds.has(m.id) ? "Removing…" : "Remove"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {previews.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {previews.map((p, i) => (
-                <div
-                  key={`${p.file.name}-${i}`}
-                  className="flex w-fit items-center gap-2 rounded-md border bg-muted/50 p-2 text-xs text-muted-foreground"
-                >
-                  {p.file.type.startsWith("image/") ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.url} alt="" className="h-10 w-10 rounded object-cover" />
-                  ) : (
-                    <Video className="h-4 w-4 shrink-0" />
-                  )}
-                  <span className="max-w-[12rem] truncate">{p.file.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeFileAt(i)}
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label={`Remove ${p.file.name}`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-fit gap-1.5"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Paperclip className="h-3.5 w-3.5" />
-            {entry.media.length > 0 || previews.length > 0 ? "Attach more files" : "Attach files"}
-          </Button>
-
-          {mediaError && <p className="text-sm text-destructive">{mediaError}</p>}
-        </div>
+        {/* The photo and video upload went with image sending. A business
+            uploading twenty before-and-after photos and then watching the
+            assistant never share them is a false expectation, and a worse
+            one than never offering the field at all. Photos belong in the
+            words of an entry now - "we have 200 before-and-after cases,
+            the team shares them on WhatsApp". */}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         {warning && (
@@ -319,18 +205,6 @@ export function KnowledgeEntryCard({
               <span className="min-w-0 truncate text-sm font-medium text-foreground">
                 {displayTitle}
               </span>
-
-              {entry.media.length > 0 && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-                  title={`${entry.media.length} attached file${
-                    entry.media.length === 1 ? "" : "s"
-                  }`}
-                >
-                  <Paperclip className="h-3 w-3" />
-                  {entry.media.length}
-                </span>
-              )}
 
               {!entry.hasEmbedding && (
                 <span
@@ -394,13 +268,6 @@ export function KnowledgeEntryCard({
 
       {isExpanded && (
         <div className="border-t bg-muted/20 px-3 py-3 pl-9">
-          {entry.media.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {entry.media.map((m) => (
-                <MediaThumb key={m.id} url={m.url} type={m.type} />
-              ))}
-            </div>
-          )}
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
             {entry.content}
           </p>

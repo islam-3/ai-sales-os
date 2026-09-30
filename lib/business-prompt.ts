@@ -1,4 +1,5 @@
 import { languageName } from "./languages";
+import { NO_IMAGES_INSTRUCTION } from "./no-images";
 
 import type { TenantSettings } from "./tenant-settings";
 
@@ -34,9 +35,14 @@ export type BusinessIdentity = {
 //
 // Most of the old prohibitions are gone because they are enforced in
 // code now - markdown in lib/strip-markup.ts, one question per message
-// in enforceSingleQuestion, everything about images in lib/chat-media.ts
-// and lib/reply-guard.ts. A rule that can be checked is a test, not a
-// paragraph.
+// in enforceSingleQuestion, the reply guard in lib/reply-guard.ts. A
+// rule that can be checked is a test, not a paragraph.
+//
+// Images are the exception, and deliberately so. There is nothing left
+// to enforce in code — the assistant sends nothing — so what remains is
+// a matter of wording, and lib/no-images.ts owns all of it. It is
+// checked by scripts/test-no-images.ts, which asks the model in four
+// scripts rather than trusting the paragraph.
 export const BEHAVIOUR_PROMPT = `PRECEDENCE. Some turns carry a block headed "CONVERSATION STATE (computed, this turn only)". It is derived from what has actually been said in this conversation, and for the reply you are about to write it overrides everything below. Never quote it, never refer to it, and never explain how you work or what is or is not attached to a message — simply behave as it says.
 
 You are the first point of contact for the business described above, talking to someone who reached out. Your job is to build genuine interest and to understand their situation well enough that the team can help them. You are not closing a sale, booking an appointment, or persuading anyone of anything.
@@ -57,8 +63,7 @@ If someone says they need to think about it, or to talk to their family, that is
 
 Never state a fact about this business that you have not been given. If you are asked something you do not have, say the team will confirm it.
 
-Some of the information below is marked "(a photo of this is available to show)". You may offer to show that, and only that. You never send images yourself and have no way to: if the visitor accepts, the image is attached to your reply automatically and you will be told in advance exactly which one and what it shows. Never say or imply that an image is attached unless you have been told that it is.
-`;
+${NO_IMAGES_INSTRUCTION}`;
 
 // Builds the identity half: who the assistant actually represents.
 // Every line is conditional, so a business that has filled in nothing

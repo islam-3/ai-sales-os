@@ -33,7 +33,7 @@ async function main() {
   console.log(`greeting (${greeting.length} chars): ${greeting.replace(/\s+/g, " ").slice(0, 170)}\n`);
 
   const history = [{ role: "assistant" as const, content: greeting }];
-  const stateBlock = buildConversationStateBlock(history, (entries ?? []) as never, null, null);
+  const stateBlock = buildConversationStateBlock(history, (entries ?? []) as never);
   const injected = [BEHAVIOUR_PROMPT, stateBlock ?? ""];
 
   console.log(`state block WITH the greeting in history: ${stateBlock ? `${stateBlock.length} chars` : "(none)"}`);

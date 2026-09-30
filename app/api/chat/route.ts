@@ -12,12 +12,6 @@ import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import { buildConversationStateBlock, isNearingClose } from "@/lib/conversation-state";
 import {
-  buildMediaInstruction,
-  buildPhotoOfferInstruction,
-  decideMedia,
-  suggestPhotoOffer,
-} from "@/lib/chat-media";
-import {
   GENERATED_LEAD_FIELDS,
   buildLeadExtractionPrompt,
   dropUnsupportedNumbers,
@@ -25,13 +19,10 @@ import {
 } from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
-import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
+import { resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
 import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
-import { acceptedOffer, parsePendingOffer } from "@/lib/pending-offer";
-import { isAffirmative } from "@/lib/affirmative";
-import { generateEmbedding } from "@/lib/embeddings";
-import { parseEmbedding, selectByMeaning } from "@/lib/media-selection";
+import { parseEmbedding } from "@/lib/vectors";
 import { coverageProbes, relevantDimensions, type ProbeVectors } from "@/lib/coverage-relevance";
 import { readAnsweredDimensions } from "@/lib/coverage-answered";
 import {
@@ -167,38 +158,22 @@ function getProbeVectors(): Promise<ProbeVectors> {
   return probeVectorsPromise;
 }
 
-type EntryMedia = { url: string; type: string | null };
-
 type KnowledgeMatch = {
   id: string;
   title: string | null;
   content: string;
   category: string | null;
-  media: EntryMedia[];
   similarity: number;
 };
-
-// A fact plus one (media available: ...) note per attached file, appended
-// the same way in both the RAG context block and the full category dump,
-// so the model sees one consistent format regardless of which path
-// surfaced the entry — and regardless of how many files it has.
-function withMediaNote(content: string, media: EntryMedia[]) {
-  if (!media || media.length === 0) return content;
-  // Deliberately no URL. The model cannot send anything — lib/chat-media.ts
-  // owns that decision — so a URL here would only be something for it to
-  // mis-copy. It only needs to know a photo exists, so it can offer one.
-  return `${content} (a photo of this is available to show)`;
-}
 
 // Embeds the user's message and looks up the most relevant knowledge_base
 // entries for this tenant. Returns null on any failure or when nothing
 // clears the similarity bar — callers should just proceed without context.
-// Also returns the matches' media, which feeds the media decision.
 async function getRelevantContext(
   query: string,
   tenantId: string,
   sessionId: string
-): Promise<{ text: string; media: EntryMedia[] } | null> {
+): Promise<{ text: string } | null> {
   try {
     const embeddingResponse = await openai.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -237,9 +212,8 @@ async function getRelevantContext(
 
     return {
       text: `Relevant information about the business:\n${relevant
-        .map((m) => withMediaNote(formatEntryForPrompt({ title: m.title ?? "", content: m.content }), m.media ?? []))
+        .map((m) => formatEntryForPrompt({ title: m.title ?? "", content: m.content }))
         .join("\n\n")}`,
-      media: relevant.flatMap((m) => m.media ?? []),
     };
   } catch (err) {
     console.error("Failed to generate embedding for retrieval:", err);
@@ -248,14 +222,16 @@ async function getRelevantContext(
 }
 
 type KnowledgeEntry = {
-  /** Needed so an offer can name an entry without naming its words. */
   id: string;
-  /** The stored vector, for choosing WHICH photo. Null if never embedded. */
+  /**
+   * The stored vector. Not used to build the prompt — it is compared
+   * against the coverage probes to work out which pre-close questions
+   * this business calls for. Null if the entry was never embedded.
+   */
   embedding: number[] | null;
   title: string;
   category: string;
   content: string;
-  media: EntryMedia[];
 };
 
 // Every knowledge_base row for this tenant that has a category, with its
@@ -265,7 +241,7 @@ type KnowledgeEntry = {
 async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> {
   const { data, error } = await supabaseServer
     .from("knowledge_base")
-    .select("id, title, category, content, embedding, knowledge_base_media(media_url, media_type)")
+    .select("id, title, category, content, embedding")
     .eq("tenant_id", tenantId)
     .not("category", "is", null)
     .order("category");
@@ -286,10 +262,6 @@ async function getKnowledgeEntries(tenantId: string): Promise<KnowledgeEntry[]> 
       title: row.title ?? "",
       category: row.category,
       content: row.content,
-      media: (row.knowledge_base_media ?? []).map((m) => ({
-        url: m.media_url,
-        type: m.media_type,
-      })),
     }));
 }
 
@@ -302,7 +274,7 @@ function buildKnowledgeSection(entries: KnowledgeEntry[]): string | null {
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const existing = byCategory.get(entry.category) ?? [];
-    existing.push(withMediaNote(formatEntryForPrompt(entry), entry.media));
+    existing.push(formatEntryForPrompt(entry));
     byCategory.set(entry.category, existing);
   }
 
@@ -632,30 +604,11 @@ export async function POST(req: NextRequest) {
     ? readVisitorSignals(trimmedMessage, { startedAt: turnStartedAt })
     : Promise.resolve(NO_SIGNALS);
 
-  // The visitor's message as a vector, for choosing WHICH photo when one
-  // is wanted. Started here for the same reason as the signals: it
-  // overlaps the queries below rather than queuing behind them.
-  //
-  // This is NOT RAG. Nothing from it reaches the prompt - it only ranks
-  // the tenant's own photos. RAG retrieval stays off (see
-  // RAG_RETRIEVAL_ENABLED) because it was duplicating the knowledge dump
-  // already in the prompt.
-  const queryVectorPromise: Promise<number[] | null> = trimmedMessage
-    ? generateEmbedding(trimmedMessage, tenantId).catch((error) => {
-        console.warn("[media] could not embed the message:", String(error?.message).slice(0, 100));
-        return null;
-      })
-    : Promise.resolve(null);
-
-  const [
-    { data: history, error: historyError },
-    relevantContext,
-    knowledgeEntries,
-    { data: sessionRow },
-  ] = await Promise.all([
+  const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
+    await Promise.all([
       supabaseServer
         .from("conversations")
-        .select("role, content, media_url")
+        .select("role, content")
         .eq("tenant_id", tenantId)
         .eq("session_id", sessionId)
         .order("created_at", { ascending: true }),
@@ -666,16 +619,7 @@ export async function POST(req: NextRequest) {
         ? getRelevantContext(trimmedMessage, tenantId, sessionId)
         : Promise.resolve(null),
       getKnowledgeEntries(tenantId),
-      // What we offered to show on the previous turn, if anything.
-      supabaseServer
-        .from("chat_sessions")
-        .select("pending_offer")
-        .eq("tenant_id", tenantId)
-        .eq("session_id", sessionId)
-        .maybeSingle(),
     ]);
-
-  const pendingOffer = parsePendingOffer(sessionRow?.pending_offer);
 
   if (historyError) {
     console.error("Failed to fetch conversation history from Supabase:", historyError);
@@ -758,17 +702,6 @@ export async function POST(req: NextRequest) {
   // Handing it the entire catalogue made every conversation look like a
   // multi-visit trip abroad; handing it nothing missed cases the
   // assistant had not happened to describe.
-  // What this visitor has already been shown. The tag is stripped before
-  // a reply is stored, so without the media_url column there was no
-  // record of it and the same photo went out on consecutive turns.
-  // Computed before the model call so the state block can say when the
-  // available images are spent.
-  const alreadySent = new Set(
-    (history ?? [])
-      .map((row) => (row as { media_url?: string | null }).media_url)
-      .filter((url): url is string => !!url)
-  );
-
   const turnsWithLatest = [
     ...(history ?? []),
     { role: "user", content: userContent },
@@ -779,152 +712,12 @@ export async function POST(req: NextRequest) {
     content: e.content,
   }));
 
-  // The single media decision, made here and nowhere else. The model is
-  // told what is attached; it has no way to send anything itself.
-  const mediaCandidates = knowledgeEntries.map((e) => ({
-    id: e.id,
-    title: e.title,
-    content: e.content,
-    media: e.media,
-    // Lets a photo filed under a category, with a title like "Before and
-    // after" that names no subject, be matched by that category.
-    category: e.category,
-  }));
-
-  // ── Did they take up what we offered? ──────────────────────────────
-  //
-  // Asked FIRST, and answered without reading a word of the offer or of
-  // any entry title: the server wrote down which entry it offered, so
-  // the only question left is whether this message agrees. That question
-  // has no vocabulary problem, which the old path did - matching an
-  // Arabic "yes" against an English title scored zero recall outside
-  // English, and inside English only worked if the visitor happened to
-  // quote a title close to verbatim.
-  const priorUserTurnCount = (history ?? []).filter((row) => row.role === "user").length;
-  const thisTurn = priorUserTurnCount + 1;
-  const taken = acceptedOffer(pendingOffer, thisTurn, trimmedMessage, isAffirmative);
-  const takenEntry = taken
-    ? knowledgeEntries.find((e) => e.id === taken.entryId && e.media.length > 0)
-    : undefined;
-
-  // Signals, if they arrived inside their budget. A turn without them
-  // behaves exactly as every non-English turn behaved until now: the
-  // assistant still answers, it is just less sharp.
-  // ── Only wait when waiting can change this turn ────────────────────
-  //
-  // direct_request is the only signal that decides something BEFORE the
-  // reply: whether a photo goes out now. Two cases where it cannot, and
-  // the reply should not pay for it:
-  //
-  //   * the tenant has no photos at all - nothing to send whatever the
-  //     answer is;
-  //   * an offer is already outstanding - acceptance is decided in code
-  //     (lib/affirmative.ts), which costs nothing and does not need this.
-  //
-  // Hesitation and impatience shape tone rather than gate anything, so
-  // on those turns they are simply absent, exactly as they were for
-  // every non-English visitor until this week.
-  // With the direct-request route gone, NOTHING the classifier returns
-  // decides whether a photo is sent - acceptance is settled in code. The
-  // signals now only shape tone: hesitation stops the assistant
+  // Hesitation and impatience, read by a model. With image sending
+  // gone, nothing the classifier returns decides whether anything is
+  // attached - these only shape tone: hesitation stops the assistant
   // re-pitching at someone stepping back, impatience stops it asking
-  // another question. Those were the parts that tested best, so the
-  // reply still waits for them, but only that.
+  // another question.
   const signals = await signalsPromise;
-
-  // ── Intent decides whether; similarity decides which ───────────────
-  //
-  // Calibrated across six languages: embedding rank puts the right entry
-  // first 9 times out of 9, but the MAGNITUDE is meaningless across
-  // languages - the same correct match scores 0.55 in English and 0.17
-  // in Arabic - and neither an absolute bar nor a relative one separates
-  // "should show" from "should not". Negatives overlap positives
-  // outright. So similarity is never asked whether a photo is wanted.
-  //
-  // Two things establish that, both of them intent rather than topic:
-  // the visitor took up an offer we made, or they asked. The old path
-  // used lexical overlap for both questions and scored 0.148 for the
-  // obviously-right entry against a bar of 0.25, in English.
-  const queryVector = await queryVectorPromise;
-  const embeddedCandidates = knowledgeEntries.map((e) => ({
-    id: e.id,
-    title: e.title,
-    media: e.media,
-    embedding: e.embedding,
-  }));
-  // ── There is no direct-request route any more ──────────────────────
-  //
-  // It was removed after testing, and every photo bug came from it, 3
-  // for 3:
-  //
-  //   * "give me the price" sent a photo, twice out of two, with reply
-  //     text that never mentioned it. The assistant's OWN sentence -
-  //     "if you can share a photo of your teeth" - was read as the
-  //     VISITOR asking for an image. The direction was inverted.
-  //   * an ambiguous "can I see before and afters", naming no service,
-  //     returned HAIR TRANSPLANT photos in a dental conversation, and
-  //     the error propagated into the lead.
-  //
-  // The offer route was clean in every test, and the difference is that
-  // the server knows what IT offered. A request has to be guessed at:
-  // which service, and whether they are asking to see or offering to
-  // send. Both guesses were wrong in front of a patient.
-  //
-  // If it returns, it should be the server ASKING which service rather
-  // than inferring one. A narrower feature that is always right beats a
-  // wider one that embarrasses a clinic.
-  const chosen = takenEntry
-    ? { entry: takenEntry, reason: "accepted-offer" as const }
-    : null;
-
-  const mediaDecision = chosen
-    ? ({
-        send: true as const,
-        title: chosen.entry.title,
-        url: chosen.entry.media[0].url,
-        type: chosen.entry.media[0].type,
-        alsoAvailable: [],
-        reason: chosen.reason,
-      } as ReturnType<typeof decideMedia>)
-    : decideMedia(turnsWithLatest, mediaCandidates, alreadySent);
-
-  const mediaInstruction = buildMediaInstruction(mediaDecision);
-
-  // An unprompted offer is only considered on a turn with no request of
-  // any kind. While the visitor is asking to see something, the answer to
-  // that is the whole job of this reply.
-  // A proactive offer, with the two English-only gates told when they
-  // cannot read the conversation. Significance is judged from the
-  // visitor's own words, so its verdict only counts when those words are
-  // in a script it was written for.
-  // Significance is judged from English scale words, so its verdict only
-  // counts when the conversation is actually in English.
-  //
-  // My first attempt used script - Latin means readable - and that was
-  // wrong for the obvious reason: Turkish and Spanish are written in
-  // Latin and are not English. Measured, that left both at 0 of 4
-  // opportunities while Arabic and Russian reached 3 of 4, which is a
-  // strange enough result to be worth the correction in the comment.
-  //
-  // The tenant's configured chat language is a DECLARED fact rather than
-  // a guess, and a visitor writing in a non-Latin script is plainly not
-  // writing English whatever the tenant configured.
-  const visitorScript = detectScript(turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content));
-  const significanceReadable =
-    visitorScript !== null &&
-    visitorScript === "latin" &&
-    (tenant.settings.chat_language ?? "en").toLowerCase().startsWith("en");
-  const semanticPick = selectByMeaning(queryVector, embeddedCandidates, alreadySent);
-
-  const offerToMake =
-    !mediaDecision.send && mediaDecision.reason === "no-request"
-      ? suggestPhotoOffer(turnsWithLatest, mediaCandidates, alreadySent, {
-          semanticPick: semanticPick ? { id: semanticPick.entry.id, title: semanticPick.entry.title } : null,
-          significanceReadable,
-          offerJustMade: pendingOffer !== null,
-        })
-      : null;
-  const photoOffer = buildPhotoOfferInstruction(offerToMake);
 
   // What this business needs asked before a close, by meaning rather
   // than by English keywords. Measured at 1 of 6 languages before this:
@@ -951,8 +744,6 @@ export async function POST(req: NextRequest) {
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
-    mediaInstruction,
-    photoOffer,
     signals,
     relevantFor,
     answeredFor
@@ -1075,9 +866,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const media = mediaDecision.send
-    ? { url: mediaDecision.url, type: mediaDecision.type }
-    : null;
+
 
   // Written in order: the greeting (first turn only) precedes the
   // visitor's message so the stored transcript reads the way the
@@ -1092,7 +881,6 @@ export async function POST(req: NextRequest) {
       session_id: sessionId,
       role: "assistant",
       content: reply,
-      media_url: media?.url ?? null,
     },
   ];
 
@@ -1118,33 +906,6 @@ export async function POST(req: NextRequest) {
   // be wrong.
   if ((history ?? []).length === 0) {
     keepAlive(recordConversationStart(tenantId, sessionId), "recordConversationStart");
-  }
-
-  // ── Remember what we offered, or forget what was taken up ──────────
-  //
-  // After the reply, so the visitor never waits on it, and through
-  // keepAlive so it is not killed when the response returns.
-  //
-  // Written on the turn the offer is MADE and read on the next one. An
-  // offer that was just consumed is cleared, and so is one that has gone
-  // stale - the row should say what is actually outstanding rather than
-  // leaving an old id for some later "yes" to collide with.
-  const offerToStore = offerToMake?.entryId
-    ? { entryId: offerToMake.entryId, title: offerToMake.title, offeredOnTurn: thisTurn }
-    : null;
-  const offerWasConsumedOrStale = pendingOffer !== null;
-  if (offerToStore || offerWasConsumedOrStale) {
-    keepAlive(
-      (async () => {
-        const { error } = await supabaseServer
-          .from("chat_sessions")
-          .update({ pending_offer: offerToStore })
-          .eq("tenant_id", tenantId)
-          .eq("session_id", sessionId);
-        if (error) console.error("[offer] could not store pending offer:", error.message);
-      })(),
-      "storePendingOffer"
-    );
   }
 
   // The lead-extraction pass runs after the reply has gone out, so it
@@ -1184,7 +945,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ reply, media });
+  return NextResponse.json({ reply });
 }
 
 // Appends the photo's storage path to this session's lead_profile row via

@@ -15,11 +15,16 @@
 // Adding a seventh language proves much less than covering a seventh
 // property would.
 //
-// Three assertions per conversation, all of them things that have
+// Four assertions per conversation, all of them things that have
 // actually gone wrong in production:
 //   1. no reply is the safe fallback  (the guard discarding real replies)
 //   2. every reply is in the visitor's script  (English at an Arabic visitor)
-//   3. the lead is saved with name AND number  (background work killed)
+//   3. a step-back is not answered with a re-pitch  (the signal going
+//      silent outside English, which is what the classifier replaced)
+//   4. the lead is saved with name AND number  (background work killed)
+//
+// The media assertions are gone with the feature: image sending was
+// removed from the chat, so there is no photo to wait for.
 //
 // Every conversation asks for the process STEP BY STEP on purpose. The
 // guard bug only fired on replies the model formatted as a list, and a
@@ -29,9 +34,9 @@
 
 import { say } from "./_chat-client";
 import { allSafeFallbacks } from "../lib/safe-fallback";
+import { countWords } from "../lib/punctuation";
 import { detectScript, type VisitorScript } from "../lib/visitor-language";
 import { runDashboardChecks } from "./smoke-dashboard";
-import { runMediaChecks } from "./smoke-media";
 
 type Case = {
   label: string;
@@ -40,6 +45,23 @@ type Case = {
   name: string;
   digits: string;
 };
+
+/**
+ * The turn where the visitor steps back, zero-indexed.
+ *
+ * This slot used to hold a bare "yes please", left over from accepting a
+ * photo offer. With image sending gone it accepted nothing, landed on no
+ * behaviour at all, and still reported ok every run - a turn that tests
+ * nothing while appearing to pass is precisely how the empty test tenant
+ * went unnoticed for days.
+ *
+ * Hesitation replaces it because it is the ONLY thing the classifier
+ * still decides. The keyword lists it replaced scored zero recall on
+ * every non-English class, so "someone said they need to think about it,
+ * in Chinese" is exactly the case that used to be invisible, and nothing
+ * checks it against the real deployment.
+ */
+const HESITATION_TURN = 4;
 
 const CASES: Case[] = [
   {
@@ -50,7 +72,7 @@ const CASES: Case[] = [
       "I lost most of my upper teeth about five years ago",
       "how much does it cost?",
       "can you walk me through the steps of the whole process?",
-      "yes please",
+      "honestly I need to think about it and talk to my wife first",
       "David",
       "+44 7700 900123",
     ],
@@ -65,7 +87,7 @@ const CASES: Case[] = [
       "فقدت معظم أسناني العلوية منذ خمس سنوات",
       "كم التكلفة؟",
       "ممكن تشرح لي خطوات العلاج بالتفصيل؟",
-      "نعم من فضلك",
+      "بصراحة أحتاج أفكر في الموضوع وأتكلم مع زوجتي أولاً",
       "خالد",
       "+90 532 111 2233",
     ],
@@ -80,7 +102,7 @@ const CASES: Case[] = [
       "Я потерял большинство верхних зубов около пяти лет назад",
       "Сколько это стоит?",
       "Расскажите, пожалуйста, по шагам, как проходит весь процесс?",
-      "да, пожалуйста",
+      "честно говоря, мне нужно подумать и обсудить с женой",
       "Иван",
       "+7 900 123 4567",
     ],
@@ -95,7 +117,7 @@ const CASES: Case[] = [
       "我大约五年前失去了大部分上排牙齿",
       "费用是多少？",
       "能详细说明一下整个治疗的步骤吗？",
-      "好的，麻烦您",
+      "说实话我需要考虑一下，还要和我太太商量",
       "王伟",
       "+86 138 0013 8000",
     ],
@@ -110,7 +132,7 @@ const CASES: Case[] = [
       "Yaklaşık beş yıl önce üst dişlerimin çoğunu kaybettim",
       "Fiyat ne kadar?",
       "Tüm sürecin adımlarını tek tek anlatır mısınız?",
-      "evet lütfen",
+      "dürüst olmak gerekirse düşünmem ve eşimle konuşmam lazım",
       "Mehmet",
       "+90 532 444 5566",
     ],
@@ -125,7 +147,7 @@ const CASES: Case[] = [
       "Perdí la mayoría de mis dientes superiores hace cinco años",
       "¿Cuánto cuesta?",
       "¿Me explicas paso a paso todo el proceso?",
-      "sí, por favor",
+      "sinceramente necesito pensarlo y hablarlo con mi mujer",
       "Carlos",
       "+34 612 345 678",
     ],
@@ -136,6 +158,39 @@ const CASES: Case[] = [
 
 const FALLBACKS = allSafeFallbacks();
 const WAIT_SECONDS = 40;
+
+/**
+ * How long a reply to hesitation may be, as a fraction of the longest
+ * reply already given in the SAME conversation.
+ *
+ * Relative rather than absolute, because the classes are not equally
+ * verbose and an absolute bar cannot serve them all. Measured over all
+ * six on the real route (docs/smoke-hesitation-calibration.txt):
+ *
+ *   class      hesitation   longest earlier   ratio
+ *   English        68            190           0.36
+ *   Arabic         39            116           0.34
+ *   Russian        45            156           0.29
+ *   Chinese        60            193           0.31
+ *   Turkish        37             80           0.46
+ *   Spanish        57            158           0.36
+ *
+ * An earlier run of the same six put the worst at 0.50 (Arabic, 38/76),
+ * so that is the widest gap actually seen, not 0.46.
+ *
+ * Why a ratio and not a number: in that earlier run the English reply to
+ * hesitation ran 83 words, LONGER than the longest Arabic reply of the
+ * whole conversation. A single bar would either pass an Arabic re-pitch
+ * or fail an English acknowledgement. A re-pitch restates the material
+ * that produced the longest reply, so as a ratio it lands near 1.0
+ * whatever language it is in.
+ *
+ * 0.6 leaves headroom above the worst observed without reaching the
+ * failure it exists to catch. This codebase has already shipped one
+ * threshold set by eye that rejected a correct answer, so the number and
+ * the run behind it are recorded together.
+ */
+const HESITATION_MAX_RATIO = Number(process.env.SMOKE_HESITATION_MAX_RATIO ?? 0.6);
 
 // Paced deliberately. Six conversations back to back is a burst no real
 // visitor produces, and running flat out drew 500s from upstream that
@@ -150,6 +205,9 @@ type Failure = { case: string; what: string; detail: string };
 async function runCase(c: Case): Promise<Failure[]> {
   const failures: Failure[] = [];
   const sessionId = crypto.randomUUID();
+  // Word counts of the assistant's replies before the hesitation turn,
+  // which is what that turn's length is judged against.
+  const replyWords: number[] = [];
   console.log(`\n── ${c.label}`);
 
   for (let i = 0; i < c.turns.length; i++) {
@@ -197,7 +255,45 @@ async function runCase(c: Case): Promise<Failure[]> {
       continue;
     }
 
-    console.log(`   turn ${i + 1}: ok  ${flat.slice(0, 56)}`);
+    // 3. And when they stepped back, the assistant must have noticed.
+    //
+    //    Measured by LENGTH, which is a proxy and is described as one.
+    //    The state block's hesitation branch says to keep it short and
+    //    free of obligation, and forbids restating credentials or
+    //    listing benefits again. When the signal does NOT arrive the
+    //    model gets no instruction at all and answers a step-back with a
+    //    re-pitch of the material it has already given — which is long,
+    //    in any language.
+    //
+    //    What this can and cannot see, stated plainly: a re-pitch is
+    //    caught, a short reply that presses them to decide is not. It
+    //    exists for the regression that actually happened — the signal
+    //    going silent outside English — not as a proof of good manners.
+    //
+    //    Counted in words, not characters: Chinese says in 30 characters
+    //    what English needs 55 for, and a character bar would pass CJK
+    //    unconditionally. See lib/punctuation.ts.
+    const words = countWords(flat);
+    if (i === HESITATION_TURN) {
+      const longest = Math.max(...replyWords, 1);
+      const ratio = words / longest;
+      if (ratio > HESITATION_MAX_RATIO) {
+        failures.push({
+          case: c.label,
+          what:
+            `turn ${i + 1}: answered hesitation with ${words} words, ` +
+            `${(ratio * 100).toFixed(0)}% of its longest earlier reply (${longest}) — ` +
+            `max ${(HESITATION_MAX_RATIO * 100).toFixed(0)}%`,
+          detail: flat.slice(0, 140),
+        });
+        console.log(`   turn ${i + 1}: ✗ RE-PITCHED AT HESITATION (${words}w, ${(ratio * 100).toFixed(0)}%)`);
+        continue;
+      }
+    }
+    replyWords.push(words);
+
+    const marker = i === HESITATION_TURN ? " hesitation" : "          ";
+    console.log(`   turn ${i + 1}:${marker} ${String(words).padStart(3)}w  ${flat.slice(0, 52)}`);
   }
 
   // 3. The lead must carry what the visitor gave, including the last turn.
@@ -312,13 +408,6 @@ async function main() {
   if (!only) {
     const dashboard = await runDashboardChecks(process.env.BASE_URL!);
     failures.push(...dashboard.map((d) => ({ case: "Dashboard", what: d.what, detail: d.detail })));
-
-    // A photo must actually arrive, by both routes, in two languages.
-    // The test tenant had no photos at all for days and every run still
-    // reported green, which is the worst kind of test: one that is
-    // believed.
-    const media = await runMediaChecks(process.env.BASE_URL!);
-    failures.push(...media.map((m) => ({ case: "Media", what: m.what, detail: m.detail })));
   }
 
   console.log(`\n${"═".repeat(70)}`);

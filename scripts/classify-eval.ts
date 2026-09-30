@@ -30,9 +30,8 @@
 // reads this next should know which of those two it was.
 
 import { anthropic } from "../lib/anthropic";
-import { SIGNAL_PROMPT } from "../lib/visitor-signals";
+import { SIGNAL_PROMPT, SIGNAL_PROMPT_KEYS } from "../lib/visitor-signals";
 import { CASES, SIGNAL_KEYS, type Case, type Signals } from "./classify-cases";
-import { decideMedia } from "../lib/chat-media";
 import { detectHesitation, detectImpatience } from "../lib/conversation-state";
 
 const MODEL = process.env.CLASSIFIER_MODEL ?? "claude-haiku-4-5-20251001";
@@ -42,6 +41,11 @@ const RUNS = Number(process.env.RUNS ?? 3);
 // from what production sends. Which variant is measured is chosen by
 // SIGNAL_PROMPT_VARIANT, the same switch the route reads.
 const PROMPT = SIGNAL_PROMPT;
+
+// Only the keys the live prompt actually asks for. A two-signal prompt
+// scored on four would read 0% recall on the two it was never asked
+// about, which is a harness fault reported as a model regression.
+const SCORED = SIGNAL_KEYS.filter((k) => SIGNAL_PROMPT_KEYS.includes(k));
 
 /** The first balanced {...}; the model explains itself after the JSON. */
 function firstJsonObject(text: string): string {
@@ -93,22 +97,22 @@ async function classify(c: Case): Promise<Prediction> {
   }
 }
 
-/** What the CURRENT regexes say, for the same message. */
+/**
+ * What the CURRENT regexes say, for the same message.
+ *
+ * The media half of this comparison is gone: image sending was removed
+ * from the chat, so decideMedia no longer exists and accepts_offer and
+ * direct_request no longer decide anything. What remains is hesitation
+ * and impatience, which is the classifier's whole job now.
+ */
 function regexBaseline(c: Case): Signals {
   const history = [
     ...(c.prior ? [{ role: "assistant" as const, content: c.prior }] : []),
     { role: "user" as const, content: c.text },
   ];
-  const catalogue = [
-    { title: "Before and after gallery", content: "photos of previous cases", media: [{ url: "x", type: "image/jpeg" }] },
-  ];
-  const decision = decideMedia(history, catalogue, new Set());
   return {
-    // The regex layer does not separate these two: both end in "send a
-    // photo". Scored against each label separately, which is generous to
-    // it rather than harsh.
-    accepts_offer: decision.send && decision.reason === "accepted-offer",
-    direct_request: decision.send && decision.reason === "direct-request",
+    accepts_offer: false,
+    direct_request: false,
     hesitation: detectHesitation(history).hesitating,
     impatience: detectImpatience(history).impatient,
   };
@@ -143,16 +147,16 @@ async function main() {
   console.log("  CURRENT REGEXES");
   console.log("═".repeat(72));
   const regexBySignal = new Map<string, Map<string, Tally>>();
-  SIGNAL_KEYS.forEach((k) => regexBySignal.set(k, new Map(classes.map((c) => [c, empty()]))));
+  SCORED.forEach((k) => regexBySignal.set(k, new Map(classes.map((c) => [c, empty()]))));
   for (const c of CASES) {
     const got = regexBaseline(c);
-    SIGNAL_KEYS.forEach((k) => add(regexBySignal.get(k)!.get(c.klass)!, c[k], got[k]));
+    SCORED.forEach((k) => add(regexBySignal.get(k)!.get(c.klass)!, c[k], got[k]));
   }
   report(regexBySignal, classes);
 
   // ── the classifier, several times ───────────────────────────────────
   const modelBySignal = new Map<string, Map<string, Tally>>();
-  SIGNAL_KEYS.forEach((k) => modelBySignal.set(k, new Map(classes.map((c) => [c, empty()]))));
+  SCORED.forEach((k) => modelBySignal.set(k, new Map(classes.map((c) => [c, empty()]))));
   const disagreements: string[] = [];
   let failures = 0;
 
@@ -161,7 +165,7 @@ async function main() {
     for (const c of CASES) {
       const got = await classify(c);
       if (got.failed) failures++;
-      SIGNAL_KEYS.forEach((k) => {
+      SCORED.forEach((k) => {
         add(modelBySignal.get(k)!.get(c.klass)!, c[k], got[k]);
         if (c[k] !== got[k] && run === 1) {
           disagreements.push(
@@ -195,7 +199,7 @@ async function main() {
 }
 
 function report(bySignal: Map<string, Map<string, Tally>>, classes: string[]) {
-  for (const key of SIGNAL_KEYS) {
+  for (const key of SCORED) {
     const perClass = bySignal.get(key)!;
     const total = empty();
     classes.forEach((k) => {

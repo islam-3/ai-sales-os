@@ -79,7 +79,6 @@ async function main() {
   console.log(`\n── related tables ──────────────────────────────────────────`);
   const counts: [string, string, string?][] = [
     ["knowledge_base", "tenant_id"],
-    ["knowledge_base_media", "tenant_id"],
   ];
   for (const [table, column] of counts) {
     const { count: sc } = await supabaseServer
@@ -91,15 +90,16 @@ async function main() {
     console.log(`  ${flag} ${table.padEnd(24)} source=${sc}  test=${tc}`);
   }
 
-  // Per-entry media, since a matching total could still be attached to
-  // the wrong entries.
+  // Embeddings, since a matching row count could still be a test tenant
+  // whose entries were never embedded — which would take coverage
+  // relevance down a fallback path the real tenant never takes.
   for (const [label, id] of [["source", source.id], ["test", test.id]] as const) {
     const { data: kb } = await supabaseServer
       .from("knowledge_base")
-      .select("title, knowledge_base_media(media_url)")
+      .select("title, embedding")
       .eq("tenant_id", id);
-    const withMedia = (kb ?? []).filter((r) => (r.knowledge_base_media ?? []).length > 0);
-    console.log(`  ${label.padEnd(11)} entries with a photo: ${withMedia.length}`);
+    const embedded = (kb ?? []).filter((r) => !!r.embedding);
+    console.log(`  ${label.padEnd(11)} entries with an embedding: ${embedded.length}/${(kb ?? []).length}`);
   }
 
   console.log(`\n${"═".repeat(60)}`);

@@ -21,7 +21,6 @@ import {
 } from "../lib/reply-guard";
 import { buildConversationStateBlock, type ChatTurn } from "../lib/conversation-state";
 import { BEHAVIOUR_PROMPT } from "../lib/business-prompt";
-import { buildMediaInstruction, buildPhotoOfferInstruction, type MediaDecision } from "../lib/chat-media";
 
 let bad = 0;
 const check = (name: string, ok: boolean, detail?: string) => {
@@ -198,20 +197,6 @@ const histories: [string, ChatTurn[]][] = [
   ],
 ];
 
-const decisions: MediaDecision[] = [
-  { send: false, reason: "no-request" },
-  { send: false, reason: "no-confident-match" },
-  { send: false, reason: "already-shown" },
-  {
-    send: true,
-    url: "https://x.test/a.jpg",
-    type: "image/jpeg",
-    title: "Crowns brand",
-    alsoAvailable: ["Before and after ( dental implants )"],
-    reason: "accepted-offer",
-  },
-];
-
 const wholeSentences = (block: string) =>
   block
     .split("\n")
@@ -230,22 +215,18 @@ const SECTION_HEADINGS = [
   "logistics question",
   "NOT yet complete",
   "Close the conversation warmly",
-  "CARRIES NO IMAGE",
-  "IMAGE IS ATTACHED",
-  "ONE image goes per reply",
   "same shape as each other",
-  "has not been shown or offered yet",
 ];
 
 let generated = 0;
 let leaks = 0;
 const headingsSeen = new Set<string>();
+// The media instructions are gone with the feature; image sending was
+// removed from the chat, so the state block carries no media section at
+// all. Every other section is still generated and still checked.
 for (const [label, history] of histories) {
-  for (const decision of decisions) {
-    // A photo offer is passed on every block: the builder keeps it where it
-    // stands and drops it under a brake, so both paths are exercised.
-    const photoOffer = buildPhotoOfferInstruction({ title: "Before and after ( dental implants )" });
-    const block = buildConversationStateBlock(history, entries, buildMediaInstruction(decision), photoOffer);
+  {
+    const block = buildConversationStateBlock(history, entries);
     if (!block) continue;
     generated++;
     for (const h of SECTION_HEADINGS) if (block.includes(h)) headingsSeen.add(h);
@@ -265,8 +246,7 @@ for (const [label, history] of histories) {
       const leaked = out === null ? [] : sentences.filter((s) => out.includes(s));
       if (leaked.length) {
         leaks++;
-        const tag = decision.send ? "send" : decision.reason;
-        console.log(`        LEAK [${label} / ${tag}]: "${leaked[0].slice(0, 80)}"`);
+        console.log(`        LEAK [${label}]: "${leaked[0].slice(0, 80)}"`);
       }
     }
   }
@@ -295,7 +275,7 @@ console.log("\n--- detecting by injected text must not punish paraphrase ---");
 // Instructions deliberately carry material the model should relay in its
 // own words, most of all the REASON a detail matters. That must survive.
 const gapBlock =
-  buildConversationStateBlock(histories[6][1], entries, buildMediaInstruction(decisions[0])) ?? "";
+  buildConversationStateBlock(histories[6][1], entries) ?? "";
 const paraphrases = [
   "Knowing how many days you can stay each visit tells the team what can realistically be done per trip. How long could you be here?",
   "We use premium Straumann zirconia crowns for their natural appearance, and the result looks like your own teeth.",
@@ -347,7 +327,7 @@ check(
   "the guard is given the text actually injected this turn",
   /const injected = \[BEHAVIOUR_PROMPT, stateBlock \?\? ""\];/.test(routeSrc)
 );
-check("the response returns the gated value", /return NextResponse\.json\(\{ reply, media \}\)/.test(routeSrc));
+check("the response returns the gated value", /return NextResponse\.json\(\{ reply \}\)/.test(routeSrc));
 check("the stored row uses the gated value", /content:\s*reply,/.test(routeSrc));
 check("the fallback exists and is non-empty", SAFE_FALLBACK.length > 20 && !containsInternalState(SAFE_FALLBACK));
 

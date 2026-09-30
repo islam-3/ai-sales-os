@@ -25,7 +25,7 @@ export default async function SettingsPage() {
   const { data: rows, error } = await supabase
     .from("knowledge_base")
     .select(
-      "id, title, category, content, embedding, created_at, knowledge_base_media(id, media_url, media_type, created_at)"
+      "id, title, category, content, embedding, created_at"
     )
     .eq("tenant_id", tenantId)
     .order("category", { ascending: true })
@@ -37,14 +37,6 @@ export default async function SettingsPage() {
     category: row.category,
     content: row.content,
     hasEmbedding: row.embedding !== null,
-    media: (row.knowledge_base_media ?? [])
-      .filter((m) => m.media_type === "image" || m.media_type === "video")
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-      .map((m) => ({
-        id: m.id,
-        url: m.media_url,
-        type: m.media_type as "image" | "video",
-      })),
     created_at: row.created_at,
   }));
 

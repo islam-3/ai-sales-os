@@ -19,7 +19,7 @@ import { assessCoverage } from "../lib/conversation-state";
 import { readAnsweredDimensions } from "../lib/coverage-answered";
 import { coverageProbes, relevantDimensions } from "../lib/coverage-relevance";
 import { generateEmbedding } from "../lib/embeddings";
-import { parseEmbedding } from "../lib/media-selection";
+import { parseEmbedding } from "../lib/vectors";
 
 type Turn = { role: "user" | "assistant"; content: string };
 const a = (content: string): Turn => ({ role: "assistant", content });

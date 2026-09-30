@@ -1,0 +1,67 @@
+smoke test against http://localhost:3000
+
+── English (Latin baseline)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:            89w  Welcome! You've come to the right place — restoring 
+   turn 2:            35w  Five years is a long time to be working around that 
+   turn 3:           160w  That's a fair question, and we want to make sure the
+   turn 4:           190w  Of course. Visit 1 — around 5 days in Istanbul: We s
+   turn 5: hesitation  68w  That makes complete sense — it's a big decision and 
+   turn 6:            69w  That makes complete sense, David. Five years is a lo
+   turn 7:            45w  Thank you, David — we'll make sure the team has your
+   lead: name=ok number=ok
+
+── Arabic (right-to-left, ؟)
+   turn 1:            34w  مرحباً! 😊 يسعدنا تواصلك معنا. زراعة الأسنان من أكثر
+   turn 2:            15w  خمس سنوات فترة طويلة تعيش فيها مع هذا الوضع... كيف أ
+   turn 3:            85w  سؤال منطقي جداً، وسيقدم لك فريقنا رقماً دقيقاً بعد م
+   turn 4:           116w  بكل سرور! الزيارة الأولى – 5 أيام: نقوم بتركيب المسا
+   turn 5: hesitation  39w  طبعاً، هذا قرار مهم ومن الطبيعي أن تأخذ وقتك وتتشاور
+   turn 6:            10w  أهلاً خالد! 😊 خذ وقتك الكافي، ونحن هنا متى كنت مستع
+   turn 7:            18w  شكراً خالد، سجّلنا رقمك. سؤال أخير قبل أن نحيل ملفك 
+   lead: name=ok number=ok
+
+── Russian (Cyrillic)
+   turn 1:            69w  За 15 лет работы мы помогли тысячам пациентов со все
+   turn 2:            41w  Пять лет — это немалый срок, и это наверняка влияло 
+   turn 3:            87w  Точную стоимость наша команда сможет назвать после о
+   turn 4:           156w  По стоимости — точную цифру назовёт наша команда пос
+   turn 5: hesitation  45w  Это абсолютно понятно — решение серьёзное, и хорошо,
+   turn 6:            27w  Иван, это совершенно правильный подход — такие решен
+   turn 7:            36w  Спасибо, Иван, номер записал. Когда обсудите с женой
+   lead: name=ok number=ok
+
+── Chinese (no spaces between words)
+   turn 1:            92w  您好！欢迎咨询我们。 在伊斯坦布尔，种植牙是我们做得最多的项目之一。我们使用瑞士 Implant Swi
+   turn 2:            31w  五年，这段时间一定对日常生活影响很大——吃东西、说话、甚至照镜子，都不一样了。 是什么让您现在决定迈出这
+   turn 3:           112w  这个我们的团队会根据您的具体情况给出准确报价——缺牙数量、骨密度状况等都会影响最终方案。 不过可以告诉您
+   turn 4:           193w  费用方面，我们的团队需要根据您的具体情况来评估——主要取决于缺失牙齿的数量、骨密度状况（五年没有牙根支撑
+   turn 5: hesitation  60w  当然，和太太商量是完全正确的决定——这样的事情本来就应该一起做。 如果您方便的话，可以把您的 Whats
+   turn 6:            44w  王伟先生，完全理解——这是需要认真考虑的决定，和太太一起商量非常对。 什么时候想聊了，我们随时在。您可以
+   turn 7:            56w  谢谢您，王伟先生。 因为种植牙需要两次来访，时间跨度约4个月，我们的医生在制定方案时需要了解您大概什么时
+   lead: name=ok number=ok
+
+── Turkish (dotted/dotless i)
+   turn 1:            29w  Hoş geldiniz! Doğru bir adım düşünüyorsunuz — diş im
+   turn 2:            22w  Beş yıl bu kadar uzun bir süre... Günlük hayatı, yem
+   turn 3:            50w  Kaç implant gerektiğine ve kemik durumunuza göre fiy
+   turn 4:            80w  Tabii: Ziyaret (5 gün) İstanbul'a geliyorsunuz, impl
+   turn 5: hesitation  37w  Tabii ki, böyle bir karar için eşinizle konuşmak çok
+   turn 6:            20w  Mehmet Bey, hoş geldiniz. Umarım eşinizle görüşmeniz
+   turn 7:            20w  Teşekkürler Mehmet Bey! Ekibimiz sizi bu numaradan u
+   lead: name=ok number=ok
+
+── Spanish (¿ inverted punctuation)
+   turn 1:            72w  ¡Hola! Qué bueno que nos escribas. Los implantes que
+   turn 2:            29w  Cinco años es mucho tiempo cargando con eso — tanto 
+   turn 3:           138w  Es una pregunta muy válida, y queremos darte un núme
+   turn 4:           158w  Claro: Primera visita — 5 días en Estambul Al llegar
+   turn 5: hesitation  57w  Por supuesto, es una decisión importante y tiene tod
+   turn 6:            41w  Tiene todo el sentido, Carlos — es una decisión que 
+   turn 7:            21w  Perfecto, Carlos. Cuando tú y tu mujer hayan hablado
+   lead: name=ok number=ok
+
+══════════════════════════════════════════════════════════════════════
+  SMOKE TEST PASSED — 6 conversation(s)
+══════════════════════════════════════════════════════════════════════
