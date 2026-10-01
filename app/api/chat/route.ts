@@ -737,7 +737,13 @@ export async function POST(req: NextRequest) {
   const coverageWillBeChecked = isNearingClose(turnsWithLatest) && !signals.hesitation;
   const answeredFor = coverageWillBeChecked
     ? (await readAnsweredDimensions(
-        turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content)
+        turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content),
+        // The assistant's side too, for one key only: whether it has
+        // already asked to see the visitor's case. Every other dimension
+        // is read from the visitor alone and must stay that way — the
+        // assistant explaining that a clinic needs an X-ray is not the
+        // visitor saying they will send one.
+        turnsWithLatest.filter((x) => x.role === "assistant").map((x) => x.content)
       )) ?? undefined
     : undefined;
 

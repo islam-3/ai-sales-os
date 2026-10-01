@@ -1,8 +1,9 @@
-import { Phone } from "lucide-react";
+import { Phone, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusDropdown } from "./StatusDropdown";
 import { QualificationDetails } from "./QualificationDetails";
 import { LeadProfile, formatDate, getScoreTier, SCORE_TIER_CLASSES } from "@/lib/dashboard";
+import { needsCountryCode } from "@/lib/phone-number";
 
 function ScoreBadge({ score }: { score: number | null }) {
   return (
@@ -42,6 +43,17 @@ export function LeadCard({ lead }: { lead: LeadProfile }) {
                 <span className="text-sm italic text-muted-foreground">No contact info yet</span>
               )}
             </div>
+
+            {/* Derived at render, never stored: see lib/phone-number.ts.
+                Worth a line of its own rather than a colour on the number,
+                because the rep has to act on it before dialling and a
+                tinted string is not an instruction. */}
+            {needsCountryCode(lead.contact_info) && (
+              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-500">
+                <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                <span>No country code — check before dialling from abroad.</span>
+              </p>
+            )}
           </div>
 
           <ScoreBadge score={lead.qualification_score} />

@@ -1,0 +1,19 @@
+test-clinic calls for: [dates, duration, origin, health, photos]
+  — it must see the case, so it should ask
+
+  English   fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+  Arabic    fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+  Russian   fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+  Chinese   fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+  Turkish   fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+  Spanish   fires=yes  silent after asking=yes  silent after refusal=yes   gaps=[photos]
+
+  asks before closing in       6/6 classes
+  stops after asking once in   6/6 classes
+  accepts a refusal in         6/6 classes
+
+── a business that quotes from a price list ──
+  calls for: [nothing]
+  ok   asks for a photo: no   gaps=[none]
+
+all four properties hold

@@ -121,11 +121,13 @@ async function main() {
     // Exactly what the route does.
     const answeredFor =
       (await readAnsweredDimensions(
-        conv.turns.filter((x) => x.role === "user").map((x) => x.content)
+        conv.turns.filter((x) => x.role === "user").map((x) => x.content),
+        conv.turns.filter((x) => x.role === "assistant").map((x) => x.content)
       )) ?? undefined;
     const { gaps } = assessCoverage(conv.turns, entries, relevantFor, answeredFor);
-    // health is not answered in these, so it is expected and excluded.
-    const wrongly = gaps.filter((g) => g.id !== "health");
+    // health and photos are not answered in these, so they are expected
+    // and excluded. This measures repetition, not completeness.
+    const wrongly = gaps.filter((g) => g.id !== "health" && g.id !== "photos");
     if (wrongly.length === 0) clean++;
     console.log(
       `  ${conv.klass.padEnd(9)} asked again: ${wrongly.length}` +

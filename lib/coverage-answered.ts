@@ -34,17 +34,22 @@ const MODEL = "claude-haiku-4-5-20251001";
 /** Generous: this runs rarely, and a wrong answer repeats a question. */
 export const ANSWERED_BUDGET_MS = Number(process.env.ANSWERED_BUDGET_MS ?? 2500);
 
-const PROMPT = `You are reading what a VISITOR has said to a business's chat, to work out which practical details they have already given. Do not infer from what the business said — only from the visitor's own words.
+const PROMPT = `You are reading a conversation between a VISITOR and a business's assistant, to work out which practical details have already been settled.
 
 Reply with ONLY this JSON object, no other text:
-{"dates": bool, "duration": bool, "origin": bool, "health": bool}
+{"dates": bool, "duration": bool, "origin": bool, "health": bool, "photos": bool, "photos_requested": bool}
 
+Judge these FROM THE VISITOR'S OWN WORDS ONLY. Do not infer them from what the assistant said:
 dates — they have said WHEN they could come: a month, a season, a date, "next spring", "after Ramadan". Not just that they want to come soon.
 duration — they have said HOW LONG they can stay: a number of days or weeks.
 origin — they have said WHERE they are travelling from: a city or country.
 health — they have said something about their medical situation: a condition, medication, or that they have none.
+photos — they have ANSWERED about sending pictures or scans of their own case, in any way: they have sent one, said they will send one, said they do not have one, or said no. A refusal counts. Only false if the subject has not been settled by them at all.
 
-The messages may be in any language. Judge what they have told you, not which words they used.`;
+Judge this one FROM THE ASSISTANT'S words:
+photos_requested — the assistant has already asked the visitor to send a picture, photo, X-ray or scan of their own case. True if it has been asked even once, however gently.
+
+The conversation may be in any language. Judge what was said, not which words were used.`;
 
 function firstJsonObject(text: string): string {
   const start = text.indexOf("{");
@@ -68,10 +73,19 @@ let warned = false;
  * us nothing", which is an answer.
  */
 export async function readAnsweredDimensions(
-  visitorMessages: string[]
+  visitorMessages: string[],
+  assistantMessages: string[] = []
 ): Promise<AnsweredDimensions | null> {
-  const text = visitorMessages.filter((m) => m.trim()).join("\n");
-  if (!text) return null;
+  const visitor = visitorMessages.filter((m) => m.trim());
+  if (visitor.length === 0) return null;
+
+  // Labelled by speaker, because one key is judged from each side and a
+  // flat join would make "I'll send a photo" indistinguishable from the
+  // assistant asking for one.
+  const text = [
+    ...visitor.map((m) => `VISITOR: ${m}`),
+    ...assistantMessages.filter((m) => m.trim()).map((m) => `ASSISTANT: ${m}`),
+  ].join("\n");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ANSWERED_BUDGET_MS);
@@ -95,6 +109,20 @@ export async function readAnsweredDimensions(
     for (const id of ["dates", "duration", "origin", "health"]) {
       if (parsed[id] === true) answered.add(id);
     }
+
+    // Photos is the one dimension that is satisfied by ASKING, not only
+    // by answering. The others are facts the team needs and will keep
+    // needing, so a visitor who dodges the question should be asked
+    // again. A request to see someone's case is different: asked twice
+    // it reads as pressure, and a visitor who does not want to send a
+    // picture has given their answer by not sending one.
+    //
+    // So "already asked" and "already answered" collapse to the same
+    // thing here - not a gap - and the close is never held up by it.
+    if (parsed.photos === true || parsed.photos_requested === true) {
+      answered.add("photos");
+    }
+
     return answered;
   } catch (error) {
     if (!warned) {

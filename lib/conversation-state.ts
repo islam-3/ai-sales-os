@@ -298,6 +298,22 @@ type CoverageDimension = {
   need: string;
   /** Why it matters, so the model asks with a reason rather than out of process. */
   because: string;
+  /**
+   * Asked once, then dropped whether or not it was answered.
+   *
+   * The default is the opposite: a team that needs a travel date still
+   * needs it after the visitor changes the subject, so the question
+   * comes back. That is wrong for a request to see someone's case —
+   * asked twice it is pressure, and a visitor who has not sent a picture
+   * has answered by not sending it.
+   *
+   * It also changes which way this fails. A dimension that comes back is
+   * safe to leave on when the classifier is unavailable; one that is
+   * meant to be asked once would instead block every close for good, in
+   * every language the English fallback cannot read. So an askOnce
+   * dimension goes SILENT when we cannot tell, rather than nagging.
+   */
+  askOnce?: true;
 };
 
 const MULTI_STAGE =
@@ -358,6 +374,37 @@ const COVERAGE_DIMENSIONS: CoverageDimension[] = [
     need: "any health conditions or medication the team should know about",
     because:
       "it changes what the team can safely recommend, and is needed before they can assess the case",
+  },
+  {
+    /**
+     * Seeing the case, for a business that cannot advise without it.
+     *
+     * A live Arabic conversation collected a name, a number, a travel
+     * month and a length of stay and then closed, having never asked to
+     * see anything. The visitor had said he has no upper teeth, which
+     * sounds like nothing to photograph — but gum and bone condition is
+     * precisely what decides whether implants are possible, and this
+     * assistant has raised bone loss after years without teeth itself.
+     *
+     * Unlike every other dimension, this one is satisfied by having been
+     * ASKED. See lib/coverage-answered.ts: the team will keep needing a
+     * travel date, so a dodged question is asked again; a picture of
+     * someone's mouth is asked for once and never again.
+     */
+    id: "photos",
+    source: "case",
+    trigger:
+      /\b(?:x-?ray|scan|ct|panoramic|assess|assessment|evaluate|evaluation|examine|examination|bone (?:density|loss|graft)|gum|consultation)\b/i,
+    // A photo that has actually ARRIVED settles this without a model
+    // call and without any language at all — the route writes this
+    // marker itself. The rest is the English fallback, which only
+    // applies when the classifier could not be reached.
+    covered:
+      /\[Photo attached:|\b(?:here(?:'s| is| are)|sending|i(?:'ll| will) send|attached)\b[^.?!]{0,40}\b(?:photo|picture|image|x-?ray|scan)\b|\bno (?:photos?|pictures?|x-?rays?)\b|\bi don'?t have (?:a |any )?(?:photo|picture|x-?ray|scan)/i,
+    need: "a photo or X-ray of their own case, so the team can actually see what they are dealing with",
+    because:
+      "this business cannot judge what is possible or what it costs without seeing the case, and a quote given blind is one the team has to take back",
+    askOnce: true,
   },
 ];
 
@@ -574,7 +621,15 @@ export function assessCoverage(
   return {
     relevant: relevantDimensions.map((d) => d.id),
     gaps: relevantDimensions
-      .filter((d) => (answeredFor ? !answeredFor.has(d.id) : !d.covered.test(userText)))
+      .filter((d) => {
+        // An askOnce dimension with no classifier answer stays quiet. Its
+        // English fallback cannot see a refusal written in Arabic, so
+        // leaving it on would hold the close open for ever rather than
+        // ask one question too many. Missing the ask costs a photo;
+        // getting it wrong costs the whole conversation.
+        if (d.askOnce && !answeredFor) return false;
+        return answeredFor ? !answeredFor.has(d.id) : !d.covered.test(userText);
+      })
       .map(({ id, need, because }) => ({ id, need, because })),
   };
 }

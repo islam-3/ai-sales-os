@@ -26,7 +26,7 @@
 
 import { cosineSimilarity } from "./vectors";
 
-export type CoverageDimensionId = "dates" | "duration" | "origin" | "health";
+export type CoverageDimensionId = "dates" | "duration" | "origin" | "health" | "photos";
 
 /**
  * What each dimension is actually about, written plainly.
@@ -50,6 +50,27 @@ const PROBES: { id: CoverageDimensionId; text: string }[] = [
   {
     id: "health",
     text: "Medical history matters before this procedure: existing conditions, medication, diabetes, blood pressure or previous surgery affect whether and how it can be done.",
+  },
+  {
+    /**
+     * Whether the business has to SEE the case before it can advise.
+     *
+     * Added after a live Arabic conversation took a name, a number, a
+     * travel month and a length of stay, then closed without ever asking
+     * to see anything. The visitor had said he has no upper teeth, which
+     * sounds like there is nothing to photograph - but the condition of
+     * the gum and the bone is exactly what decides whether implants are
+     * possible at all, and the assistant itself had raised bone loss
+     * after years without teeth in other conversations. An X-ray at
+     * minimum.
+     *
+     * Deliberately about ASSESSMENT rather than about photographs. A
+     * business that quotes from a price list should not ask for a photo,
+     * and a business that cannot quote without seeing the case should,
+     * whatever it calls the thing it needs to see.
+     */
+    id: "photos",
+    text: "The individual case has to be seen before it can be assessed: photographs of the affected area, an X-ray or a scan, because the condition of the tissue, the bone or the existing structure decides what treatment is possible and what it will cost.",
   },
 ];
 
