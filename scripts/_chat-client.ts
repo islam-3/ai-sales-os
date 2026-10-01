@@ -15,10 +15,7 @@ import { isTestTenant, refusalMessage, TEST_TENANT_SLUG } from "../lib/test-tena
 export const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 export const SLUG = process.env.SLUG ?? TEST_TENANT_SLUG;
 
-export type Reply = {
-  reply: string;
-  media: { url: string; type: string | null } | null;
-};
+export type Reply = { reply: string };
 
 // Checked once per process, then remembered: the guard protects against a
 // script aimed at the wrong tenant, which cannot change halfway through.
@@ -52,25 +49,49 @@ async function ensureTestTenant(slug: string): Promise<void> {
 /**
  * Sends one visitor message and returns the assistant's reply.
  *
- * Retries once. A single upstream timeout should not throw away a run of
- * seventy-two calls, and a retried turn measures the same thing.
+ * ── Why this retries a THROWN fetch, not just a bad status ───────────
+ * It used to retry only a non-ok response, so a fetch that rejected
+ * outright went straight out of the loop. That is not a hypothetical:
+ * the smoke run against production failed its last four turns with
+ * "fetch failed" - a socket-level error after roughly 35 requests - and
+ * reported six product failures that were nothing of the kind.
+ *
+ * A smoke test that fails for its own reasons teaches nobody anything,
+ * and worse, it trains whoever reads it to discount a red run. So a
+ * transport failure is retried like any other, with backoff.
+ *
+ * Three attempts, not two: the failures seen came in bursts, and a
+ * single extra try landed inside the same burst.
  */
+const ATTEMPTS = Number(process.env.CHAT_CLIENT_ATTEMPTS ?? 3);
+
 export async function say(sessionId: string, message: string, slug: string = SLUG): Promise<Reply> {
   await ensureTestTenant(slug);
 
   let last = "";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(`${BASE}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message, sessionId, slug }),
-    });
-    if (res.ok) return res.json();
-    last = `${res.status} ${await res.text()}`;
-    if (attempt === 0) {
-      console.log(`    (retrying after ${res.status})`);
-      await new Promise((r) => setTimeout(r, 2000));
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message, sessionId, slug }),
+      });
+      if (res.ok) return (await res.json()) as Reply;
+      last = `${res.status} ${(await res.text()).slice(0, 200)}`;
+    } catch (error) {
+      // The cause carries the useful part; undici's own message is just
+      // "fetch failed", which says nothing about what went wrong.
+      const cause = (error as { cause?: { message?: string; code?: string } }).cause;
+      last = `${(error as Error).message}${cause?.code ? ` (${cause.code})` : ""}${
+        cause?.message ? `: ${cause.message}` : ""
+      }`;
+    }
+
+    if (attempt < ATTEMPTS) {
+      const backoff = 2000 * attempt;
+      console.log(`    (attempt ${attempt} failed: ${last.slice(0, 70)} — retrying in ${backoff / 1000}s)`);
+      await new Promise((r) => setTimeout(r, backoff));
     }
   }
-  throw new Error(last);
+  throw new Error(`${ATTEMPTS} attempts failed, last: ${last}`);
 }

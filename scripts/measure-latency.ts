@@ -13,12 +13,16 @@
 // cold prompt cache), and a single conversation would weight the tail.
 
 import { say } from "./_chat-client";
+import { countWords } from "../lib/punctuation";
 
 const LABEL = process.env.LABEL ?? "run";
 const CONVERSATIONS = Number(process.env.CONVERSATIONS ?? 4);
 
-// Mixed on purpose. Turn 4 asks for photos, which is the path the offer
-// reference changes; the others are ordinary.
+// FROZEN. These turns are identical to the ones behind every number in
+// docs/latency-*.txt, and changing them would silently compare against a
+// different workload. Turn 4 asks for photos and turn 5 accepts - once
+// the most expensive path in the route, now simply two more messages -
+// and they stay exactly as they were so the runs remain comparable.
 const TURNS = [
   "hi, I'm looking into dental implants",
   "I lost most of my upper teeth about five years ago",
@@ -28,7 +32,16 @@ const TURNS = [
   "David",
 ];
 
-type Timing = { turn: number; ms: number };
+type Timing = { turn: number; ms: number; words: number };
+
+// Latency without output length is uninterpretable. A turn that got
+// slower because the model wrote more is a different finding from a turn
+// that got slower because the route does more, and the first run after
+// image sending was removed produced exactly that ambiguity: turn 3
+// gained ~1.2s while the route was doing strictly LESS work.
+//
+// Counted in words, not characters, for the same reason as everywhere
+// else - see lib/punctuation.ts.
 
 async function main() {
   const base = process.env.BASE_URL ?? "http://localhost:3000";
@@ -41,9 +54,9 @@ async function main() {
     for (let i = 0; i < TURNS.length; i++) {
       const started = Date.now();
       try {
-        await say(sessionId, TURNS[i]);
+        const { reply } = await say(sessionId, TURNS[i]);
         const ms = Date.now() - started;
-        timings.push({ turn: i + 1, ms });
+        timings.push({ turn: i + 1, ms, words: countWords(reply) });
         process.stdout.write(`${Math.round(ms / 100) / 10}s `);
       } catch {
         process.stdout.write("x ");
@@ -74,7 +87,13 @@ async function main() {
     const forTurn = timings.filter((t) => t.turn === i).map((t) => t.ms);
     if (!forTurn.length) continue;
     const avg = Math.round(forTurn.reduce((a, b) => a + b, 0) / forTurn.length);
-    console.log(`    turn ${i}  mean ${String(avg).padStart(5)}ms   "${TURNS[i - 1].slice(0, 42)}"`);
+    const forWords = timings.filter((t) => t.turn === i).map((t) => t.words);
+    const avgWords = Math.round(forWords.reduce((a, b) => a + b, 0) / forWords.length);
+    const perWord = Math.round(avg / Math.max(avgWords, 1));
+    console.log(
+      `    turn ${i}  mean ${String(avg).padStart(5)}ms   ${String(avgWords).padStart(3)}w` +
+        `  ${String(perWord).padStart(3)}ms/w   "${TURNS[i - 1].slice(0, 34)}"`
+    );
   }
 }
 

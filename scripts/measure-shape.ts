@@ -53,7 +53,6 @@ type Shape = {
   qs: number;
   aboutThem: boolean;
   offer: boolean;
-  image: boolean;
   fallback: boolean;
 };
 
@@ -62,7 +61,7 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
   const shapes: Shape[] = [];
   let tenYear = "";
   for (let i = 0; i < TURNS.length; i++) {
-    const { reply, media } = await say(sessionId, TURNS[i]);
+    const { reply } = await say(sessionId, TURNS[i]);
     if (i === 1) tenYear = reply;
     shapes.push({
       paras: reply.split(/\n\n+/).filter(Boolean).length,
@@ -71,7 +70,6 @@ async function conversation(): Promise<{ shapes: Shape[]; tenYear: string }> {
       qs: (reply.match(/\?/g) ?? []).length,
       aboutThem: ABOUT_THEM.test(reply),
       offer: OFFERS_PHOTO.test(reply),
-      image: !!media,
       fallback: /could you say that once more/i.test(reply),
     });
   }
@@ -104,7 +102,6 @@ const sd = (xs: number[]) => {
   console.log(`  asks about THEM      : ${pct(all.filter((s) => s.aboutThem).length)}`);
   console.log(`  >1 question          : ${pct(all.filter((s) => s.qs > 1).length)}`);
   console.log(`  photo offers made    : ${all.filter((s) => s.offer).length} of ${all.length}`);
-  console.log(`  images delivered     : ${all.filter((s) => s.image).length}`);
   console.log(`  guard fallbacks      : ${all.filter((s) => s.fallback).length}`);
 
   // Per turn, because the aggregate hides where a change acts. When the

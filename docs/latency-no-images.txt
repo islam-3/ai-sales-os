@@ -1,0 +1,26 @@
+[no-images] 6 conversations x 6 turns against https://ai-sales-os-drab.vercel.app
+
+  conversation 1: ✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+10.5s 4.1s 7.4s 4.6s 3.4s 2.6s 
+  conversation 2: 5.7s 3.1s 9s 4.2s 3.3s 2.9s 
+  conversation 3: 7.1s 4.8s 7.5s 3.6s 5s 3.8s 
+  conversation 4: 4.5s 3.3s 6.2s 3.4s 4.2s 2.4s 
+  conversation 5: 6.1s 3.5s 7.4s 3.2s 8.1s 2.4s 
+  conversation 6: 6.6s 3.1s 7s 3.6s 3s 3.1s 
+
+══════════════════════════════════════════════════════════
+  [no-images]  36 turns
+══════════════════════════════════════════════════════════
+  p50  4181ms
+  p90  7499ms
+  p95  8952ms
+  mean 4831ms    min 2398ms    max 10544ms
+
+  by turn number:
+    turn 1  mean  6759ms    82w   82ms/w   "hi, I'm looking into dental implan"
+    turn 2  mean  3644ms    29w  126ms/w   "I lost most of my upper teeth abou"
+    turn 3  mean  7413ms   132w   56ms/w   "how much does it cost?"
+    turn 4  mean  3775ms    38w   99ms/w   "can I see photos of results like m"
+    turn 5  mean  4518ms    29w  156ms/w   "yes please"
+    turn 6  mean  2881ms    27w  107ms/w   "David"

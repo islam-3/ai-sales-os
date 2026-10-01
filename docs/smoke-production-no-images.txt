@@ -1,0 +1,67 @@
+smoke test against https://ai-sales-os-drab.vercel.app
+
+── English (Latin baseline)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:            63w  Welcome! You've come to the right place — dental imp
+   turn 2:            26w  Five years is a long time to navigate that — it affe
+   turn 3:           122w  That's an important question, and our team will give
+   turn 4:           189w  Of course. For a full implant case it goes like this
+   turn 5: hesitation  46w  That makes complete sense — it's a big decision and 
+   turn 6:            43w  Nice to meet you, David. Take all the time you need 
+   turn 7:            54w  Perfect, thank you David. One thing that will really
+   lead: name=ok number=ok
+
+── Arabic (right-to-left, ؟)
+   turn 1:             5w  مرحباً! 😊 سن واحد أم أكثر؟
+   turn 2:            25w  خمس سنوات بدون أسنان علوية — هذا يؤثر على كل شيء تقر
+   turn 3:            91w  سؤال منطقي جداً، وسنوفر لك رقماً دقيقاً — لكن التكلف
+   turn 4:            92w  بكل سرور! الزيارة الأولى — 5 أيام: نبدأ بفحص شامل وأ
+   turn 5: hesitation  34w  طبعاً، هذا قرار مهم ويستحق التشاور. لو أرسلت لنا صور
+   turn 6:            10w  أهلاً خالد! 😊 وما هو أفضل رقم واتساب نتواصل معك علي
+   turn 7:            19w  شكراً خالد! 😊 سؤال أخير قبل أن نمرر معلوماتك للفريق
+   lead: name=ok number=ok
+
+── Russian (Cyrillic)
+   turn 1:            27w  Отличное решение — имплантация зубов меняет жизнь по
+   turn 2:            20w  Пять лет — это долго жить с такими ограничениями. Ка
+   turn 3:           107w  Цену наша команда рассчитает индивидуально — это зав
+   turn 4:           120w  Всё начинается ещё до приезда — вы отправляете нам с
+   turn 5: hesitation  38w  Конечно, это важное решение — правильно всё обсудить
+   turn 6:            14w  Приятно познакомиться, Иван! Как только будете готов
+   turn 7:            19w  Спасибо, Иван! Записали ваш номер. Когда примерно вы
+   lead: name=ok number=ok
+
+── Chinese (no spaces between words)
+   turn 1:            83w  您好！欢迎咨询～ 种植牙正是我们的强项之一。在 TEST — Prof Clinic (automate
+   turn 2:            33w  五年，这不是一段短暂的时间。吃东西、说话、照镜子……这五年里一定有很多不方便的时刻。 是什么让您现在开始
+   turn 3:           114w  这个需要我们的团队根据您的具体情况来评估——缺牙数量、骨质状况等都会影响最终方案和费用。 不过可以先给您
+   turn 4:           153w  当然，给您详细说明： 第一次访问（约5天） 抵达伊斯坦布尔后，我们安排VIP接送直接到诊所 医生进行全面
+   turn 5: hesitation  51w  这完全可以理解，这样的决定本来就应该和家人一起商量。 如果方便的话，把您的WhatsApp号码留给我，团
+   turn 6:            38w  王伟先生，谢谢您！ 随时欢迎您回来咨询，也可以直接通过WhatsApp联系我们：+90 542 150 
+   turn 7:            50w  谢谢您，王伟先生！我们已经记下您的联系方式了。 种植牙跨越两次访问，时间安排上需要提前规划——知道您大概
+   lead: name=ok number=ok
+
+── Turkish (dotted/dotless i)
+   turn 1:            17w  Hoş geldiniz! Doğru yerdesiniz — dental implantlar g
+   turn 2:            27w  Beş yıl boyunca bu durumla yaşamak kolay olmamış olm
+   turn 3:           104w  Kesin fiyat, kaç implant gerektiğine ve kemik durumu
+   turn 4:           144w  Tabii, adım adım anlatayım: İlk Konsültasyon Geldiği
+   turn 5: hesitation  32w  Tabii, çok doğal — böyle bir karar için eşinizle kon
+   turn 6:            28w  Çok doğal Mehmet, böyle bir karar için eşinizle konu
+   turn 7:            31w  Teşekkürler Mehmet. Ekibimiz sizi bu numaradan araya
+   lead: name=ok number=ok
+
+── Spanish (¿ inverted punctuation)
+   turn 1:            87w  ¡Hola! Qué bueno que nos escribas. Los implantes den
+   turn 2:            40w  Cinco años es mucho tiempo cargando con eso — en la 
+   turn 3:           132w  Es una pregunta muy válida. El costo exacto depende 
+   turn 4:           174w  Claro: Primera visita — 5 días en Estambul Se coloca
+   turn 5: hesitation  45w  Por supuesto, es una decisión importante y tiene tod
+   turn 6:            14w  Gracias, Carlos. ¿Cuál sería la mejor forma de conta
+   turn 7:            56w  Perfecto, Carlos. Cuando tú y tu mujer lo hablen y t
+   lead: name=ok number=ok
+
+══════════════════════════════════════════════════════════════════════
+  SMOKE TEST PASSED — 6 conversation(s)
+══════════════════════════════════════════════════════════════════════
