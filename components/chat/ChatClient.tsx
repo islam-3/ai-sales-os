@@ -2,13 +2,12 @@
 
 import { useState, useRef, useEffect, FormEvent, ChangeEvent, CSSProperties } from "react";
 import type { ChatPalette, ChatTheme } from "@/lib/branding";
-
-type MessageMedia = { url: string; type: string | null };
+import { splitStoredGreeting } from "@/lib/chat-intro";
+import { readStoredSession, writeStoredSession } from "@/lib/resume";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
-  media?: MessageMedia | null;
   /** Local object URL for a photo the visitor just sent, shown in-bubble. */
   localImage?: string | null;
   /** When it appeared in this session. Real, unlike a read receipt. */
@@ -57,11 +56,34 @@ export function ChatClient({
   direction: "ltr" | "rtl";
   starterChips: string[];
 }) {
-  // One session_id per page load — generated fresh on mount, not persisted
-  // across reloads, so each visitor/conversation gets its own lead_profile
-  // row instead of sharing one.
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // One session_id per CONVERSATION, not per page load.
+  //
+  // It used to be per load, which meant a refresh threw the conversation
+  // away and started another. Two real losses: most visitors will not
+  // retype it, so the lead is gone; and the ones who do create a second
+  // lead_profile row, so the team calls the same person twice.
+  //
+  // Reusing the id is what fixes both, and neither needed new code to be
+  // safe. record_conversation_start is idempotent per (tenant, session)
+  // so a resumed conversation is not billed again, and lead_profile is
+  // written through one upsert on the same key so it is updated rather
+  // than duplicated.
+  //
+  // Generated during render rather than in an effect so the very first
+  // message cannot race it. The stored value is adopted in the effect
+  // below, which is also where the transcript comes back.
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [messages, setMessages] = useState<Message[]>([]);
+  // The greeting as the visitor ACTUALLY SAW IT, read back from the
+  // transcript. Never the server's current one: those differ whenever
+  // the owner has edited their intro or had a new translation approved,
+  // and a visitor returning to a visibly different clinic is the worst
+  // version of this feature.
+  const [restoredGreeting, setRestoredGreeting] = useState<string | null>(null);
+  // True until resume has been attempted. Sending is blocked meanwhile,
+  // so a fast typist cannot post a first message that races the restore
+  // and ends up with the transcript appended underneath it.
+  const [restoring, setRestoring] = useState(true);
   const [input, setInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
@@ -76,8 +98,100 @@ export function ChatClient({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Chips are shown only before the visitor has said anything — once the
-  // conversation is underway they'd compete with the real reply.
-  const showChips = messages.length === 0 && !isLoading && starterChips.length > 0;
+  // conversation is underway they'd compete with the real reply. A
+  // resumed conversation is underway by definition, and they stay hidden
+  // while the restore is in flight so they cannot flash up and be tapped
+  // a moment before the transcript lands on top of them.
+  const showChips =
+    messages.length === 0 &&
+    !isLoading &&
+    !restoring &&
+    restoredGreeting === null &&
+    starterChips.length > 0;
+
+  // What the greeting block says. A resumed conversation shows the
+  // greeting from its own transcript, split the same way buildChatIntro
+  // split it — same design, the visitor's own words. Everyone else gets
+  // the server's, as before.
+  const shown = restoredGreeting
+    ? splitStoredGreeting(restoredGreeting, greetingTitle)
+    : { title: greetingTitle, sub: greetingSub };
+
+  // Adopts a stored session and brings its transcript back.
+  //
+  // Runs once. A stored id older than the window is ignored here and
+  // would be refused by the endpoint anyway — the client copy of the
+  // window only avoids a pointless request, because localStorage is the
+  // visitor's to edit and cannot be the authority on anything.
+  //
+  // Every failure path ends the same way: keep the freshly generated id
+  // and start a normal conversation. A visitor who cannot resume has
+  // lost nothing they had a minute ago; a chat page that will not open
+  // has lost the lead.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const stored = readStoredSession(slug);
+      if (!stored) {
+        writeStoredSession(slug, { id: sessionId, startedAt: Date.now() });
+        setRestoring(false);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/chat/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, sessionId: stored.id }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+
+        const restored: { role: string; content: string; at?: string }[] = res.ok
+          ? data.messages ?? []
+          : [];
+
+        if (restored.length === 0) {
+          // Expired, empty, or refused. A new conversation, and the new
+          // id replaces the old one so the next refresh resumes THIS one.
+          writeStoredSession(slug, { id: sessionId, startedAt: Date.now() });
+          setRestoring(false);
+          return;
+        }
+
+        setSessionId(stored.id);
+
+        // The first stored turn is the greeting the route saved when this
+        // conversation began. It is lifted out of the thread and shown in
+        // the greeting block, exactly where the visitor saw it — rather
+        // than appearing as an ordinary bubble, which would make a
+        // resumed page look different from the one they left.
+        const [first, ...rest] = restored;
+        const opensWithGreeting = first.role === "assistant";
+        if (opensWithGreeting) setRestoredGreeting(first.content);
+
+        setMessages(
+          (opensWithGreeting ? rest : restored).map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content,
+            at: m.at ? new Date(m.at) : new Date(),
+          }))
+        );
+      } catch {
+        if (!cancelled) writeStoredSession(slug, { id: sessionId, startedAt: Date.now() });
+      } finally {
+        if (!cancelled) setRestoring(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Once per mount, on purpose: sessionId is set inside this effect and
+    // listing it would re-run the restore against the id it just adopted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -87,8 +201,16 @@ export function ChatClient({
   // Deliberately NOT on mount: focusing on load pops the on-screen
   // keyboard the instant a phone visitor arrives, covering the greeting
   // and the starter chips — the two things meant to draw them in.
+  //
+  // A RESTORED conversation arrives with messages already in it, which
+  // looked to this effect exactly like a send that had just finished —
+  // so resuming on a phone popped the keyboard over the transcript the
+  // visitor came back to read. hasSent is what tells the two apart: it
+  // is true only after this visitor has actually typed something in this
+  // page load.
+  const hasSent = useRef(false);
   useEffect(() => {
-    if (!isLoading && messages.length > 0) {
+    if (!isLoading && hasSent.current) {
       inputRef.current?.focus();
     }
   }, [isLoading, messages.length]);
@@ -142,8 +264,12 @@ export function ChatClient({
 
   async function send(text: string, file: File | null) {
     const trimmed = text.trim();
-    if ((!trimmed && !file) || isLoading) return;
+    // `restoring` is in here, not only on the button: a chip tap or an
+    // Enter key would otherwise post a first message under the old
+    // session id and have the restored transcript arrive underneath it.
+    if ((!trimmed && !file) || isLoading || restoring) return;
 
+    hasSent.current = true;
     const localImage = file ? URL.createObjectURL(file) : null;
 
     setMessages((prev) => [
@@ -186,7 +312,13 @@ export function ChatClient({
           // Sent only on the first message — afterwards it's already in
           // the stored history. Must remain the FULL greeting string, not
           // the title/sub split used for display.
-          openingMessage: messages.length === 0 ? greeting : undefined,
+          //
+          // restoredGreeting is checked as well as the message count. A
+          // resumed conversation whose transcript held nothing but the
+          // greeting would otherwise look empty here and post a SECOND
+          // greeting into the stored history.
+          openingMessage:
+            messages.length === 0 && restoredGreeting === null ? greeting : undefined,
         }),
       });
 
@@ -195,7 +327,7 @@ export function ChatClient({
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, media: data.media ?? null, at: new Date() },
+        { role: "assistant", content: data.reply, at: new Date() },
       ]);
     } catch (err) {
       console.error("Chat request failed:", err);
@@ -217,7 +349,7 @@ export function ChatClient({
     void send(input, selectedFile);
   }
 
-  const canSend = !isLoading && (input.trim().length > 0 || selectedFile !== null);
+  const canSend = !isLoading && !restoring && (input.trim().length > 0 || selectedFile !== null);
 
   return (
     <div
@@ -264,12 +396,14 @@ export function ChatClient({
             monogram={monogram}
             businessName={businessName}
           />
-          <h1 className="nx-greeting__title" dir="auto">
-            {greetingTitle}
-          </h1>
-          {greetingSub && (
+          {shown.title && (
+            <h1 className="nx-greeting__title" dir="auto">
+              {shown.title}
+            </h1>
+          )}
+          {shown.sub && (
             <p className="nx-greeting__sub" dir="auto">
-              {greetingSub}
+              {shown.sub}
             </p>
           )}
         </section>
@@ -314,24 +448,6 @@ export function ChatClient({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={msg.localImage} alt="Photo you shared" />
                     </button>
-                  )}
-
-                  {msg.media?.type === "image" && (
-                    <button
-                      type="button"
-                      className="nx-bubble nx-bubble--image"
-                      onClick={() => setLightboxUrl(msg.media!.url)}
-                      aria-label="Open image"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={msg.media.url} alt={`Shared by ${businessName}`} />
-                    </button>
-                  )}
-
-                  {msg.media?.type === "video" && (
-                    <div className="nx-bubble nx-bubble--image">
-                      <video src={msg.media.url} controls playsInline />
-                    </div>
                   )}
 
                   {msg.content && (

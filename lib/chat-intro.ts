@@ -275,3 +275,47 @@ export function buildChatIntro(input: ChatIntroInput): ChatIntro {
     chips: buildChips(input.categories, strings, labels),
   };
 }
+
+/**
+ * A STORED greeting split back into the headline and the rest.
+ *
+ * Needed because a resumed conversation must show the greeting the
+ * visitor actually saw, read back from the transcript, rather than
+ * whatever the server would generate now. Those differ whenever the
+ * owner has edited their intro, changed the chat language, or had a new
+ * translation approved since — and a visitor returning to a visibly
+ * different clinic is the worst version of resuming.
+ *
+ * ── Why this takes the current title, and does not guess ─────────────
+ * The split is NOT "the first sentence". The headline is the localised
+ * opener — "Hi! We're Prof Clinic." — which is two sentences in English
+ * and a different shape in every other language. A first-sentence split
+ * was written here first and produced a headline reading "Hi!" with the
+ * business's name demoted into the body. The test caught it; nothing
+ * else would have, until a returning visitor saw it.
+ *
+ * So the only reliable split is the one that built the string:
+ * `greeting` is `title + " " + sub`, so a stored greeting that still
+ * begins with the current title can be cut there exactly.
+ *
+ * When it does not begin with it, the intro has genuinely changed since
+ * — which is the case this function exists for. There is then no way to
+ * recover where the cut was, so the whole stored greeting is returned as
+ * body text with no headline. The visitor sees their own words in a
+ * slightly plainer block, which is the right trade against showing them
+ * a different clinic's opening line.
+ */
+export function splitStoredGreeting(
+  greeting: string,
+  currentTitle: string
+): { title: string; sub: string } {
+  const text = greeting.trim();
+  if (!text) return { title: "", sub: "" };
+
+  const title = currentTitle.trim();
+  if (title && text.startsWith(title)) {
+    return { title, sub: text.slice(title.length).trim() };
+  }
+
+  return { title: "", sub: text };
+}

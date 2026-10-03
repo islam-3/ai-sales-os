@@ -63,21 +63,56 @@ check(
 );
 
 console.log("\n--- no script reaches the chat API around the guard ---");
+
+const CHAT_POST = [
+  /fetch\(\s*[`"'][^`"']*\/api\/chat(?![\w/-])/,
+  /\$\{BASE\}\/api\/chat(?![\w/-])/,
+];
+
 const dir = join(process.cwd(), "scripts");
 const offenders: string[] = [];
 readdirSync(dir)
-  .filter((f) => f.endsWith(".ts") && f !== "_chat-client.ts")
+  // _chat-client.ts is the door itself. This file is the rule: it now
+  // carries a sample of a forbidden call so the pattern can be checked
+  // against one, and a sweep that flagged its own specimen would be
+  // reporting the test rather than the code.
+  .filter((f) => f.endsWith(".ts") && f !== "_chat-client.ts" && f !== "test-test-tenant-guard.ts")
   .forEach((file) => {
     const src = readFileSync(join(dir, file), "utf8");
     // A string mentioning the route in a comment or a message is fine.
     // Building a request to it is not.
-    const posts = /fetch\(\s*[`"'][^`"']*\/api\/chat/.test(src) || /\$\{BASE\}\/api\/chat/.test(src);
+    //
+    // /api/chat EXACTLY, not its sub-routes. What this guard protects
+    // against is a script SENDING a message to a real tenant: that
+    // writes a conversation row, counts against their plan and creates a
+    // lead. /api/chat/resume only reads a transcript back for a session
+    // id the caller already holds — it cannot start, bill or record
+    // anything — so it is not what say() exists to gate, and forcing it
+    // through say() would mean a resume script could never test the
+    // cross-tenant refusal it most needs to test.
+    //
+    // The negative lookahead is the whole of that distinction, so it is
+    // checked below against a sample of each rather than trusted.
+    const posts = CHAT_POST.some((p) => p.test(src));
     if (posts) offenders.push(file);
   });
 check(
   "every conversation goes through say()",
   offenders.length === 0,
   offenders.length ? `these post directly: ${offenders.join(", ")}` : undefined
+);
+
+// The sweep above is only as good as its pattern, and that pattern was
+// made narrower once to let a resume script through. These two lines are
+// what stops "narrower" quietly becoming "switched off".
+const matches = (src: string) => CHAT_POST.some((p) => p.test(src));
+check(
+  "a direct post to /api/chat is still caught",
+  matches('await fetch(`${BASE}/api/chat`, { method: "POST" })')
+);
+check(
+  "and a read from /api/chat/resume is not",
+  !matches('await fetch(`${BASE}/api/chat/resume`, { method: "POST" })')
 );
 
 console.log("\n--- the guard runs before the first message, not after ---");
