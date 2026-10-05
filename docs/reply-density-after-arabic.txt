@@ -1,0 +1,45 @@
+[after-arabic] 1 class(es) x 4 run(s), 7 turns each
+density bar: more than 6 units is overloaded
+
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:  49w   3u (0f 3n)  3b           
+   turn 2:  23w   0u (0f 0n)  2b           
+   turn 3: 109w   7u (4f 3n)  8b  OVERLOADED  dialect ok
+   turn 4:  51w   4u (1f 3n)  4b             dialect ok
+   turn 5:  53w   5u (1f 4n)  3b             dialect ok
+   turn 6:  33w   0u (0f 0n)  2b             dialect ok
+   turn 7:  34w   0u (0f 0n)  2b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  71w   6u (0f 6n)  4b           
+   turn 2:  32w   0u (0f 0n)  2b           
+   turn 3: 102w   5u (4f 1n)  7b  OVERLOADED  dialect ok
+   turn 4:  27w   4u (1f 3n)  2b             dialect ok
+   turn 5:  33w   1u (0f 1n)  3b             dialect ok
+   turn 6:  36w   0u (0f 0n)  2b             dialect ok
+   turn 7:  57w   1u (1f 0n)  3b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  56w   7u (0f 7n)  4b  OVERLOADED
+   turn 2:  31w   0u (0f 0n)  2b           
+   turn 3: 106w   5u (3f 2n)  7b  OVERLOADED  dialect ok
+   turn 4:  52w   8u (1f 7n)  3b  OVERLOADED  dialect ok
+   turn 5:  14w   0u (0f 0n)  2b             dialect ok
+   turn 6:  38w   0u (0f 0n)  2b             dialect ok
+   turn 7:  28w   0u (0f 0n)  2b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  49w   7u (0f 7n)  3b  OVERLOADED
+   turn 2:  29w   0u (0f 0n)  2b           
+   turn 3: 138w   6u (4f 2n) 11b  OVERLOADED  DIALECT (Levantine/Gulf Arabic dialect): نقدر
+   turn 4:  41w   8u (1f 7n)  2b  OVERLOADED  DIALECT (Egyptian/Levantine Arabic): لما
+   turn 5:  18w   0u (0f 0n)  2b             dialect ok
+   turn 6:  44w   0u (0f 0n)  3b             dialect ok
+   turn 7:  22w   0u (0f 0n)  2b             dialect ok
+
+══════════════════════════════════════════════════════════════
+  [after-arabic]  28 replies
+══════════════════════════════════════════════════════════════
+  units per reply   p50 1   p90 7   max 8
+  blocks per reply  p50 3   p90 7   max 11
+  overloaded        8/28 replies
+  dialect mismatch  2/20 judged replies

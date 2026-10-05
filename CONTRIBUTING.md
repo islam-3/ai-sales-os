@@ -1,5 +1,12 @@
 # Working on this project
 
+New here? Read [README.md](README.md) first. It covers the three standing
+rules, the six failure classes every text-reading control is measured
+against, what each detector is for, which harness to run when, and what
+is deliberately not built.
+
+This file is the process: how to push safely, and which checks to run.
+
 ## Enable the pre-push check, once per clone
 
 ```sh

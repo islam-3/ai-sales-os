@@ -1,0 +1,45 @@
+[before-arabic] 1 class(es) x 4 run(s), 7 turns each
+density bar: more than 6 units is overloaded
+
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:  46w   0u (0f 0n)  3b           
+   turn 2:  25w   0u (0f 0n)  2b           
+   turn 3:  98w   9u (3f 6n) 10b  OVERLOADED  DIALECT (Egyptian/Levantine Arabic): بيتك
+   turn 4:  46w   5u (1f 4n)  6b             dialect ok
+   turn 5:  37w   4u (0f 4n)  3b             dialect ok
+   turn 6:  41w   0u (0f 0n)  3b             dialect ok
+   turn 7:  48w   0u (0f 0n)  2b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  59w   5u (0f 5n)  3b           
+   turn 2:  33w   0u (0f 0n)  2b           
+   turn 3: 104w   5u (4f 1n)  8b  OVERLOADED  dialect ok
+   turn 4:  74w   7u (1f 6n)  7b  OVERLOADED  dialect ok
+   turn 5:  35w   1u (0f 1n)  3b             dialect ok
+   turn 6:  37w   0u (0f 0n)  2b             dialect ok
+   turn 7:  51w   0u (0f 0n)  3b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  61w   5u (1f 4n)  4b           
+   turn 2:  25w   0u (0f 0n)  2b           
+   turn 3:  94w   5u (3f 2n)  7b  OVERLOADED  dialect ok
+   turn 4:  48w   5u (1f 4n)  6b             dialect ok
+   turn 5:  23w   1u (1f 0n)  2b             dialect ok
+   turn 6:  31w   0u (0f 0n)  2b             dialect ok
+   turn 7:  45w   0u (0f 0n)  2b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  67w   3u (1f 2n)  4b           
+   turn 2:  27w   0u (0f 0n)  2b           
+   turn 3:  84w   4u (3f 1n) 10b  OVERLOADED  dialect ok
+   turn 4:  74w   7u (1f 6n)  7b  OVERLOADED  dialect ok
+   turn 5:  39w   2u (1f 1n)  2b             dialect ok
+   turn 6:  44w   0u (0f 0n)  2b             dialect ok
+   turn 7:  65w   4u (4f 0n)  4b             dialect ok
+
+══════════════════════════════════════════════════════════════
+  [before-arabic]  28 replies
+══════════════════════════════════════════════════════════════
+  units per reply   p50 2   p90 7   max 9
+  blocks per reply  p50 3   p90 8   max 10
+  overloaded        6/28 replies
+  dialect mismatch  1/20 judged replies

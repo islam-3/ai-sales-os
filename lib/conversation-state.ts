@@ -16,6 +16,7 @@
 // particular case.
 
 import { CONTAINS_QUESTION, ENDS_WITH_QUESTION, countWords, splitSentences } from "./punctuation";
+import { replyDensity, isOverloaded } from "./reply-density";
 
 export type ChatTurn = { role: string; content: string };
 
@@ -842,6 +843,14 @@ export function shapeOf(text: string): ReplyShape {
  *
  * The opening greeting is not a reply and is not counted.
  */
+/** The assistant's most recent reply, excluding the opening greeting. */
+function lastAssistantReply(history: ChatTurn[]): string | null {
+  const firstUser = history.findIndex((t) => t.role === "user");
+  if (firstUser < 0) return null;
+  const replies = history.slice(firstUser).filter((t) => t.role === "assistant");
+  return replies.length > 0 ? replies[replies.length - 1].content : null;
+}
+
 export function detectRepeatedShape(
   history: ChatTurn[]
 ): { shape: ReplyShape; previous: ReplyShape } | null {
@@ -999,6 +1008,18 @@ export function buildConversationStateBlock(
     ? shapeChanges(repeated.shape, repeated.previous, gaps.length > 0)
     : [];
 
+  // Did the LAST reply ask the reader to absorb more than one turn's
+  // worth? Counted, not judged — see lib/reply-density.ts.
+  //
+  // Reactive on purpose, and that is a real limitation: the first wall
+  // is not prevented, only the second. The standing instruction in the
+  // behaviour prompt is what aims at the first, and this is what stops
+  // it becoming a habit — the same division of labour as reply shape,
+  // where "let your replies look different" moved nothing on its own and
+  // stating the repetition as a fact moved it.
+  const lastReply = lastAssistantReply(history);
+  const overloaded = lastReply ? isOverloaded(lastReply) : false;
+
   if (
     offers.length === 0 &&
     !impatience.impatient &&
@@ -1006,7 +1027,8 @@ export function buildConversationStateBlock(
     gaps.length === 0 &&
     !readyToClose &&
     logisticsRun < 2 &&
-    breakShape.length === 0
+    breakShape.length === 0 &&
+    !overloaded
   ) {
     return null;
   }
@@ -1065,6 +1087,18 @@ export function buildConversationStateBlock(
       "",
       `Your last two replies had the same shape as each other: ${describeShape(shape)}, at ${previous.words} and ${shape.words} words. Give this reply a different shape — ${change}.`,
       "This is about form only. Say whatever this moment actually needs; just do not say it in that same mould a third time."
+    );
+  }
+
+  if (overloaded && lastReply) {
+    const d = replyDensity(lastReply);
+    const what: string[] = [];
+    if (d.units > 0) what.push(`${d.units} separate facts (names and figures)`);
+    if (d.blocks > 2) what.push(`${d.blocks} separate lines`);
+    lines.push(
+      "",
+      `Your last reply carried ${what.join(" across ")}. That is more than one reply's worth, and on a phone most of it was skimmed.`,
+      "Make this one noticeably lighter: one idea, in prose, with no list and no more than a couple of specifics. Whatever else you were going to cover is still there for when they ask."
     );
   }
 

@@ -1,0 +1,61 @@
+[before] 6 class(es) x 1 run(s), 7 turns each
+density bar: more than 6 units is overloaded
+
+── English  (visitor writes British English)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:  62w   3u (0f 3n)  2b           
+   turn 2:  45w   0u (0f 0n)  2b           
+   turn 3: 111w   5u (1f 4n)  2b             dialect ok
+   turn 4:  81w   4u (1f 3n)  3b             dialect ok
+   turn 5:  71w   1u (0f 1n)  3b             dialect ok
+   turn 6:  82w   1u (0f 1n)  3b             dialect ok
+   turn 7:  41w   5u (0f 5n)  2b             dialect ok
+── Arabic  (visitor writes Modern Standard Arabic (fusha), with no regional dialect)
+   turn 1:  60w   5u (1f 4n)  3b           
+   turn 2:  32w   0u (0f 0n)  2b           
+   turn 3:  98w   5u (3f 2n)  7b  OVERLOADED  dialect ok
+   turn 4:  65w   8u (1f 7n)  4b  OVERLOADED  dialect ok
+   turn 5:  46w   2u (1f 1n)  3b             dialect ok
+   turn 6:  42w   0u (0f 0n)  2b             dialect ok
+   turn 7:  29w   3u (0f 3n)  2b             dialect ok
+── Russian  (visitor writes standard Russian)
+   turn 1:  46w   1u (1f 0n)  3b           
+   turn 2:  40w   0u (0f 0n)  2b           
+   turn 3: 124w   7u (4f 3n)  6b  OVERLOADED  dialect ok
+   turn 4:  32w   5u (1f 4n)  3b             dialect ok
+   turn 5:  19w   0u (0f 0n)  2b             dialect ok
+   turn 6:  35w   0u (0f 0n)  2b             dialect ok
+   turn 7:  35w   7u (4f 3n)  2b  OVERLOADED  dialect ok
+── Chinese  (visitor writes Mainland Simplified Chinese)
+   turn 1: 105w   7u (1f 6n)  4b  OVERLOADED
+   turn 2:  31w   0u (0f 0n)  2b           
+   turn 3: 113w   3u (3f 0n)  7b  OVERLOADED  dialect ok
+   turn 4:  73w   4u (1f 3n)  7b  OVERLOADED  dialect ok
+   turn 5:  31w   0u (0f 0n)  2b             dialect ok
+   turn 6:  70w   0u (0f 0n)  3b             dialect ok
+   turn 7:  47w   0u (0f 0n)  2b             dialect ok
+── Turkish  (visitor writes standard Istanbul Turkish)
+   turn 1:  93w  12u (4f 8n)  4b  OVERLOADED
+   turn 2:  45w   1u (0f 1n)  2b           
+   turn 3: 133w   9u (4f 5n) 11b  OVERLOADED  dialect ok
+   turn 4:  61w   6u (1f 5n)  6b             dialect ok
+   turn 5:  33w   1u (1f 0n)  2b             DIALECT (dialectal/non-standard Turkish): ziyayet
+   turn 6:  49w   2u (0f 2n)  2b             dialect ok
+   turn 7:  50w   0u (0f 0n)  2b             dialect ok
+── Spanish  (visitor writes European (peninsular) Spanish)
+   turn 1:  74w   7u (1f 6n)  3b  OVERLOADED
+   turn 2:  32w   0u (0f 0n)  1b           
+   turn 3: 141w   9u (4f 5n)  6b  OVERLOADED  dialect ok
+   turn 4:  55w   4u (1f 3n)  3b             dialect ok
+   turn 5:  20w   0u (0f 0n)  2b             dialect ok
+   turn 6:  54w   1u (0f 1n)  2b             dialect ok
+   turn 7:  68w   0u (0f 0n)  2b             dialect ok
+
+══════════════════════════════════════════════════════════════
+  [before]  42 replies
+══════════════════════════════════════════════════════════════
+  units per reply   p50 2   p90 7   max 12
+  blocks per reply  p50 2   p90 6   max 11
+  overloaded        11/42 replies
+  dialect mismatch  1/30 judged replies
