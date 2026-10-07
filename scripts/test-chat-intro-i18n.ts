@@ -14,6 +14,7 @@ import {
   buildChatIntroTranslationPrompt,
   builtInTranslation,
   chatIntroStatus,
+  greetingMode,
   chatIntroSourceHash,
   isRtlText,
   labelsForLanguage,
@@ -302,7 +303,10 @@ console.log("\n--- the server refuses it too, not just the button ---");
 const actionsSrc = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
 check(
   "approval is checked server-side",
-  /if \(approved\) \{[\s\S]{0,400}blockedFromPublishing\(/.test(actionsSrc),
+  /if \(approved && !isSourceLanguage\) \{[\s\S]{0,400}blockedFromPublishing\(/.test(actionsSrc),
+  // Still server-side, now with the one exemption that makes sense:
+  // the check is about publishing one language's words as another's, so
+  // it cannot apply when the target IS the source language.
   "a disabled button is a suggestion"
 );
 check("and says why it refused", /still the English wording/.test(actionsSrc));
@@ -638,8 +642,13 @@ check(
 console.log("\n--- the card validates BEFORE it renders a draft ---");
 check(
   "the draft is not pre-filled from another language's translation",
-  /storedIsForAnotherLanguage \? null : settings\.chat_intro\?\.strings/.test(cardSrc),
+  /storedIsForAnotherLanguage\s*\?\s*null/.test(cardSrc),
   "showing it labelled 'your draft' is how one language gets approved as another"
+);
+check(
+  "but English IS pre-filled when English is the target",
+  /mode === "native"\s*\?\s*settings\.chat_intro\?\.strings \?\? \{ \.\.\.CHAT_INTRO_SOURCE \}/.test(cardSrc),
+  "the source is the wording there, and there is nothing to approve it as"
 );
 check(
   "labels come through labelsForLanguage, never the raw map",
@@ -647,14 +656,135 @@ check(
     !/useState<Record<string, string>>\(\s*settings\.chat_intro\?\.ownLabels/.test(cardSrc)
 );
 check(
-  "the mismatch warning renders before any preview",
-  cardSrc.indexOf("storedIsForAnotherLanguage && (") < cardSrc.indexOf("<Preview"),
-  "the existing wrong-script guard warned underneath the thing it was warning about"
+  "a left-over translation is mentioned quietly, not as a warning",
+  /otherLanguageName && \(/.test(cardSrc) &&
+    !/Banner tone="warn">[\s\S]{0,80}saved greeting is written in/.test(cardSrc),
+  "nothing is wrong with greeting people in the fallback, so nothing warns about it"
 );
 check(
   "and the editor remounts when the chat language changes",
   /props\.settings\.chat_language \?\? "-"/.test(cardSrc),
   "otherwise its state keeps the previous language's labels"
+);
+
+// ─────────────────────────────────────────────────────────────────────
+// The card shows only the workflow that applies
+//
+// Reported: chat language English, content already English, and the card
+// still showed "your draft", "Translate again", "Approve & make live",
+// fifteen fields, and then a banner explaining that the draft was still
+// English and could not be made live. Every statement was true; none of
+// them applied. It was walking the owner through a process that did not
+// exist in that state.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- which workflow applies ---");
+
+check(
+  "English content, English chat language: nothing to translate",
+  greetingMode({ chat_language: "en" }) === "native",
+  greetingMode({ chat_language: "en" })
+);
+check(
+  "a language name resolves the same way as a code",
+  greetingMode({ chat_language: "English" }) === "native"
+);
+check(
+  "and a translation left over from another language does not change it",
+  greetingMode({
+    chat_language: "en",
+    chat_intro: stored({ language: "Arabic", strings: arabicStrings }),
+  }) === "native",
+  "nothing is wrong with greeting English-speaking visitors in English"
+);
+check(
+  "another language with nothing generated",
+  greetingMode({ chat_language: "ar" }) === "missing"
+);
+check(
+  "a generation awaiting sign-off",
+  greetingMode({
+    chat_language: "ar",
+    chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: false }),
+  }) === "review"
+);
+check(
+  "one made from older English is also something to review",
+  greetingMode({
+    chat_language: "ar",
+    chat_intro: stored({ language: "Arabic", strings: arabicStrings, sourceHash: "stale" }),
+  }) === "review"
+);
+check(
+  "and an approved, current one is simply live",
+  greetingMode({
+    chat_language: "ar",
+    chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: true }),
+  }) === "live"
+);
+
+console.log("\n--- the card renders from that, not from a stray object ---");
+const nativeBlock = cardSrc.slice(
+  cardSrc.indexOf('if (mode === "native")'),
+  cardSrc.indexOf('if (mode === "missing")')
+);
+const missingBlock = cardSrc.slice(
+  cardSrc.indexOf('if (mode === "missing")'),
+  cardSrc.indexOf("const isReview")
+);
+
+check(
+  "the component branches on the mode",
+  /const mode = greetingMode\(settings\)/.test(cardSrc) &&
+    nativeBlock.length > 0 &&
+    missingBlock.length > 0,
+  "it used to branch on whether a draft object happened to exist"
+);
+check(
+  "native shows nothing to approve and nothing to translate",
+  !/Approve & make live/.test(nativeBlock) && !/Translate again/.test(nativeBlock),
+  "there is no generated text to sign off and no other language to go to"
+);
+check(
+  "native shows no English-wording warning",
+  !/still the English wording/.test(nativeBlock) && !/does not look like/.test(nativeBlock),
+  "nothing is wrong, so there is nothing to warn about"
+);
+check(
+  "native shows one preview and one button",
+  (nativeBlock.match(/<Preview/g) ?? []).length === 1 &&
+    (nativeBlock.match(/<Button/g) ?? []).length === 1,
+  `previews=${(nativeBlock.match(/<Preview/g) ?? []).length} buttons=${(nativeBlock.match(/<Button/g) ?? []).length}`
+);
+check(
+  "missing offers exactly one action",
+  (missingBlock.match(/<Button/g) ?? []).length === 1 &&
+    /Create the \$\{language\} greeting/.test(missingBlock),
+  "one decision to make, so one button to make it with"
+);
+check(
+  "review shows both previews, live shows one",
+  /\{isReview && \(\s*<Preview/.test(cardSrc),
+  "the second preview is the comparison, and there is nothing to compare once it is live"
+);
+check(
+  "own words are not framed as translation work in native mode",
+  /native \? "Your categories and city" : "Your own words"/.test(cardSrc),
+  '"as they should read in en" while looking at English content is meaningless'
+);
+check(
+  "and saving in native mode applies rather than drafting",
+  /native \? "Save wording" : "Save draft"/.test(cardSrc)
+);
+check(
+  "the native preview shows what visitors SEE, not an unsaved draft",
+  /label="What visitors see"[\s\S]{0,40}strings=\{liveStrings\}/.test(nativeBlock),
+  "a generation that has not been saved is not live, and the label is a promise"
+);
+check(
+  "the detailed fields still exist, behind Edit wording",
+  /\{editing && draft && \(/.test(nativeBlock) && /<Fields/.test(nativeBlock),
+  "the problem was never that they exist, only that they were shown with nothing to do"
 );
 
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");

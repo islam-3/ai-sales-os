@@ -1,0 +1,67 @@
+smoke test against https://ai-sales-os-drab.vercel.app
+
+── English (Latin baseline)
+✓ target: TEST — Prof Clinic (automated runs) (test-clinic) — test tenant
+
+   turn 1:            54w  Restoring a full smile is one of the most life-chang
+   turn 2:            44w  Five years is a long time to navigate that — it touc
+   turn 3:           149w  It depends on exactly how many implants are needed a
+   turn 4:           210w  Sure. Here's how it flows: Visit 1 — 5 days in Istan
+   turn 5: hesitation  60w  That makes complete sense — it's a big decision and 
+   turn 6:            17w  Nice to meet you, David. Take all the time you need 
+   turn 7:            41w  Got it, thank you David. One of the team will be in 
+   lead: name=ok number=ok
+
+── Arabic (right-to-left, ؟)
+   turn 1:            19w  مرحباً! سؤال سريع قبل أي شيء — هل الموضوع يخص سن أو 
+   turn 2:            16w  خمس سنوات هي فترة طويلة تعيشها بدون أسنانك العلوية —
+   turn 3:            33w  التكلفة بتختلف حسب عدد الزرعات اللي تحتاجها وحالة ال
+   turn 4:            63w  بالنسبة لزراعة الأسنان، العملية بتكون على زيارتين: ا
+   turn 5: hesitation  36w  طبعاً، هذا قرار مهم ومن الطبيعي تتشاور مع زوجتك. لو 
+   turn 6:            13w  أهلاً خالد! لو قررتم المضي قبل، نحن هنا. بالتوفيق في
+   turn 7:            34w  ممتاز خالد، وصلنا رقمك. سؤال أخير قبل ما نحيل ملفك ل
+   lead: name=ok number=ok
+
+── Russian (Cyrillic)
+   turn 1:            54w  Добро пожаловать! Рады, что вы обратились к нам. Имп
+   turn 2:            14w  Пять лет — это долго. Как вы всё это время справляли
+   turn 3:            45w  Цену подберём точно под вашу ситуацию — это зависит 
+   turn 4:            68w  Всё проходит в два визита. Первый — 5 дней: устанавл
+   turn 5: hesitation  39w  Конечно, такое решение стоит принимать вместе. Если 
+   turn 6:             9w  Иван, удачи с разговором — надеемся, скоро услышим в
+   turn 7:            20w  Спасибо, Иван. Один вопрос — когда примерно вы могли
+   lead: name=ok number=ok
+
+── Chinese (no spaces between words)
+   turn 1:            79w  您好！欢迎联系我们 😊 种植牙是我们最受欢迎的项目之一。我们使用瑞士 Implant Swiss 种植
+   turn 2:            32w  五年，这段时间对日常生活的影响一定不小——吃东西、说话、甚至照镜子，都会受到影响。 是什么让您现在开始考
+   turn 3:            79w  这个我们需要根据您的具体情况来评估，因为缺牙数量、骨量情况都会影响最终方案和费用。 五年没有牙齿的话，骨
+   turn 4:            92w  种植牙分两次来伊斯坦布尔完成： 第一次（约5天）：放置种植体，同时配备临时假牙，让您回国后正常生活。之后
+   turn 5: hesitation  47w  当然，这种决定本来就应该和家人一起商量。 如果方便的话，您可以把口腔的照片发给我们，团队可以提前帮您做个
+   turn 6:            43w  王伟先生，谢谢您今天的咨询 😊 慢慢商量，不着急。如果您和太太有任何问题，随时可以来找我们。也可以通过
+   turn 7:            63w  谢谢您，王伟先生。 因为种植牙需要两次来伊斯坦布尔，每次间隔4个月，团队在为您规划方案时需要了解您大概什
+   lead: name=ok number=ok
+
+── Turkish (dotted/dotless i)
+   turn 1:            13w  Merhaba! Hoş geldiniz. Kaç dişlik bir implant düşünü
+   turn 2:            29w  Beş yıl önce üst dişlerin büyük kısmını kaybetmek he
+   turn 3:            71w  Kaç implant gerektiğine ve kemik durumunuza göre fiy
+   turn 4:            79w  Tabii. İmplant tedavisi 2 aşamada tamamlanıyor: Ziya
+   turn 5: hesitation  43w  Tabii ki, böyle bir karar için eşinizle konuşmanız ç
+   turn 6:            11w  Hoş geldiniz Mehmet. Eşinizle konuşunca aklınıza tak
+   turn 7:            31w  Teşekkürler Mehmet. Ekibimiz sizi arayacak — yurt dı
+   lead: name=ok number=ok
+
+── Spanish (¿ inverted punctuation)
+   turn 1:            47w  ¡Qué buena decisión estar explorando esta opción! Lo
+   turn 2:            34w  Cinco años es mucho tiempo cargando con eso — afecta
+   turn 3:           105w  Es una pregunta muy válida, y te doy contexto para q
+   turn 4:           113w  Claro: Primera visita — 5 días Se colocan los implan
+   turn 5: hesitation  52w  Por supuesto, es una decisión importante y tiene tod
+   turn 6:            13w  Mucho gusto, Carlos. Cuando estés listo para dar el 
+   turn 7:            35w  Perfecto, Carlos. Una pregunta antes de pasarle tus 
+   lead: name=ok number=ok
+
+══════════════════════════════════════════════════════════════════════
+  SMOKE TEST PASSED — 6 conversation(s)
+══════════════════════════════════════════════════════════════════════

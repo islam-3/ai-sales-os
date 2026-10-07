@@ -12,6 +12,7 @@ import {
   blockedFromPublishing,
   buildChatIntroTranslationPrompt,
   chatIntroSourceHash,
+  SOURCE_LANGUAGE_CODE,
   validateTranslation,
 } from "@/lib/chat-intro-i18n";
 import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
@@ -410,7 +411,15 @@ export async function saveChatIntroTranslation(
   // Checked here and not only in the card, because a disabled button is a
   // suggestion. Publishing English as an Arabic greeting is the one
   // mistake in this flow that reaches every visitor silently.
-  if (approved) {
+  //
+  // Both checks are about publishing one language's words AS another's,
+  // so neither means anything when the target IS the source language.
+  // "This is still the English wording" is the normal and correct state
+  // for a business greeting English-speaking visitors in English —
+  // leaving the check on would have blocked every save they ever made.
+  const isSourceLanguage = (resolveLanguageCode(language) ?? language.toLowerCase()) ===
+    SOURCE_LANGUAGE_CODE;
+  if (approved && !isSourceLanguage) {
     const blocked = blockedFromPublishing(
       language,
       validated,

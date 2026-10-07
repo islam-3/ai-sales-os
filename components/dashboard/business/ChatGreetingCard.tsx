@@ -13,6 +13,7 @@ import {
   CHAT_INTRO_SOURCE,
   blockedFromPublishing,
   chatIntroStatus,
+  greetingMode,
   isRtlText,
   labelsForLanguage,
   ownLabel,
@@ -72,6 +73,11 @@ function GreetingEditor({
   const router = useRouter();
   const language = settings.chat_language?.trim() ?? "";
   const status = chatIntroStatus(settings);
+  // Which of the four situations this card is actually in. Everything
+  // below branches on it rather than on whether a draft object happens
+  // to exist — which is what produced a translation workflow for a
+  // business with nothing to translate.
+  const mode = greetingMode(settings);
   const stale = staleKeys(settings.chat_intro);
 
   // What a visitor is greeted with this moment, whatever the draft says.
@@ -94,8 +100,17 @@ function GreetingEditor({
   // looks like a draft is how English gets approved as Arabic. And never
   // pre-filled with ANOTHER LANGUAGE's translation, for the same reason
   // one step removed — it is how Arabic gets approved as English.
+  // Never pre-filled with the English source — EXCEPT when English is
+  // the target. An untranslated draft that looks like a draft is how
+  // English gets approved as Arabic; but when the chat language is the
+  // language the strings are written in, the source IS the wording, and
+  // there is nothing to approve it as.
   const [draft, setDraft] = useState<ChatIntroStrings | null>(
-    storedIsForAnotherLanguage ? null : settings.chat_intro?.strings ?? null
+    mode === "native"
+      ? settings.chat_intro?.strings ?? { ...CHAT_INTRO_SOURCE }
+      : storedIsForAnotherLanguage
+        ? null
+        : settings.chat_intro?.strings ?? null
   );
   // The owner's own words for their own categories and city, FOR THE
   // CURRENT CHAT LANGUAGE. Owner-written, so they apply as soon as they
@@ -166,6 +181,132 @@ function GreetingEditor({
   }
 
   const fallbackName = status.showing === "built-in" ? language : "English";
+  const otherLanguageName = storedIsForAnotherLanguage
+    ? languageName(storedCode ?? "") || storedCode
+    : null;
+
+  // ── NATIVE ─────────────────────────────────────────────────────────
+  // The chat language is the one the strings are already written in, so
+  // there is nothing to translate, nothing to approve and nothing
+  // pending. The owner's own words are not translation work here either
+  // — they are just the wording — so they sit inside the ordinary edit
+  // view rather than under a heading about another language.
+  if (mode === "native") {
+    return (
+      <Card>
+        <Header title="Greeting and starter chips" />
+        <p className="mt-1 text-xs text-muted-foreground">
+          The first thing every visitor sees, before they have typed anything. Once they write, the
+          assistant replies in their own language — this is the part it cannot adapt.
+        </p>
+
+        {/* liveStrings, not the draft. The label says "what visitors
+            see", so it has to be what visitors see — and a generation
+            that has not been saved is not live yet, even here. Saving in
+            this mode applies immediately, so the two converge the moment
+            the owner presses the button. */}
+        <Preview
+          label="What visitors see"
+          strings={liveStrings}
+          businessName={businessName}
+          place={place}
+          chipKeys={shownChipKeys}
+          ownWordChips={ownWordChips}
+          labels={labels}
+          introLine={introLine}
+          language={language}
+        />
+
+        {error && <Banner tone="error">{error}</Banner>}
+        {notice && !error && <Banner tone="ok">{notice}</Banner>}
+
+        <div className="mt-4">
+          <Button type="button" variant="outline" onClick={() => setEditing((v) => !v)}>
+            {editing ? "Hide wording" : "Edit wording"}
+          </Button>
+        </div>
+
+        {editing && draft && (
+          <Fields
+            native
+            draft={draft}
+            stale={[]}
+            businessName={businessName}
+            place={place}
+            shownChipKeys={shownChipKeys}
+            ownWordChips={ownWordChips}
+            labels={labels}
+            language={language}
+            introLine={introLine}
+            busy={busy !== null}
+            onChange={(key, value) => setDraft({ ...draft, [key]: value })}
+            onLabelChange={(original, value) => setLabels({ ...labels, [original]: value })}
+            onSaveDraft={() => run("approve")}
+          />
+        )}
+      </Card>
+    );
+  }
+
+  // ── MISSING ────────────────────────────────────────────────────────
+  // One decision to make, so one button to make it with.
+  if (mode === "missing") {
+    return (
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Header title="Greeting and starter chips" />
+          <StatusBadge showing={status.showing} pending={status.pending} />
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          The first thing every visitor sees, before they have typed anything. Once they write, the
+          assistant replies in their own language — this is the part it cannot adapt.
+        </p>
+
+        <Preview
+          label={`What visitors see now — ${fallbackName}`}
+          strings={liveStrings}
+          businessName={businessName}
+          place={place}
+          chipKeys={shownChipKeys}
+          ownWordChips={ownWordChips}
+          labels={labels}
+          introLine={introLine}
+          language={language}
+          muted
+        />
+
+        {error && <Banner tone="error">{error}</Banner>}
+        {notice && !error && <Banner tone="ok">{notice}</Banner>}
+
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-dashed p-4">
+          <p className="text-xs text-muted-foreground">
+            Visitors are greeted in {fallbackName} until there is a {language} version.
+          </p>
+          {/* Said quietly, and only when there is something to say. It is
+              reassurance that nothing was thrown away, not a warning —
+              nothing is wrong with greeting people in the fallback. */}
+          {otherLanguageName && (
+            <p className="text-[11px] text-muted-foreground">
+              Your {otherLanguageName} wording is kept — switch the chat language back and it
+              returns.
+            </p>
+          )}
+          <div>
+            <Button type="button" disabled={busy !== null} onClick={() => run("generate")}>
+              {busy === "generate" ? "Creating…" : `Create the ${language} greeting`}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // ── REVIEW and LIVE ────────────────────────────────────────────────
+  // A translation exists for this language. Review has something to sign
+  // off, and shows both previews so the two can be compared. Live has
+  // nothing pending, so a second identical preview would be exactly the
+  // noise this card was carrying everywhere else.
+  const isReview = mode === "review";
 
   return (
     <Card>
@@ -178,53 +319,29 @@ function GreetingEditor({
         assistant replies in their own language — this is the part it cannot adapt.
       </p>
 
-      {/* First, and before any preview: the stored translation is for a
-          different language than the one now chosen. Nothing is shown as
-          a draft until there is one for THIS language, so there is
-          nothing to misread and nothing to approve by accident. */}
-      {storedIsForAnotherLanguage && (
-        <div className="mt-4">
-          <Banner tone="warn">
-            Your saved greeting is written in {languageName(storedCode ?? "") || storedCode}, and the
-            chat language is now {languageName(chosenCode ?? "") || language}. Visitors are being
-            greeted in {fallbackName} until you generate a {language} one. Your{" "}
-            {languageName(storedCode ?? "") || storedCode} wording and your own words for it are
-            kept — switch the chat language back and they return.
-          </Banner>
-        </div>
+      {isReview && (
+        <Preview
+          label={`What visitors see now — ${fallbackName}`}
+          strings={liveStrings}
+          businessName={businessName}
+          place={place}
+          chipKeys={shownChipKeys}
+          ownWordChips={ownWordChips}
+          labels={labels}
+          introLine={introLine}
+          language={language}
+          muted
+        />
       )}
-
-      {/* The primary action leads when there is nothing to review yet. */}
-      {!draft && (
-        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-dashed p-4">
-          <p className="text-xs text-muted-foreground">
-            Nothing has been translated yet, so visitors are greeted in {fallbackName}.
-          </p>
-          <div>
-            <Button type="button" disabled={busy !== null} onClick={() => run("generate")}>
-              {busy === "generate" ? "Translating…" : `Generate ${language} greeting`}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <Preview
-        label={`What visitors see now — ${status.showing === "approved" ? language : fallbackName}`}
-        strings={liveStrings}
-        businessName={businessName}
-        place={place}
-        chipKeys={shownChipKeys}
-        ownWordChips={ownWordChips}
-        labels={labels}
-        introLine={introLine}
-        language={language}
-        muted
-      />
 
       {draft && (
         <>
           <Preview
-            label={`Your draft — ${language}${status.showing === "approved" ? " (live)" : " (not live yet)"}`}
+            label={
+              isReview
+                ? `Your ${language} version — not live yet`
+                : `What visitors see — ${language}`
+            }
             strings={draft}
             businessName={businessName}
             place={place}
@@ -259,17 +376,24 @@ function GreetingEditor({
           {notice && !error && <Banner tone="ok">{notice}</Banner>}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button type="button" disabled={busy !== null || blocked !== null} onClick={() => run("approve")}>
-              {busy === "approve"
-                ? "Publishing…"
-                : status.showing === "approved"
-                  ? "Save & keep live"
-                  : "Approve & make live"}
-            </Button>
+            {isReview && (
+              <Button
+                type="button"
+                disabled={busy !== null || blocked !== null}
+                onClick={() => run("approve")}
+              >
+                {busy === "approve" ? "Publishing…" : "Approve & make live"}
+              </Button>
+            )}
             <Button type="button" variant="outline" onClick={() => setEditing((v) => !v)}>
               {editing ? "Hide wording" : "Edit wording"}
             </Button>
-            <Button type="button" variant="outline" disabled={busy !== null} onClick={() => run("generate")}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => run("generate")}
+            >
               {busy === "generate" ? "Translating…" : "Translate again"}
             </Button>
           </div>
@@ -288,14 +412,11 @@ function GreetingEditor({
               busy={busy !== null}
               onChange={(key, value) => setDraft({ ...draft, [key]: value })}
               onLabelChange={(original, value) => setLabels({ ...labels, [original]: value })}
-              onSaveDraft={() => run("save")}
+              onSaveDraft={() => run(isReview ? "save" : "approve")}
             />
           )}
         </>
       )}
-
-      {!draft && error && <Banner tone="error">{error}</Banner>}
-      {!draft && notice && !error && <Banner tone="ok">{notice}</Banner>}
     </Card>
   );
 }
@@ -409,6 +530,7 @@ const FIELD_HINTS: Partial<Record<ChatIntroKey, string>> = {
 };
 
 function Fields({
+  native = false,
   draft,
   stale,
   businessName,
@@ -423,6 +545,14 @@ function Fields({
   onLabelChange,
   onSaveDraft,
 }: {
+  /**
+   * The chat language is the language these strings are written in.
+   *
+   * Changes two things: the owner's own words stop being translation
+   * work and become ordinary wording, and saving applies immediately
+   * rather than producing something to sign off.
+   */
+  native?: boolean;
   draft: ChatIntroStrings;
   stale: ChatIntroKey[];
   businessName: string;
@@ -470,6 +600,7 @@ function Fields({
       />
 
       <OwnWordFields
+        native={native}
         language={language}
         place={place}
         introLine={introLine}
@@ -507,7 +638,10 @@ function Fields({
 
       <div>
         <Button type="button" variant="outline" disabled={busy} onClick={onSaveDraft}>
-          Save draft
+          {/* There is no draft stage when the owner is writing in the
+              language the greeting is already in — nothing we generated
+              needs their sign-off, so saving just applies it. */}
+          {native ? "Save wording" : "Save draft"}
         </Button>
       </div>
     </div>
@@ -640,6 +774,7 @@ function TokenField({
  * buttons reading "Dental treatment" until now.
  */
 function OwnWordFields({
+  native = false,
   language,
   place,
   introLine,
@@ -648,6 +783,7 @@ function OwnWordFields({
   rtl,
   onChange,
 }: {
+  native?: boolean;
   language: string;
   place: string | null;
   introLine: string | null;
@@ -664,10 +800,13 @@ function OwnWordFields({
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <p className="text-xs font-medium text-muted-foreground">Your own words</p>
+        <p className="text-xs font-medium text-muted-foreground">
+          {native ? "Your categories and city" : "Your own words"}
+        </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Your categories and city, as they should read in {language}. We never translate these
-          ourselves — they are your details to state. Leave one empty to keep it as it is.
+          {native
+            ? "How these read on the buttons and in the greeting. Leave one empty to use it exactly as you wrote it."
+            : `Your categories and city, as they should read in ${language}. We never translate these ourselves — they are your details to state. Leave one empty to keep it as it is.`}
         </p>
       </div>
       {introLine && (

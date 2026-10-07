@@ -381,7 +381,14 @@ export function chatIntroStatus(settings: {
   const hasBuiltIn = builtInTranslation(language) !== null;
   const fallback = hasBuiltIn ? "built-in" : "english";
 
-  if (!cached || cached.language.trim().toLowerCase() !== language.trim().toLowerCase()) {
+  // Compared as CODES, not as raw strings. parseTenantSettings
+  // normalises both of these, but a row written before it did — or any
+  // value typed by hand — can hold "Arabic" where the other holds "ar",
+  // and a plain string compare then reports a perfectly good
+  // translation as "not generated" and asks the owner to make it again.
+  const storedCode = resolveLanguageCode(cached?.language ?? "") ?? cached?.language?.trim().toLowerCase();
+  const chosenCode = resolveLanguageCode(language) ?? language.trim().toLowerCase();
+  if (!cached || storedCode !== chosenCode) {
     return { showing: fallback, language, pending: "not-generated" };
   }
   if (cached.sourceHash !== chatIntroSourceHash()) {
@@ -422,4 +429,49 @@ const RTL_SCRIPT = /[\u0591-\u07FF\u08A0-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
  */
 export function isRtlText(text: string): boolean {
   return RTL_SCRIPT.test(text);
+}
+
+/** The language the fixed strings are authored in. */
+export const SOURCE_LANGUAGE_CODE = "en";
+
+/**
+ * Which of four situations the greeting is actually in.
+ *
+ * The card used to derive its shape from whether a draft object happened
+ * to exist, which produced a translation workflow for a business whose
+ * chat language was English and whose content was already English:
+ * "your draft", "Translate again", "Approve & make live", fifteen
+ * fields, and then a warning explaining that the draft was still English
+ * and could not be made live. Every one of those was true and none of
+ * them applied.
+ *
+ *   native   the chat language IS the language the strings are written
+ *            in, so there is nothing to translate and no sign-off to
+ *            give. Just wording the owner may edit.
+ *   missing  another language, nothing generated for it yet.
+ *   review   a generation exists for this language and is not live,
+ *            either unapproved or made from older English.
+ *   live     approved, current, and what visitors are seeing.
+ *
+ * Derived here rather than in the component so the states can be tested
+ * without rendering anything.
+ */
+export type GreetingMode = "native" | "missing" | "review" | "live";
+
+export function greetingMode(settings: {
+  chat_language?: string;
+  chat_intro?: ChatIntroTranslation;
+}): GreetingMode {
+  const language = settings.chat_language?.trim() ?? "";
+  const code = resolveLanguageCode(language) ?? language.toLowerCase();
+
+  // Checked FIRST, before anything about what is stored. A business
+  // writing English for English-speaking visitors has no translation
+  // step, whatever happens to be cached from a language it used before.
+  if (code === SOURCE_LANGUAGE_CODE) return "native";
+
+  const status = chatIntroStatus(settings);
+  if (status.pending === "not-generated") return "missing";
+  if (status.pending === null) return "live";
+  return "review";
 }
