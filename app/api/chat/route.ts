@@ -32,6 +32,7 @@ import {
   stripInternalState,
 } from "@/lib/reply-guard";
 import { safeFallbackFor } from "@/lib/safe-fallback";
+import { classifyModelError } from "@/lib/model-errors";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -552,8 +553,86 @@ async function extractAndSaveLead(
   }
 }
 
+/**
+ * Serves the reply, or degrades.
+ *
+ * ── Why this wrapper exists ──────────────────────────────────────────
+ * There was no try/catch around any of this. When the Anthropic account
+ * ran out of credit, every visitor to every tenant got a bare HTTP 500
+ * with an empty body, and the widget showed "Sorry, something went
+ * wrong." A clinic's patient hit a hard error because a billing date
+ * passed.
+ *
+ * It will happen again — billing lapses, keys rotate, providers have
+ * incidents — so the question is only what the visitor sees when it
+ * does. They get the safe fallback, in the language they are writing
+ * in, and a 200. The conversation survives; they can carry on, and the
+ * next turn may well work.
+ *
+ * The fallback is chosen from the visitor's own message rather than from
+ * stored history on purpose: history may be exactly what failed to load.
+ * This path assumes nothing it does not have.
+ */
 export async function POST(req: NextRequest) {
-  const { message, photoPath, sessionId, slug, openingMessage } = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
+  try {
+    return await handleChat(body);
+  } catch (error) {
+    const failure = classifyModelError(error);
+
+    // Loud, and specific about WHICH failure. "Something went wrong" in
+    // a log is how an out-of-credit account looked like a code bug for
+    // long enough to matter.
+    console.error("[chat] degraded to safe fallback", {
+      kind: failure.kind,
+      status: failure.status,
+      retryable: failure.retryable,
+      slug: typeof body.slug === "string" ? body.slug : undefined,
+      sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
+      detail: failure.detail,
+    });
+
+    return NextResponse.json({ reply: await degradedReply(body), degraded: true });
+  }
+}
+
+/**
+ * The fallback, in the visitor's language, with no model call.
+ *
+ * Every step is optional. A tenant lookup that fails still produces a
+ * reply, because this is the path that runs when things are already
+ * broken and it cannot have its own failure mode.
+ */
+async function degradedReply(body: Record<string, unknown>): Promise<string> {
+  const message = typeof body.message === "string" ? body.message : "";
+  let chatLanguage: string | undefined;
+  try {
+    const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+    if (slug) {
+      const tenant = await resolveTenantBySlug(slug);
+      chatLanguage = tenant?.settings.chat_language;
+    }
+  } catch {
+    // The tenant's configured language only breaks ties between Latin
+    // languages. Without it the visitor's own script still decides.
+  }
+  return safeFallbackFor(message ? [message] : [], chatLanguage);
+}
+
+async function handleChat(body: Record<string, unknown>) {
+  const { message, photoPath, sessionId, slug, openingMessage } = body as {
+    message?: unknown;
+    photoPath?: unknown;
+    sessionId?: unknown;
+    slug?: unknown;
+    openingMessage?: unknown;
+  };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
     return NextResponse.json({ error: "slug is required" }, { status: 400 });

@@ -144,13 +144,48 @@ function parseChatIntro(raw: unknown): ChatIntroTranslation | undefined {
     if (value) source[key] = value;
   }
 
-  // The owner's own words for their own categories and city. Free-form
-  // keys, because they are keyed by what those things are called.
+  // The owner's own words for their own categories and city, keyed by
+  // LANGUAGE and then by what the thing is called. Free-form inner keys,
+  // because they are keyed by what those things are called.
+  //
+  // ── Migrated on read, from the flat shape ────────────────────────
+  // These used to be one flat map with no language attached, which is
+  // how an owner who wrote their city in Arabic and then switched the
+  // chat language to English got "Hi! We're Prof Clinic in اسطنبول."
+  //
+  // A flat map is filed under the language the translation it belongs to
+  // was written in — which is the language those words were written in,
+  // by definition, since that is the only language the card has ever
+  // been able to collect them for. Nothing is discarded and nothing has
+  // to be re-typed; switching back to that language restores them.
+  //
+  // Migrating here rather than in SQL means it applies to every row the
+  // moment it is read, including rows nobody has saved since.
+  const languageCode = resolveLanguageCode(language) ?? language;
   const labelsRaw = asObject(root.ownLabels);
-  const ownLabels: Record<string, string> = {};
+  const ownLabels: Record<string, Record<string, string>> = {};
   for (const key of Object.keys(labelsRaw)) {
-    const value = asString(labelsRaw[key]);
-    if (value) ownLabels[key] = value;
+    const nested = labelsRaw[key];
+    if (typeof nested === "string") {
+      // Old flat shape: one entry, belonging to this translation's
+      // language.
+      const value = asString(nested);
+      if (value) {
+        ownLabels[languageCode] = { ...(ownLabels[languageCode] ?? {}), [key]: value };
+      }
+      continue;
+    }
+    // Already per-language. The outer key is a language, normalised the
+    // same way as every other language field so "Arabic" and "ar" cannot
+    // become two buckets.
+    const inner = asObject(nested);
+    const code = resolveLanguageCode(key) ?? key.trim().toLowerCase();
+    const out: Record<string, string> = { ...(ownLabels[code] ?? {}) };
+    for (const innerKey of Object.keys(inner)) {
+      const value = asString(inner[innerKey]);
+      if (value) out[innerKey] = value;
+    }
+    if (Object.keys(out).length > 0) ownLabels[code] = out;
   }
 
   return {

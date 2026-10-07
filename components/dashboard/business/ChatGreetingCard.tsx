@@ -14,6 +14,7 @@ import {
   blockedFromPublishing,
   chatIntroStatus,
   isRtlText,
+  labelsForLanguage,
   ownLabel,
   resolveChatIntroStrings,
   resolveIntroLine,
@@ -22,6 +23,7 @@ import {
   type ChatIntroStrings,
 } from "@/lib/chat-intro-i18n";
 import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
+import { languageName, resolveLanguageCode } from "@/lib/languages";
 import type { TenantSettings } from "@/lib/tenant-settings";
 
 type Props = {
@@ -46,6 +48,11 @@ type Props = {
 export function ChatGreetingCard(props: Props) {
   const stored = props.settings.chat_intro;
   const revision = [
+    // The CHAT language, not just the stored translation's. Switching
+    // language must remount the editor: its labels and draft are both
+    // scoped to a language, and keeping them across a switch is how the
+    // previous language's words stayed on screen.
+    props.settings.chat_language ?? "-",
     stored?.language ?? "-",
     stored?.sourceHash ?? "-",
     stored?.approved ? "live" : "draft",
@@ -70,16 +77,39 @@ function GreetingEditor({
   // What a visitor is greeted with this moment, whatever the draft says.
   const liveStrings = resolveChatIntroStrings(language, settings.chat_intro);
 
+  // Is the stored translation even FOR the language now chosen?
+  //
+  // Checked before anything is rendered, not after. The guard that spots
+  // a wrong-script greeting runs on the draft and warns underneath it,
+  // which meant an owner who switched from Arabic to English was shown
+  // the Arabic translation labelled "your draft", with a warning below
+  // it. The warning was right and arrived too late to be any use.
+  const storedCode = resolveLanguageCode(settings.chat_intro?.language ?? "") ??
+    settings.chat_intro?.language?.trim().toLowerCase();
+  const chosenCode = resolveLanguageCode(language) ?? language.trim().toLowerCase();
+  const storedIsForAnotherLanguage =
+    !!settings.chat_intro && !!storedCode && !!chosenCode && storedCode !== chosenCode;
+
   // Never pre-filled with the English source: an untranslated draft that
-  // looks like a draft is how English gets approved as Arabic.
+  // looks like a draft is how English gets approved as Arabic. And never
+  // pre-filled with ANOTHER LANGUAGE's translation, for the same reason
+  // one step removed — it is how Arabic gets approved as English.
   const [draft, setDraft] = useState<ChatIntroStrings | null>(
-    settings.chat_intro?.strings ?? null
+    storedIsForAnotherLanguage ? null : settings.chat_intro?.strings ?? null
   );
-  // The owner's own words for their own categories and city. Owner-written,
-  // so they apply as soon as they are saved rather than waiting for
-  // sign-off - there is nothing generated to review.
+  // The owner's own words for their own categories and city, FOR THE
+  // CURRENT CHAT LANGUAGE. Owner-written, so they apply as soon as they
+  // are saved rather than waiting for sign-off - there is nothing
+  // generated to review.
+  //
+  // This line is where the bug was. It took the whole flat map with no
+  // regard for which language those words were written in, so an owner
+  // who switched from Arabic to English saw "Hi! We're Prof Clinic in
+  // اسطنبول." with Arabic buttons. The live chat page had a language
+  // gate of its own and was never affected, which is why nothing broke
+  // for visitors and the card still looked wrong.
   const [labels, setLabels] = useState<Record<string, string>>(
-    settings.chat_intro?.ownLabels ?? {}
+    labelsForLanguage(settings.chat_intro?.ownLabels, language)
   );
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<null | "generate" | "save" | "approve">(null);
@@ -147,6 +177,22 @@ function GreetingEditor({
         The first thing every visitor sees, before they have typed anything. Once they write, the
         assistant replies in their own language — this is the part it cannot adapt.
       </p>
+
+      {/* First, and before any preview: the stored translation is for a
+          different language than the one now chosen. Nothing is shown as
+          a draft until there is one for THIS language, so there is
+          nothing to misread and nothing to approve by accident. */}
+      {storedIsForAnotherLanguage && (
+        <div className="mt-4">
+          <Banner tone="warn">
+            Your saved greeting is written in {languageName(storedCode ?? "") || storedCode}, and the
+            chat language is now {languageName(chosenCode ?? "") || language}. Visitors are being
+            greeted in {fallbackName} until you generate a {language} one. Your{" "}
+            {languageName(storedCode ?? "") || storedCode} wording and your own words for it are
+            kept — switch the chat language back and they return.
+          </Banner>
+        </div>
+      )}
 
       {/* The primary action leads when there is nothing to review yet. */}
       {!draft && (

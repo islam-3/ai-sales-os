@@ -13,6 +13,7 @@
 import type { TenantSettings } from "./tenant-settings";
 import {
   CHAT_INTRO_SOURCE,
+  labelsForLanguage,
   ownLabel,
   resolveChatIntroStrings,
   resolveIntroLine,
@@ -260,11 +261,17 @@ export function buildChatIntro(input: ChatIntroInput): ChatIntro {
 
   // Owner-written, so they need no review and apply as soon as they are
   // saved - unlike the generated strings, which wait for sign-off.
-  const labels =
-    input.settings.chat_intro?.language?.trim().toLowerCase() ===
-    input.settings.chat_language?.trim().toLowerCase()
-      ? input.settings.chat_intro?.ownLabels
-      : undefined;
+  //
+  // Looked up BY LANGUAGE rather than gated on the stored translation's
+  // language matching. The old gate was correct here and was what kept
+  // the live greeting clean, but it only worked because this one call
+  // site happened to have it — the dashboard preview did not, and showed
+  // an English greeting with an Arabic city in it. Now there is nowhere
+  // to forget: a label is reachable only through its language.
+  const labels = labelsForLanguage(
+    input.settings.chat_intro?.ownLabels,
+    input.settings.chat_language
+  );
 
   const { title, sub } = buildGreeting(input, strings, labels, input.settings.chat_language ?? "English");
   return {

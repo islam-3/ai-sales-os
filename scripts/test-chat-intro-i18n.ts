@@ -16,6 +16,7 @@ import {
   chatIntroStatus,
   chatIntroSourceHash,
   isRtlText,
+  labelsForLanguage,
   ownLabel,
   resolveChatIntroStrings,
   resolveIntroLine,
@@ -345,7 +346,7 @@ const withLabels = parseTenantSettings({
   chat_intro: stored({
     language: "Arabic",
     strings: arabicStrings,
-    ownLabels: { Istanbul: "إسطنبول", "Dental treatment": "زراعة الأسنان" },
+    ownLabels: { ar: { Istanbul: "إسطنبول", "Dental treatment": "زراعة الأسنان" } },
   }),
 });
 const localised = buildChatIntro({ ...BUSINESS, settings: withLabels });
@@ -360,7 +361,7 @@ check(
 const partial = parseTenantSettings({
   chat_language: "Arabic",
   location: { city: "Istanbul" },
-  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { Istanbul: "إسطنبول" } }),
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: { Istanbul: "إسطنبول" } } }),
 });
 const partialIntro = buildChatIntro({ ...BUSINESS, settings: partial });
 check(
@@ -376,7 +377,7 @@ check("no labels at all falls back", ownLabel("Istanbul", undefined) === "Istanb
 const unapprovedLabels = parseTenantSettings({
   chat_language: "Arabic",
   location: { city: "Istanbul" },
-  chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: false, ownLabels: { Istanbul: "إسطنبول" } }),
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: false, ownLabels: { ar: { Istanbul: "إسطنبول" } } }),
 });
 const unapprovedIntro = buildChatIntro({ ...BUSINESS, settings: unapprovedLabels });
 check(
@@ -393,7 +394,7 @@ check(
 const otherLanguage = parseTenantSettings({
   chat_language: "Russian",
   location: { city: "Istanbul" },
-  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { Istanbul: "إسطنبول" } }),
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: { Istanbul: "إسطنبول" } } }),
 });
 check(
   "labels written for another language are not reused",
@@ -402,16 +403,20 @@ check(
 
 check(
   "they survive a settings round-trip",
-  parseTenantSettings({ chat_intro: stored({ ownLabels: { Istanbul: "إسطنبول" } }) }).chat_intro
-    ?.ownLabels.Istanbul === "إسطنبول"
+  parseTenantSettings({ chat_intro: stored({ ownLabels: { ar: { Istanbul: "إسطنبول" } } }) })
+    .chat_intro?.ownLabels.ar.Istanbul === "إسطنبول"
 );
 
 console.log("\n--- translating again must not discard them ---");
 const actionsSrc2 = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
 check(
-  "generation carries the owner's labels across",
-  /ownLabels:\s*\n?\s*settings\.chat_intro\?\.language/.test(actionsSrc2),
-  "they are not something the model produced, so regenerating must not throw them away"
+  "generation carries EVERY language's labels across",
+  /ownLabels: settings\.chat_intro\?\.ownLabels \?\? \{\}/.test(actionsSrc2),
+  // It used to clear them whenever the target language differed from the
+  // stored one, which was right for a flat map and is destructive now
+  // that each language keeps its own bucket. Regenerating English must
+  // not delete the Arabic words.
+  "regenerating one language must not delete another language's words"
 );
 check(
   "saving drops an empty label rather than storing it",
@@ -443,7 +448,7 @@ const arabicIntro = (labels: Record<string, string>) =>
     ...BUSINESS,
     settings: parseTenantSettings({
       chat_language: "Arabic",
-      chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: labels }),
+      chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: labels } }),
     }),
   });
 
@@ -507,9 +512,150 @@ const cardSrc = readFileSync(join(process.cwd(), "components/dashboard/business/
 check("the preview resolves the line the same way the greeting does", /resolveIntroLine\(introLine, labels, language\)/.test(cardSrc));
 check("and the owner can write it there", /onChange=\{\(e\) => onChange\(introLine, e\.target\.value\)\}/.test(cardSrc));
 
+
+// ─────────────────────────────────────────────────────────────────────
+// Own words belong to a LANGUAGE
+//
+// Reported: an owner wrote their city and categories in Arabic, switched
+// the chat language to English, and the dashboard showed
+//     Hi! We're Prof Clinic in اسطنبول.
+// with the business description and the buttons still in Arabic.
+//
+// The live chat page was never affected — buildChatIntro had a gate
+// comparing the stored translation's language to the chat language — but
+// nothing recorded which language those words were FOR, so the gate was
+// the only thing standing between them and a visitor, and the dashboard
+// preview did not have one.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- own words belong to a language ---");
+
+const ARABIC_WORDS = {
+  Istanbul: "اسطنبول",
+  "Dental treatment": "علاج الاسنان",
+  [BUSINESS.description]: "نعالج المرضى الدوليين.",
+};
+
+/** Exactly the reported situation: Arabic words, English chat language. */
+const switchedToEnglish = parseTenantSettings({
+  chat_language: "en",
+  location: { city: "Istanbul" },
+  chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: ARABIC_WORDS } }),
+});
+const afterSwitch = buildChatIntro({ ...BUSINESS, settings: switchedToEnglish });
+
+check(
+  "the city reads in the chosen language, not the old one",
+  afterSwitch.title.includes("Istanbul") && !afterSwitch.title.includes("اسطنبول"),
+  afterSwitch.title
+);
+check(
+  "the chips do too",
+  afterSwitch.chips.includes("Dental treatment") && !afterSwitch.chips.some((c) => /[\u0600-\u06FF]/.test(c)),
+  JSON.stringify(afterSwitch.chips)
+);
+check(
+  "and the description line falls back to the original",
+  afterSwitch.sub.includes(BUSINESS.description),
+  // Asked for explicitly: an untranslated original beats another
+  // language's words.
+  afterSwitch.sub
+);
+check(
+  "nothing Arabic survives anywhere in the greeting",
+  !/[\u0600-\u06FF]/.test(afterSwitch.greeting),
+  afterSwitch.greeting
+);
+
+const switchedBack = buildChatIntro({
+  ...BUSINESS,
+  settings: parseTenantSettings({
+    chat_language: "ar",
+    location: { city: "Istanbul" },
+    chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: ARABIC_WORDS } }),
+  }),
+});
+check(
+  "switching back restores them rather than having cleared them",
+  switchedBack.title.includes("اسطنبول"),
+  switchedBack.title
+);
+
+check(
+  "two languages' words coexist",
+  (() => {
+    const both = parseTenantSettings({
+      chat_language: "en",
+      location: { city: "Istanbul" },
+      chat_intro: stored({
+        language: "English",
+        strings: { ...CHAT_INTRO_SOURCE },
+        ownLabels: { ar: { Istanbul: "اسطنبول" }, en: { Istanbul: "Istanbul, Türkiye" } },
+      }),
+    });
+    return buildChatIntro({ ...BUSINESS, settings: both }).title.includes("Istanbul, Türkiye");
+  })()
+);
+
+console.log("\n--- labelsForLanguage is the only door ---");
+check("a language with words gets them", labelsForLanguage({ ar: { a: "ب" } }, "ar").a === "ب");
+check("a language with none gets an empty map", Object.keys(labelsForLanguage({ ar: { a: "ب" } }, "en")).length === 0);
+check("a name resolves to the same bucket as a code", labelsForLanguage({ ar: { a: "ب" } }, "Arabic").a === "ب");
+check("no stored words at all is empty", Object.keys(labelsForLanguage(undefined, "ar")).length === 0);
+check("no language named is empty", Object.keys(labelsForLanguage({ ar: { a: "ب" } }, "")).length === 0);
+
+console.log("\n--- the old flat shape migrates, losing nothing ---");
+const migrated = parseTenantSettings({
+  chat_language: "en",
+  chat_intro: stored({
+    language: "Arabic",
+    strings: arabicStrings,
+    // The shape every existing row is in: flat, no language.
+    ownLabels: { Istanbul: "اسطنبول", "Dental treatment": "علاج الاسنان" } as never,
+  }),
+});
+check(
+  "a flat map is filed under the translation's own language",
+  migrated.chat_intro?.ownLabels.ar?.Istanbul === "اسطنبول",
+  JSON.stringify(migrated.chat_intro?.ownLabels)
+);
+check(
+  "so it does not leak into the newly chosen one",
+  Object.keys(labelsForLanguage(migrated.chat_intro?.ownLabels, "en")).length === 0
+);
+check(
+  "and the owner never has to retype it",
+  Object.keys(labelsForLanguage(migrated.chat_intro?.ownLabels, "ar")).length === 2
+);
+check(
+  "a language NAME as the outer key normalises to its code",
+  parseTenantSettings({
+    chat_intro: stored({ ownLabels: { Arabic: { Istanbul: "اسطنبول" } } as never }),
+  }).chat_intro?.ownLabels.ar?.Istanbul === "اسطنبول",
+  "otherwise 'Arabic' and 'ar' become two buckets for one language"
+);
+
+console.log("\n--- the card validates BEFORE it renders a draft ---");
+check(
+  "the draft is not pre-filled from another language's translation",
+  /storedIsForAnotherLanguage \? null : settings\.chat_intro\?\.strings/.test(cardSrc),
+  "showing it labelled 'your draft' is how one language gets approved as another"
+);
+check(
+  "labels come through labelsForLanguage, never the raw map",
+  /labelsForLanguage\(settings\.chat_intro\?\.ownLabels, language\)/.test(cardSrc) &&
+    !/useState<Record<string, string>>\(\s*settings\.chat_intro\?\.ownLabels/.test(cardSrc)
+);
+check(
+  "the mismatch warning renders before any preview",
+  cardSrc.indexOf("storedIsForAnotherLanguage && (") < cardSrc.indexOf("<Preview"),
+  "the existing wrong-script guard warned underneath the thing it was warning about"
+);
+check(
+  "and the editor remounts when the chat language changes",
+  /props\.settings\.chat_language \?\? "-"/.test(cardSrc),
+  "otherwise its state keeps the previous language's labels"
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");
-
-
-
-
 process.exit(bad ? 1 : 0);

@@ -15,7 +15,8 @@ import {
   validateTranslation,
 } from "@/lib/chat-intro-i18n";
 import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
-import { languageName } from "@/lib/languages";
+import { languageName, resolveLanguageCode } from "@/lib/languages";
+import { classifyModelError } from "@/lib/model-errors";
 
 export type BusinessIdentityInput = {
   businessName: string;
@@ -327,13 +328,17 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
         strings,
         source: { ...CHAT_INTRO_SOURCE },
         approved: false,
-        // Carried across a regeneration. These are the owner's own words
-        // for their own categories and city, not something the model
-        // produced, so translating again must not throw them away.
-        ownLabels:
-          settings.chat_intro?.language?.trim().toLowerCase() === language.toLowerCase()
-            ? (settings.chat_intro?.ownLabels ?? {})
-            : {},
+        // Carried across a regeneration, ALL of them. These are the
+        // owner's own words for their own categories and city, not
+        // something the model produced, so translating again must not
+        // throw them away.
+        //
+        // This used to clear them whenever the target language differed
+        // from the stored one — which was the right instinct with a flat
+        // map, and is simply destructive now that each language keeps
+        // its own. Regenerating English must not delete the Arabic
+        // words; they are not in the way, and the owner may switch back.
+        ownLabels: settings.chat_intro?.ownLabels ?? {},
       },
     });
 
@@ -346,8 +351,20 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
     revalidatePath("/dashboard/business");
     return { ok: true };
   } catch (err) {
-    console.error("Greeting translation call failed:", err);
-    return { ok: false, error: "The translation service did not respond. Try again." };
+    // Classified, not swallowed. This used to report every failure as
+    // "The translation service did not respond. Try again." — including
+    // the one that actually happened, where the service responded in
+    // 280ms with a 400 saying the account was out of credit. Retrying
+    // could never work, and the owner had no way to know that.
+    const failure = classifyModelError(err);
+    console.error("Greeting translation call failed:", {
+      kind: failure.kind,
+      status: failure.status,
+      retryable: failure.retryable,
+      tenantId,
+      detail: failure.detail,
+    });
+    return { ok: false, error: failure.ownerMessage };
   }
 }
 
@@ -423,6 +440,22 @@ export async function saveChatIntroTranslation(
     if (trimmed) cleanedLabels[key] = trimmed;
   }
 
+  // Written UNDER THIS LANGUAGE, leaving every other language's words
+  // untouched. An owner who worked in Arabic, switched to English and
+  // writes English words here keeps both — and switching back to Arabic
+  // restores the Arabic ones rather than finding them gone.
+  const languageCode = resolveLanguageCode(language) ?? language;
+  const allLabels: Record<string, Record<string, string>> = {
+    ...(settings.chat_intro?.ownLabels ?? {}),
+  };
+  if (Object.keys(cleanedLabels).length > 0) {
+    allLabels[languageCode] = cleanedLabels;
+  } else {
+    // All cleared for this language: remove the bucket rather than store
+    // an empty one, so "no words yet" has one representation.
+    delete allLabels[languageCode];
+  }
+
   const merged = parseTenantSettings({
     ...settings,
     chat_intro: {
@@ -431,7 +464,7 @@ export async function saveChatIntroTranslation(
       strings: validated,
       source: { ...CHAT_INTRO_SOURCE },
       approved,
-      ownLabels: cleanedLabels,
+      ownLabels: allLabels,
     },
   });
 

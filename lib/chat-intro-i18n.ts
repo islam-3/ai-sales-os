@@ -1,4 +1,5 @@
 import { detectScript, scriptForLanguage } from "./visitor-language";
+import { resolveLanguageCode } from "./languages";
 
 // The greeting and starter chips in the tenant's own language.
 //
@@ -68,16 +69,27 @@ export type ChatIntroTranslation = {
    */
   approved: boolean;
   /**
-   * The owner's own words for their own things, in this language.
+   * The owner's own words for their own things, KEYED BY LANGUAGE.
    *
-   * Keyed by what the thing is called today - a category name, the city -
-   * and holding what it should read as in the chat language. An Arabic
-   * greeting above buttons reading "Dental treatment" and a city reading
-   * "Istanbul" is half-translated, but these are business details and a
-   * model must never invent them. So the owner writes them, and an empty
-   * one falls back to the original.
+   * Inner maps are keyed by what the thing is called today - a category
+   * name, the city - and hold what it should read as in that language.
+   * An Arabic greeting above buttons reading "Dental treatment" and a
+   * city reading "Istanbul" is half-translated, but these are business
+   * details and a model must never invent them. So the owner writes
+   * them, and a language with none falls back to the original.
+   *
+   * ── Why this is per language ─────────────────────────────────────
+   * It used to be one flat map with no language attached. An owner who
+   * wrote their city and categories in Arabic, then switched the chat
+   * language to English, got "Hi! We're Prof Clinic in اسطنبول." with
+   * Arabic buttons underneath — because nothing recorded which language
+   * those words were for.
+   *
+   * Keeping them per language also means the switch is not destructive:
+   * the Arabic words stay under `ar` and come back if the owner switches
+   * back, instead of being cleared on the owner's behalf.
    */
-  ownLabels: Record<string, string>;
+  ownLabels: Record<string, Record<string, string>>;
 };
 
 /** Stable, dependency-free hash of the English source. */
@@ -189,6 +201,29 @@ export function blockedFromPublishing(
  */
 export function ownLabel(original: string, labels: Record<string, string> | undefined): string {
   return labels?.[original]?.trim() || original;
+}
+
+/**
+ * The owner's words for ONE language, or an empty map.
+ *
+ * The single place that decides whether a stored label applies. Every
+ * caller goes through it, so a label can never reach a greeting without
+ * its language having been checked — which is exactly what happened
+ * before, in the dashboard preview, while the live page had a check of
+ * its own and was fine.
+ *
+ * An empty map is the honest answer for a language the owner has not
+ * written words for yet: ownLabel and resolveIntroLine then fall back to
+ * the untranslated original, which is always better than another
+ * language's words.
+ */
+export function labelsForLanguage(
+  ownLabels: Record<string, Record<string, string>> | undefined,
+  language: string | undefined
+): Record<string, string> {
+  const code = resolveLanguageCode(language ?? "") ?? (language ?? "").trim().toLowerCase();
+  if (!code) return {};
+  return ownLabels?.[code] ?? {};
 }
 
 
