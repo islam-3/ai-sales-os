@@ -2,49 +2,42 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { greetingNeedsReview, isRtlText, storedGreetingFor } from "@/lib/chat-intro-i18n";
+import { Textarea } from "@/components/ui/textarea";
+import { SectionCard, SectionCardFooter } from "@/components/dashboard/SectionCard";
+import {
+  greetingNeedsReview,
+  isRtlText,
+  storedGreetingFor,
+  translationSourceFor,
+} from "@/lib/chat-intro-i18n";
 import { firstSentenceOf, splitStoredGreeting } from "@/lib/chat-intro";
 import { GREETING_MAX_CHARS } from "@/lib/greeting-prompts";
 import { languageName } from "@/lib/languages";
 import type { TenantSettings } from "@/lib/tenant-settings";
-import {
-  saveGreeting,
-  suggestGreeting,
-  translateGreeting,
-} from "@/app/dashboard/business/actions";
+import { saveGreeting, suggestGreeting, translateGreeting } from "@/app/dashboard/business/actions";
 
 // The welcome message a visitor sees before they have typed anything.
 //
-// ── What this replaced, and why ──────────────────────────────────────
-// Fifteen separately translatable strings — an opener, an opener with a
-// city in it, a line inviting them to write, and a label for each
-// category we could recognise — assembled at render time with
-// {business} and {place} substituted in. Every piece existed because WE
-// needed it translatable independently, and the business owner paid for
-// that with a fifteen-field form to fill in for a welcome message.
+// One field of prose, written as a visitor reads it, plus a plain list
+// of buttons. What it replaced was fifteen separately translatable
+// strings assembled with {business} and {place} substituted in — every
+// piece of which existed because WE needed it translatable, and which
+// the owner paid for with a fifteen-field form for a welcome message.
 //
-// It is one field now, written as a visitor reads it, with the business
-// name typed into the prose like any other word. The chips stay
-// structured, because they are buttons, but as a plain list.
-//
-// The placeholders are gone deliberately. A business renames itself once
-// in several years, so templating was permanent complexity for a case
-// that barely happens — and working out which words in someone's prose
-// are "the business name" is text interpretation, which is where every
-// hard bug in this project has come from. The cost is a greeting that
-// goes stale on a rename, and that is handled visibly rather than by
-// inference: see the reminder below.
+// Built from the same SectionCard, Button, Input and Textarea as every
+// other card on this page. The previous version used its own card and
+// default-size buttons, so it sat a shade darker than the card above it
+// with visibly different controls.
 
 type Props = {
   settings: TenantSettings;
   businessName: string;
   /** What visitors see right now, whatever is or is not stored. */
   liveText: string;
-  liveChips: string[];
   /** The chips derived from the knowledge base, for a first-time editor. */
   derivedChips: string[];
 };
@@ -54,10 +47,13 @@ type Props = {
  *
  * Without it the fields initialise once and never again, so pressing a
  * button saved the right thing and changed nothing on screen — which
- * looked exactly like a button that did nothing.
+ * looked exactly like a button that does nothing.
  */
 export function ChatGreetingCard(props: Props) {
-  const stored = storedGreetingFor(props.settings.chat_intro?.greetings, props.settings.chat_language);
+  const stored = storedGreetingFor(
+    props.settings.chat_intro?.greetings,
+    props.settings.chat_language
+  );
   const revision = [
     props.settings.chat_language ?? "-",
     stored?.approved ? "live" : "draft",
@@ -67,17 +63,21 @@ export function ChatGreetingCard(props: Props) {
   return <GreetingEditor key={revision} {...props} />;
 }
 
-function GreetingEditor({ settings, businessName, liveText, liveChips, derivedChips }: Props) {
+function GreetingEditor({ settings, businessName, liveText, derivedChips }: Props) {
   const router = useRouter();
   const language = settings.chat_language?.trim() ?? "";
   const languageLabel = languageName(language) || language || "English";
-  const stored = storedGreetingFor(settings.chat_intro?.greetings, language);
+  const greetings = settings.chat_intro?.greetings;
+  const stored = storedGreetingFor(greetings, language);
 
   const [text, setText] = useState(stored?.text ?? liveText);
   // Absent means derive, so a first-time editor starts from the derived
   // chips rather than from nothing. Nothing persists until Save, which
   // is what keeps "never set" distinguishable from "set to these".
   const [chips, setChips] = useState<string[]>(stored?.chips ?? derivedChips);
+  // Whether the current text came from Suggest wording and has not been
+  // retyped, so a save can record where the words came from.
+  const [fromSuggestion, setFromSuggestion] = useState(false);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<null | "suggest" | "translate" | "save">(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,11 +87,24 @@ function GreetingEditor({ settings, businessName, liveText, liveChips, derivedCh
   const renameNeeded = greetingNeedsReview(stored, { businessName, place });
   const rtl = isRtlText(text);
 
-  // A translation nobody has read yet. The only state where something is
+  // A translation nobody has read yet: the only state where something is
   // stored and NOT live, and the only reason an approval step exists.
   const awaitingReview = !!stored && !stored.approved;
 
-  const dirty = text !== (stored?.text ?? liveText) ||
+  // ── Is there anything to translate? ────────────────────────────────
+  // Decided from which language key the greeting is filed under, never
+  // from the words. Non-null means the owner has a greeting in some
+  // other language and none in the one visitors are greeted in.
+  //
+  // It stays available while a translation is UNAPPROVED, so a bad one
+  // can be redone from the original rather than hand-edited; once saved,
+  // a greeting exists for this language and there is nothing left to do.
+  const translateFrom = translationSourceFor(greetings, language, {
+    ignoreExisting: awaitingReview,
+  });
+
+  const dirty =
+    text !== (stored?.text ?? liveText) ||
     JSON.stringify(chips) !== JSON.stringify(stored?.chips ?? derivedChips);
 
   async function run(kind: "suggest" | "translate" | "save") {
@@ -108,13 +121,14 @@ function GreetingEditor({ settings, businessName, liveText, liveChips, derivedCh
         // Into the field, not into the database. Nothing a model wrote
         // goes live without the owner having had it in front of them.
         setText(result.text);
+        setFromSuggestion(true);
         setEditing(true);
         setNotice("A suggestion — read it, change what you want, then save.");
         return;
       }
 
       const result =
-        kind === "translate" ? await translateGreeting(text, chips) : await saveGreeting(text, chips);
+        kind === "translate" ? await translateGreeting() : await saveGreeting(text, chips, fromSuggestion);
       if (!result.ok) {
         setError(result.error);
         return;
@@ -137,37 +151,74 @@ function GreetingEditor({ settings, businessName, liveText, liveChips, derivedCh
   const shown = splitStoredGreeting(text, firstSentenceOf(text));
 
   return (
-    <Card>
-      <Header title="Welcome message" />
-      <p className="mt-1 text-xs text-muted-foreground">
-        The first thing every visitor sees, before they have typed anything. Once they write, the
-        assistant replies in their own language — this is the part it cannot adapt.
-      </p>
-
+    <SectionCard
+      title="Welcome message"
+      description="The first thing every visitor sees, before they have typed anything. Once they write, the assistant replies in their own language — this is the part it cannot adapt."
+      footer={
+        <SectionCardFooter
+          status={
+            error ? (
+              <span className="text-destructive">{error}</span>
+            ) : notice ? (
+              <span className="flex items-center gap-1.5 text-success">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {notice}
+              </span>
+            ) : null
+          }
+        >
+          <Button type="button" size="sm" disabled={busy !== null || !dirty} onClick={() => run("save")}>
+            {busy === "save" ? "Saving…" : "Save changes"}
+          </Button>
+        </SectionCardFooter>
+      }
+    >
       {renameNeeded && (
-        <div className="mt-4">
-          <Banner tone="warn">
-            You changed your {renameNeeded.name && renameNeeded.place
-              ? "business name and city"
-              : renameNeeded.name
-                ? "business name"
-                : "city"}{" "}
-            — check your welcome message still reads correctly. We do not edit your words.
-          </Banner>
-        </div>
+        <Notice>
+          You changed your{" "}
+          {renameNeeded.name && renameNeeded.place
+            ? "business name and city"
+            : renameNeeded.name
+              ? "business name"
+              : "city"}{" "}
+          — check your welcome message still reads correctly. We do not edit your words.
+        </Notice>
+      )}
+
+      {/* The most important line in this card. The owner's greeting is
+          stored and safe, and visitors are NOT seeing it — they are
+          being greeted with our built-in default for their language.
+          Without saying so, "my greeting is saved" and "my greeting is
+          live" look identical from here. */}
+      {translateFrom && !awaitingReview && (
+        <Notice>
+          Your welcome message is written in{" "}
+          {languageName(translateFrom.language) || translateFrom.language}, and visitors are greeted
+          in {languageLabel}. They are seeing our built-in {languageLabel} greeting at the moment —
+          your own words are kept and will come back if you switch the chat language.
+        </Notice>
+      )}
+
+      {awaitingReview && (
+        <Notice>
+          This was translated for you and is not live yet. Read it, then save.
+        </Notice>
       )}
 
       {/* What a visitor actually sees, laid out as they see it. */}
-      <div className="mt-4 rounded-lg border bg-muted/30 p-4" dir={rtl ? "rtl" : "ltr"}>
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+      <div className="rounded-lg border bg-muted/30 p-4" dir={rtl ? "rtl" : "ltr"}>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground">
           {awaitingReview ? `Not live yet — ${languageLabel}` : "What visitors see"}
         </p>
         <p className="mt-2 text-sm font-medium text-foreground">{shown.title || "—"}</p>
-        {shown.sub && <p className="mt-1 text-sm text-muted-foreground">{shown.sub}</p>}
+        {shown.sub && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{shown.sub}</p>}
         {chips.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {chips.map((chip, i) => (
-              <span key={`${chip}-${i}`} className="rounded-full border bg-background px-2.5 py-1 text-xs">
+              <span
+                key={`${chip}-${i}`}
+                className="rounded-full border bg-background px-2.5 py-1 text-xs text-foreground"
+              >
                 {chip}
               </span>
             ))}
@@ -175,68 +226,66 @@ function GreetingEditor({ settings, businessName, liveText, liveChips, derivedCh
         )}
       </div>
 
-      {awaitingReview && (
-        <Banner tone="warn">
-          This was translated for you and has not been made live. Read it, then save.
-        </Banner>
-      )}
-
-      {error && <Banner tone="error">{error}</Banner>}
-      {notice && !error && <Banner tone="ok">{notice}</Banner>}
-
       {editing && (
-        <div className="mt-4 flex flex-col gap-4">
+        <>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="greeting-text" className="text-xs text-muted-foreground">
               The message
             </Label>
-            <textarea
+            <Textarea
               id="greeting-text"
               value={text}
               dir={rtl ? "rtl" : "ltr"}
               rows={4}
-              onChange={(e) => setText(e.target.value)}
-              className="w-full rounded-md border bg-transparent p-2.5 text-sm outline-none"
+              onChange={(e) => {
+                setText(e.target.value);
+                setFromSuggestion(false);
+              }}
             />
-            <p className="text-[11px] text-muted-foreground">
-              Write it exactly as a visitor will read it, including your business name.{" "}
+            <p className="text-xs text-muted-foreground">
+              Write it exactly as a visitor will read it, including your business name.
               {text.length > GREETING_MAX_CHARS && (
-                <span className="text-amber-700 dark:text-amber-500">
-                  {text.length} characters — long for a phone screen.
-                </span>
+                <span className="text-warning"> {text.length} characters — long for a phone screen.</span>
               )}
             </p>
           </div>
 
-          <ChipList chips={chips} rtl={rtl} onChange={setChips} derived={derivedChips} />
-        </div>
+          <ChipList chips={chips} rtl={rtl} derived={derivedChips} onChange={setChips} />
+        </>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button type="button" disabled={busy !== null || !dirty} onClick={() => run("save")}>
-          {busy === "save" ? "Saving…" : "Save"}
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setEditing((v) => !v)}>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
           {editing ? "Hide" : "Edit"}
-        </Button>
-        <Button type="button" variant="outline" disabled={busy !== null} onClick={() => run("suggest")}>
-          {busy === "suggest" ? "Writing…" : "Suggest wording"}
         </Button>
         <Button
           type="button"
+          size="sm"
           variant="outline"
-          disabled={busy !== null || !text.trim()}
-          onClick={() => run("translate")}
+          disabled={busy !== null}
+          onClick={() => run("suggest")}
         >
-          {busy === "translate" ? "Translating…" : `Translate to ${languageLabel}`}
+          {busy === "suggest" ? "Writing…" : "Suggest wording"}
         </Button>
+        {/* Shown only when there is a greeting in another language to
+            translate FROM. On a tenant writing English for English
+            visitors there is nothing to do, and this used to offer to
+            translate English into English. */}
+        {translateFrom && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy !== null}
+            onClick={() => run("translate")}
+          >
+            {busy === "translate"
+              ? "Translating…"
+              : `Translate from ${languageName(translateFrom.language) || translateFrom.language} to ${languageLabel}`}
+          </Button>
+        )}
       </div>
-      {!liveChips.length && !chips.length && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          No buttons — visitors just type. Add some under Edit if you want them.
-        </p>
-      )}
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -269,11 +318,17 @@ function ChipList({
     onChange(next);
   };
 
+  const add = () => {
+    if (!draft.trim()) return;
+    onChange([...chips, draft.trim()]);
+    setDraft("");
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <div>
-        <p className="text-xs font-medium text-muted-foreground">Starter buttons</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <Label className="text-xs text-muted-foreground">Starter buttons</Label>
+        <p className="mt-0.5 text-xs text-muted-foreground">
           Tapped instead of typing. Leave the list empty to show none.
         </p>
       </div>
@@ -297,7 +352,7 @@ function ChipList({
             disabled={i === 0}
             onClick={() => move(i, i - 1)}
           >
-            <ArrowUp className="h-3.5 w-3.5" />
+            <ArrowUp className="h-4 w-4" />
           </Button>
           <Button
             type="button"
@@ -307,7 +362,7 @@ function ChipList({
             disabled={i === chips.length - 1}
             onClick={() => move(i, i + 1)}
           >
-            <ArrowDown className="h-3.5 w-3.5" />
+            <ArrowDown className="h-4 w-4" />
           </Button>
           <Button
             type="button"
@@ -316,7 +371,7 @@ function ChipList({
             aria-label={`Remove "${chip}"`}
             onClick={() => onChange(chips.filter((_, j) => j !== i))}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </Button>
         </div>
       ))}
@@ -328,32 +383,23 @@ function ChipList({
           placeholder="Add a button…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || !draft.trim()) return;
+            if (e.key !== "Enter") return;
             e.preventDefault();
-            onChange([...chips, draft.trim()]);
-            setDraft("");
+            add();
           }}
         />
-        <Button
-          type="button"
-          variant="outline"
-          disabled={!draft.trim()}
-          onClick={() => {
-            onChange([...chips, draft.trim()]);
-            setDraft("");
-          }}
-        >
+        <Button type="button" size="sm" variant="outline" disabled={!draft.trim()} onClick={add}>
           Add
         </Button>
       </div>
 
-      {/* Only offered when it would actually change something, so it is
-          not a button that appears to do nothing. */}
+      {/* Offered only when it would change something, so it is never a
+          button that appears to do nothing. */}
       {derived.length > 0 && JSON.stringify(derived) !== JSON.stringify(chips) && (
         <button
           type="button"
           onClick={() => onChange(derived)}
-          className="self-start text-[11px] text-muted-foreground underline underline-offset-2"
+          className="self-start text-xs text-muted-foreground underline underline-offset-2"
         >
           Use the ones from my knowledge base
         </button>
@@ -362,21 +408,19 @@ function ChipList({
   );
 }
 
-// Local, as they were before: three one-line presentational helpers used
-// only by this card.
-function Card({ children }: { children: React.ReactNode }) {
-  return <section className="rounded-xl border p-5">{children}</section>;
-}
-
-function Header({ title }: { title: string }) {
-  return <h2 className="text-sm font-medium">{title}</h2>;
-}
-
-function Banner({ tone, children }: { tone: "warn" | "error" | "ok"; children: React.ReactNode }) {
-  const styles = {
-    warn: "bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
-    error: "bg-destructive/10 text-destructive",
-    ok: "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
-  }[tone];
-  return <p className={`mt-3 rounded-md p-3 text-xs ${styles}`}>{children}</p>;
+/**
+ * An inline note inside a SectionCard.
+ *
+ * border-warning/30 on bg-warning/10 with text-warning, which is the
+ * shape every other notice on the dashboard already uses — see
+ * LegalPage and the usage banner. NOT warning-foreground: that one is
+ * built to sit on a solid bg-warning and is near-white in light mode,
+ * so on a 10% tint it would be unreadable.
+ */
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs leading-relaxed text-warning">
+      {children}
+    </p>
+  );
 }

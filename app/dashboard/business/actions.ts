@@ -8,7 +8,7 @@ import { supabaseServer } from "@/lib/supabase-server";
 import { isValidBrandColor } from "@/lib/branding";
 import { anthropic } from "@/lib/anthropic";
 import { recordUsage } from "@/lib/usage";
-import { SOURCE_LANGUAGE_CODE } from "@/lib/chat-intro-i18n";
+import { SOURCE_LANGUAGE_CODE, translationSourceFor } from "@/lib/chat-intro-i18n";
 import { languageName, resolveLanguageCode } from "@/lib/languages";
 import {
   buildGreetingSuggestionPrompt,
@@ -344,22 +344,27 @@ export async function suggestGreeting(): Promise<
 }
 
 /**
- * Translates a greeting and its buttons into the chat language.
+ * Translates the owner's existing greeting into the chat language.
  *
- * Stored UNAPPROVED, which is the one case approval exists for: words we
- * produced in a language we cannot check. Everything the owner types is
- * theirs and goes live on save.
+ * ── The source is chosen HERE, from stored state ────────────────────
+ * It used to translate whatever was in the editor into the chat
+ * language, with no notion of a source: on a tenant whose chat language
+ * was English and whose greeting was English, it offered to translate
+ * English into English.
+ *
+ * The source is now translationSourceFor's answer — the most recent
+ * greeting the owner authored, in preference to any translation — and
+ * it is decided on the server rather than taken from the client, so the
+ * label the owner read and the text actually sent cannot disagree.
+ *
+ * Stored UNAPPROVED, which is the one case approval exists for: words
+ * we produced in a language we cannot check. Everything the owner types
+ * is theirs and goes live on save.
  */
-export async function translateGreeting(
-  text: string,
-  chips: string[]
-): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function translateGreeting(): Promise<{ ok: true } | { ok: false; error: string }> {
   const context = await getCurrentTenant();
   if (!context) throw new Error("You must be signed in to do this");
   const { supabase, tenantId } = context;
-
-  const trimmed = text.trim();
-  if (!trimmed) return { ok: false, error: "Write the message first, then translate it." };
 
   const { data: current, error: readError } = await supabase
     .from("tenants")
@@ -376,6 +381,19 @@ export async function translateGreeting(
   if (!language) return { ok: false, error: "Choose a chat language first." };
 
   const languageForModel = languageName(language) || language;
+
+  // Nothing to translate is not an error the owner can act on — the
+  // button should not have been there. Reported plainly rather than as
+  // a failure.
+  const source = translationSourceFor(settings.chat_intro?.greetings, language);
+  if (!source) {
+    return {
+      ok: false,
+      error: `There is nothing to translate — your welcome message is already in ${languageForModel}.`,
+    };
+  }
+  const trimmed = source.greeting.text.trim();
+  const chips = source.greeting.chips ?? [];
 
   try {
     const response = await anthropic.messages.create({
@@ -430,6 +448,7 @@ export async function translateGreeting(
       // The one unapproved write in this file. The owner has not read it
       // yet, and it is in a language we cannot check ourselves.
       approved: false,
+      origin: "translated",
     });
   } catch (err) {
     const failure = classifyModelError(err);
@@ -452,7 +471,9 @@ export async function translateGreeting(
  */
 export async function saveGreeting(
   text: string,
-  chips: string[]
+  chips: string[],
+  /** True when this text came from Suggest wording and was not retyped. */
+  fromSuggestion = false
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const context = await getCurrentTenant();
   if (!context) throw new Error("You must be signed in to do this");
@@ -479,10 +500,21 @@ export async function saveGreeting(
   const settings = parseTenantSettings(current.settings);
   const language = settings.chat_language?.trim() || SOURCE_LANGUAGE_CODE;
 
+  // Saved under the CHAT LANGUAGE, whatever language the words are
+  // actually in. Deliberately not checked.
+  //
+  // Knowing would mean reading the prose and guessing its language, and
+  // text interpretation is what this card was rebuilt to stop doing —
+  // the same reason {business} placeholders are gone. The owner is
+  // looking at their own words under "What visitors see" as they type,
+  // which is better feedback than any detector we could ship.
   return await writeGreeting(supabase, tenantId, settings, language, {
     text: trimmed,
     chips: chips.map((c) => c.trim()).filter(Boolean),
     approved: true,
+    // "suggested" only once the owner has saved what a model drafted;
+    // an unsaved suggestion never reaches storage at all.
+    origin: fromSuggestion ? "suggested" : "written",
   });
 }
 
@@ -498,7 +530,12 @@ async function writeGreeting(
   tenantId: string,
   settings: TenantSettings,
   language: string,
-  entry: { text: string; chips: string[]; approved: boolean }
+  entry: {
+    text: string;
+    chips: string[];
+    approved: boolean;
+    origin: "written" | "suggested" | "translated";
+  }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const code = resolveLanguageCode(language) ?? language.trim().toLowerCase();
 
@@ -515,6 +552,10 @@ async function writeGreeting(
     text: entry.text,
     chips: entry.chips,
     approved: entry.approved,
+    // Both only ever read by translationSourceFor, to avoid translating
+    // a translation. See lib/chat-intro-i18n.ts.
+    origin: entry.origin,
+    savedAt: Date.now(),
     // The whole of the rename story: what the name and city were when
     // this was written. Compared later to remind the owner, never used
     // to rewrite their words.

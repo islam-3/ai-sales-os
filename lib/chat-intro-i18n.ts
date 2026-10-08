@@ -358,6 +358,33 @@ export type StoredGreeting = {
    * words matter.
    */
   wroteWith?: { businessName?: string; place?: string };
+  /**
+   * Where these words came from.
+   *
+   *   written    the owner typed or edited it
+   *   suggested  a model drafted it, the owner read it and saved it
+   *   translated a model translated another greeting into this language
+   *
+   * The distinction that matters is the last one, and it exists to stop
+   * translating a translation. An owner writes English, approves an
+   * Arabic translation of it, then switches the chat to Russian: picking
+   * the most recent greeting as the source would translate the ARABIC,
+   * compounding whatever the first translation got wrong. The English is
+   * the source of truth and stays the source.
+   *
+   * Absent on rows written before this existed, which are treated as
+   * "written" — they are what the owner had live, so they are as close
+   * to authored as anything we have.
+   */
+  origin?: "written" | "suggested" | "translated";
+  /**
+   * When it was saved, epoch ms.
+   *
+   * Only used to choose between several candidate sources. Absent on
+   * older rows, which sort last rather than first — an unknown date is
+   * not evidence of recency.
+   */
+  savedAt?: number;
 };
 
 /** Greetings by language code. */
@@ -398,4 +425,83 @@ export function greetingNeedsReview(
   const place = !!was.place && !!current.place && was.place.trim() !== current.place.trim();
 
   return name || place ? { name, place } : null;
+}
+
+/**
+ * The greeting to translate FROM, or null when there is nothing to do.
+ *
+ * ── The whole of the Translate button's logic ───────────────────────
+ * There is something to translate when the owner has a greeting in some
+ * language and NOT in the one visitors are greeted in. That is decided
+ * from which key the greeting is filed under — never by looking at the
+ * words. Reading the text to guess its language is the kind of
+ * interpretation that placeholders were removed to avoid.
+ *
+ * Before this, the button translated whatever was in the editor into the
+ * chat language, with no notion of a source at all: on a tenant whose
+ * chat language was English and whose greeting was English, it offered
+ * to translate English into English.
+ *
+ * ── Which source, when there are several ────────────────────────────
+ * The most recent one the owner AUTHORED — written or suggested — in
+ * preference to any translation, because translating a translation
+ * compounds its errors. Only if every stored greeting is itself a
+ * translation does the most recent of those win, which is better than
+ * refusing to do anything.
+ */
+export function translationSourceFor(
+  greetings: StoredGreetings | undefined,
+  targetLanguage: string | undefined,
+  options: {
+    /**
+     * Find a source even though the target already has a greeting.
+     *
+     * For re-translating one that has NOT been approved: the owner has
+     * a translation they have not accepted, and redoing it must start
+     * from the original rather than from the translation it produced.
+     * Never set once a translation is live — at that point a greeting
+     * exists for this language and there is nothing left to translate.
+     */
+    ignoreExisting?: boolean;
+  } = {}
+): { language: string; greeting: StoredGreeting } | null {
+  const target = resolveLanguageCode(targetLanguage ?? "") ?? (targetLanguage ?? "").trim().toLowerCase();
+  if (!target) return null;
+
+  // Already in the language visitors are greeted in: nothing to do.
+  if (!options.ignoreExisting && storedGreetingFor(greetings, target)) return null;
+
+  const candidates = Object.entries(greetings ?? {})
+    .filter(([code, g]) => code !== target && g.text.trim())
+    .map(([language, greeting]) => ({ language, greeting }));
+  if (candidates.length === 0) return null;
+
+  // Most recent first. Absent savedAt sorts last: an unknown date is not
+  // evidence of recency, and guessing one would quietly promote an old
+  // row over a new one.
+  //
+  // Ties are broken by preferring the SOURCE language and then
+  // alphabetically, which matters more than it looks. Every row migrated
+  // from the old fifteen-string shape has no savedAt, so on a tenant
+  // with two of them the order would otherwise come from the order the
+  // keys happen to sit in the JSON — arbitrary, and in practice it
+  // picked a tenant's 633-character Arabic over the English it was
+  // derived from. English is where the fixed strings are authored and is
+  // the likeliest original.
+  const byRecency = (a: typeof candidates[number], b: typeof candidates[number]) => {
+    const recency = (b.greeting.savedAt ?? 0) - (a.greeting.savedAt ?? 0);
+    if (recency !== 0) return recency;
+    if (a.language !== b.language) {
+      if (a.language === SOURCE_LANGUAGE_CODE) return -1;
+      if (b.language === SOURCE_LANGUAGE_CODE) return 1;
+    }
+    return a.language.localeCompare(b.language);
+  };
+
+  // Absent origin counts as authored: those rows are what the owner had
+  // live before this field existed.
+  const authored = candidates.filter((c) => (c.greeting.origin ?? "written") !== "translated");
+  const pool = authored.length > 0 ? authored : candidates;
+
+  return [...pool].sort(byRecency)[0];
 }

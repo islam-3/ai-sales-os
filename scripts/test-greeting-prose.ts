@@ -21,9 +21,12 @@
 //      Anything the owner typed is theirs and goes live.
 
 import { buildChatIntro, deriveChips, firstSentenceOf } from "../lib/chat-intro";
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
   greetingNeedsReview,
   storedGreetingFor,
+  translationSourceFor,
   type StoredGreeting,
 } from "../lib/chat-intro-i18n";
 import { buildGreetingSuggestionPrompt, buildGreetingTranslationPrompt } from "../lib/greeting-prompts";
@@ -249,6 +252,213 @@ check(
   /NAME stays exactly as it is written/.test(translation)
 );
 check("and nothing may be added", /Do not add a service, a number or a claim/.test(translation));
+
+// ─────────────────────────────────────────────────────────────────────
+// The Translate button: when it appears, and what it translates FROM
+//
+// It used to translate whatever was in the editor into the chat
+// language, with no notion of a source at all. On a tenant whose chat
+// language was English and whose greeting was English, it offered to
+// translate English into English.
+//
+// Decided entirely from which language key a greeting is filed under —
+// never by reading the words. Guessing a language from prose is the
+// interpretation that {business} placeholders were removed to avoid.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- is there anything to translate? ---");
+
+const g = (over: Partial<StoredGreeting> = {}): StoredGreeting => ({
+  text: "some words",
+  approved: true,
+  ...over,
+});
+
+check(
+  "English greeting, English chat: nothing to do",
+  translationSourceFor({ en: g() }, "en") === null,
+  "this was the bug — it offered to translate English into English"
+);
+check(
+  "English greeting, Arabic chat: translate from English",
+  translationSourceFor({ en: g() }, "ar")?.language === "en"
+);
+check(
+  "already translated and saved: nothing to do",
+  translationSourceFor({ en: g(), ar: g({ origin: "translated" }) }, "ar") === null
+);
+check(
+  "no greetings at all: nothing to do",
+  translationSourceFor({}, "ar") === null,
+  "there is nothing of the owner's to translate; Suggest wording is the action"
+);
+check("no chat language: nothing to do", translationSourceFor({ en: g() }, "") === null);
+check(
+  "a greeting that is only whitespace is not a source",
+  translationSourceFor({ en: g({ text: "   " }) }, "ar") === null
+);
+check(
+  "a language NAME resolves to the same answer as its code",
+  translationSourceFor({ en: g() }, "Arabic")?.language === "en"
+);
+
+console.log("\n--- re-translating one that is not live yet ---");
+const notLive = { en: g(), ar: g({ approved: false, origin: "translated" as const }) };
+check(
+  "normally there is nothing to do once a translation exists",
+  translationSourceFor(notLive, "ar") === null
+);
+check(
+  "but an UNAPPROVED one can be redone from the original",
+  translationSourceFor(notLive, "ar", { ignoreExisting: true })?.language === "en",
+  "redoing a bad translation must start from the original, not from itself"
+);
+
+console.log("\n--- never translating a translation ---");
+// The case origin exists for: the owner writes English, approves an
+// Arabic translation of it, then switches the chat language to Russian.
+// Picking the most recent greeting would translate the ARABIC, which
+// compounds whatever the first translation got wrong.
+const compounded = {
+  en: g({ origin: "written" as const, savedAt: 1000 }),
+  ar: g({ origin: "translated" as const, savedAt: 2000 }),
+};
+check(
+  "the authored English wins over the newer Arabic translation",
+  translationSourceFor(compounded, "ru")?.language === "en",
+  `got ${translationSourceFor(compounded, "ru")?.language}`
+);
+check(
+  "a suggestion the owner saved counts as authored",
+  translationSourceFor(
+    {
+      en: g({ origin: "translated" as const, savedAt: 3000 }),
+      tr: g({ origin: "suggested" as const, savedAt: 1000 }),
+    },
+    "ru"
+  )?.language === "tr",
+  "they read it and saved it, so it is theirs"
+);
+check(
+  "the most recent of two authored greetings wins",
+  translationSourceFor(
+    {
+      en: g({ origin: "written" as const, savedAt: 1000 }),
+      tr: g({ origin: "written" as const, savedAt: 5000 }),
+    },
+    "ru"
+  )?.language === "tr"
+);
+check(
+  "a translation is used only when there is nothing else",
+  translationSourceFor(
+    {
+      ar: g({ origin: "translated" as const, savedAt: 1000 }),
+      tr: g({ origin: "translated" as const, savedAt: 5000 }),
+    },
+    "ru"
+  )?.language === "tr",
+  "better than refusing to do anything"
+);
+
+console.log("\n--- rows written before origin and savedAt existed ---");
+check(
+  "a greeting with no origin counts as authored",
+  translationSourceFor(
+    { en: g({ savedAt: 1000 }), ar: g({ origin: "translated" as const, savedAt: 9000 }) },
+    "ru"
+  )?.language === "en",
+  "it is what the owner had live, so it is as close to authored as we have"
+);
+check(
+  "a missing savedAt sorts last rather than first",
+  translationSourceFor(
+    { en: g({ origin: "written" as const }), tr: g({ origin: "written" as const, savedAt: 1 }) },
+    "ru"
+  )?.language === "tr",
+  "an unknown date is not evidence of recency"
+);
+check(
+  "two unknown dates prefer the source language",
+  translationSourceFor({ ar: g(), en: g(), tr: g() }, "ru")?.language === "en",
+  // Every migrated row has no savedAt, so without this the winner came
+  // from JSON key order. On a real tenant that picked a 633-character
+  // Arabic greeting over the English it had been derived from.
+  `got ${translationSourceFor({ ar: g(), en: g(), tr: g() }, "ru")?.language}`
+);
+check(
+  "and with no English, alphabetically rather than arbitrarily",
+  translationSourceFor({ tr: g(), ar: g() }, "ru")?.language === "ar",
+  "key order in a JSON object is not a decision"
+);
+check(
+  "a real savedAt still beats the source-language preference",
+  translationSourceFor({ en: g(), tr: g({ savedAt: 5000 }) }, "ru")?.language === "tr",
+  "the tie-break is only for ties"
+);
+
+console.log("\n--- the card and the server agree on the source ---");
+const cardSrc = readFileSync(
+  join(process.cwd(), "components/dashboard/business/ChatGreetingCard.tsx"),
+  "utf8"
+);
+const actionsSrc = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
+check(
+  "the card shows the button from translationSourceFor",
+  /translationSourceFor\(greetings, language, \{\s*ignoreExisting: awaitingReview,?\s*\}\)/.test(cardSrc)
+);
+check(
+  "and names both languages on it",
+  /Translate from \$\{languageName\(translateFrom\.language\)/.test(cardSrc),
+  "which language it is translating FROM is the thing that was missing"
+);
+check(
+  "the server decides the source itself rather than trusting the client",
+  /const source = translationSourceFor\(settings\.chat_intro\?\.greetings, language\)/.test(actionsSrc) &&
+    /export async function translateGreeting\(\): Promise/.test(actionsSrc),
+  "otherwise the label the owner read and the text actually sent could disagree"
+);
+check(
+  "a save records where the words came from",
+  /origin: fromSuggestion \? "suggested" : "written"/.test(actionsSrc)
+);
+check(
+  "and a translation records that it is one",
+  /origin: "translated"/.test(actionsSrc),
+  "which is what stops it being used as a source later"
+);
+check(
+  "typing in another language is deliberately not detected",
+  /Deliberately not checked/.test(actionsSrc),
+  "reading the prose to guess its language is the interpretation this card removed"
+);
+
+console.log("\n--- built from the page's own components ---");
+check(
+  "the shared SectionCard, not a local one",
+  /<SectionCard/.test(cardSrc) && !/function Card\(/.test(cardSrc),
+  "the local card had no bg-card or shadow, so it sat darker than the card above it"
+);
+check("the action sits in the footer strip", /<SectionCardFooter/.test(cardSrc));
+check(
+  "and says the same thing as every other card",
+  /Save changes/.test(cardSrc)
+);
+check(
+  "every button is size=sm, as the rest of the page is",
+  (cardSrc.match(/<Button\b/g) ?? []).length ===
+    (cardSrc.match(/size="sm"/g) ?? []).length + (cardSrc.match(/size="icon"/g) ?? []).length,
+  "default-size buttons were visibly taller than Save changes above"
+);
+check(
+  "the shared Textarea, not a raw one",
+  /<Textarea/.test(cardSrc) && !/<textarea/.test(cardSrc)
+);
+check(
+  "and notices use the dashboard's warning tokens, not one-off amber",
+  /border-warning\/30 bg-warning\/10/.test(cardSrc) && !/amber-/.test(cardSrc),
+  "hard-coded amber does not flip with the theme"
+);
 
 console.log(bad ? `\n${bad} FAILING` : "\nall greeting-prose tests passed");
 process.exit(bad ? 1 : 0);

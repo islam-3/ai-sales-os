@@ -218,6 +218,15 @@ function parseChatIntro(raw: unknown): ChatIntroTranslation | undefined {
           }
         : {}),
       approved: entry.approved === true,
+      // Absent on rows written before these existed. translationSourceFor
+      // treats a missing origin as "written" and a missing savedAt as
+      // oldest, both of which are the conservative reading.
+      ...(entry.origin === "written" || entry.origin === "suggested" || entry.origin === "translated"
+        ? { origin: entry.origin }
+        : {}),
+      ...(typeof entry.savedAt === "number" && Number.isFinite(entry.savedAt)
+        ? { savedAt: entry.savedAt }
+        : {}),
       ...(asString(wroteWith.businessName) || asString(wroteWith.place)
         ? {
             wroteWith: {
