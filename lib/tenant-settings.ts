@@ -1,4 +1,9 @@
-import type { ChatIntroKey, ChatIntroStrings, ChatIntroTranslation } from "./chat-intro-i18n";
+import type {
+  ChatIntroKey,
+  ChatIntroStrings,
+  ChatIntroTranslation,
+  StoredGreetings,
+} from "./chat-intro-i18n";
 import { resolveLanguageCode } from "./languages";
 
 // Shape of tenants.settings — the flexible, secondary business fields
@@ -188,7 +193,46 @@ function parseChatIntro(raw: unknown): ChatIntroTranslation | undefined {
     if (Object.keys(out).length > 0) ownLabels[code] = out;
   }
 
+  // ── The greeting as literal prose, by language ───────────────────
+  // The new shape. Absent on every row written before it, which is why
+  // the reader falls back to assembling the old fifteen strings rather
+  // than showing a blank — see buildChatIntro.
+  const greetingsRaw = asObject(root.greetings);
+  const greetings: StoredGreetings = {};
+  for (const key of Object.keys(greetingsRaw)) {
+    const entry = asObject(greetingsRaw[key]);
+    const text = asString(entry.text);
+    if (!text) continue;
+    const code = resolveLanguageCode(key) ?? key.trim().toLowerCase();
+    const chipsRaw = entry.chips;
+    const wroteWith = asObject(entry.wroteWith);
+    greetings[code] = {
+      text,
+      // Distinguished from absent on purpose: an empty array means the
+      // owner wants no chips, absent means derive them.
+      ...(Array.isArray(chipsRaw)
+        ? {
+            chips: chipsRaw
+              .map((c) => asString(c))
+              .filter((c): c is string => !!c),
+          }
+        : {}),
+      approved: entry.approved === true,
+      ...(asString(wroteWith.businessName) || asString(wroteWith.place)
+        ? {
+            wroteWith: {
+              ...(asString(wroteWith.businessName)
+                ? { businessName: asString(wroteWith.businessName) }
+                : {}),
+              ...(asString(wroteWith.place) ? { place: asString(wroteWith.place) } : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
   return {
+    ...(Object.keys(greetings).length > 0 ? { greetings } : {}),
     // Normalised alongside chat_language. These two are COMPARED to decide
     // whether a cached translation still matches the chosen language, so
     // moving one to codes without the other would mark every approved

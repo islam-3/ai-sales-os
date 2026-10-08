@@ -90,6 +90,14 @@ export type ChatIntroTranslation = {
    * back, instead of being cleared on the owner's behalf.
    */
   ownLabels: Record<string, Record<string, string>>;
+  /**
+   * The greeting as literal prose, by language. The new shape.
+   *
+   * Lives inside chat_intro rather than beside it so one jsonb key holds
+   * everything about the greeting, old and new, and a tenant can be read
+   * without knowing which generation they are on.
+   */
+  greetings?: StoredGreetings;
 };
 
 /** Stable, dependency-free hash of the English source. */
@@ -103,93 +111,13 @@ export function chatIntroSourceHash(source: Record<string, string> = CHAT_INTRO_
   return hash.toString(36);
 }
 
-/** Whether a cached translation is still usable. */
-export function translationIsCurrent(
-  cached: ChatIntroTranslation | undefined,
-  language: string
-): cached is ChatIntroTranslation {
-  return (
-    !!cached &&
-    cached.language.trim().toLowerCase() === language.trim().toLowerCase() &&
-    cached.sourceHash === chatIntroSourceHash()
-  );
-}
 
-const PLACEHOLDER = /\{(business|place)\}/g;
+// The {business} and {place} placeholder machinery lived here. It is
+// gone with the templated greeting: the owner writes their name into the
+// prose like any other word, so there is nothing to substitute and
+// nothing to validate the substitution of.
 
-function placeholdersIn(text: string): string[] {
-  return (text.match(PLACEHOLDER) ?? []).sort();
-}
 
-/**
- * A translation is only accepted when it is structurally sound.
- *
- * The placeholder check is the important one. A model that renders
- * "{business}" into the business's actual name, or drops it, produces a
- * greeting that is either wrong for every other tenant or missing the
- * name entirely — and it would be cached and shown to every visitor.
- */
-export function validateTranslation(raw: unknown): ChatIntroStrings | null {
-  if (!raw || typeof raw !== "object") return null;
-  const candidate = raw as Record<string, unknown>;
-  const out = {} as ChatIntroStrings;
-
-  for (const key of Object.keys(CHAT_INTRO_SOURCE) as ChatIntroKey[]) {
-    const value = candidate[key];
-    if (typeof value !== "string") return null;
-
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    // Generous, but a translation of a chip label that runs to a
-    // paragraph is a model answering the wrong question.
-    if (trimmed.length > 200) return null;
-
-    const expected = placeholdersIn(CHAT_INTRO_SOURCE[key]);
-    if (placeholdersIn(trimmed).join(",") !== expected.join(",")) return null;
-
-    out[key] = trimmed;
-  }
-
-  return out;
-}
-
-/**
- * Why a translation cannot be published yet, or null when it can.
- *
- * Approving English as an Arabic greeting is the one mistake here that
- * silently reaches every visitor, and the card made it easy: its fields
- * were pre-filled with the English fallback, so one press would have
- * stored English and marked it live. Checked on the server too, because a
- * disabled button is a suggestion.
- *
- * Two rules, because neither covers the other. Text identical to the
- * English source is untranslated whatever the language. A script that
- * disagrees with the chosen language catches a draft that was edited but
- * never translated. Where the language is written in Latin script, only
- * the first rule can fire, which is honest: English and German cannot be
- * told apart by script.
- */
-export function blockedFromPublishing(
-  language: string,
-  strings: ChatIntroStrings,
-  scriptOf: (text: string) => string | null,
-  scriptFor: (language: string) => string | null
-): "unchanged-from-english" | "wrong-script" | null {
-  const keys = Object.keys(CHAT_INTRO_SOURCE) as ChatIntroKey[];
-  const unchanged = keys.every((key) => strings[key].trim() === CHAT_INTRO_SOURCE[key]);
-  if (unchanged) return "unchanged-from-english";
-
-  const expected = scriptFor(language);
-  if (!expected) return null;
-
-  // Judged on the prose, not the chip labels: a one-word chip left in
-  // English is a wording choice, a whole greeting in English is not.
-  const prose = [strings.opener_with_place, strings.opener, strings.help].join(" ");
-  const actual = scriptOf(prose);
-  if (actual && actual !== expected) return "wrong-script";
-
-  return null;
-}
 
 
 /**
@@ -258,28 +186,6 @@ export function resolveIntroLine(
   return actual === expected ? intro : null;
 }
 
-/** The instruction for translating the fixed strings, and nothing else. */
-export function buildChatIntroTranslationPrompt(language: string): string {
-  return `You translate a handful of short interface strings for a business's chat widget into ${language}.
-
-Respond with ONLY a JSON object, no other text and no markdown code fences, with exactly these keys and a ${language} translation of each value:
-
-${JSON.stringify(CHAT_INTRO_SOURCE, null, 2)}
-
-What each one is for, since some are ambiguous out of context:
-- "chip_about" is a button meaning "about this company" — about the business the customer is talking to, not a project or a product.
-- "chip_how_it_works" is a button meaning "how the service works".
-- "chip_before_after" is a button meaning "before-and-after photos of previous customers".
-- "help" is the line inviting the customer to start writing.
-
-Rules:
-- {business} and {place} are placeholders that get replaced with the business's own name and city. Keep them EXACTLY as written, including the braces, and put them where they belong in ${language} word order. Never translate them, never remove them, never substitute a real name.
-- These are spoken to a customer arriving at a business's chat. Warm and natural in ${language}, not a literal word-for-word rendering.
-- The chip values are buttons a customer taps. Keep them short — a few words, as they are in English.
-- If ${language} is English, return the values unchanged.
-
-Respond with the JSON object only.`;
-}
 
 /**
  * Hand-written translations, used when generation has not happened or
@@ -339,6 +245,25 @@ export function builtInTranslation(language: string): ChatIntroStrings | null {
 }
 
 /**
+ * Whether a cached translation is still usable.
+ *
+ * Only reads the LEGACY fifteen-string shape. The greeting a tenant
+ * writes now is prose, kept per language and read by storedGreetingFor;
+ * this is what buildChatIntro falls back to for a tenant who has not
+ * written one.
+ */
+export function translationIsCurrent(
+  cached: ChatIntroTranslation | undefined,
+  language: string
+): cached is ChatIntroTranslation {
+  return (
+    !!cached &&
+    cached.language.trim().toLowerCase() === language.trim().toLowerCase() &&
+    cached.sourceHash === chatIntroSourceHash()
+  );
+}
+
+/**
  * The strings to render with, best available first.
  *
  * Owner-reviewed text beats a hand-written fallback, which beats English.
@@ -353,66 +278,8 @@ export function resolveChatIntroStrings(
   return builtInTranslation(language) ?? { ...CHAT_INTRO_SOURCE };
 }
 
-/**
- * What a visitor is actually being greeted in right now, and why.
- *
- * Exists so the dashboard can say so plainly. A tenant that picks Russian
- * and never approves the translation is silently greeting Russian
- * visitors in English, and the only thing worse than that happening is it
- * happening invisibly.
- */
-export type ChatIntroStatus = {
-  /** What a first-time visitor sees this moment. */
-  showing: "english" | "built-in" | "approved";
-  /** The language the owner chose, or null if they have not chosen one. */
-  language: string | null;
-  /** Why the chosen language is not live, when it is not. */
-  pending: null | "not-generated" | "awaiting-approval" | "out-of-date";
-};
 
-export function chatIntroStatus(settings: {
-  chat_language?: string;
-  chat_intro?: ChatIntroTranslation;
-}): ChatIntroStatus {
-  const language = settings.chat_language?.trim() || null;
-  if (!language) return { showing: "english", language: null, pending: null };
 
-  const cached = settings.chat_intro;
-  const hasBuiltIn = builtInTranslation(language) !== null;
-  const fallback = hasBuiltIn ? "built-in" : "english";
-
-  // Compared as CODES, not as raw strings. parseTenantSettings
-  // normalises both of these, but a row written before it did — or any
-  // value typed by hand — can hold "Arabic" where the other holds "ar",
-  // and a plain string compare then reports a perfectly good
-  // translation as "not generated" and asks the owner to make it again.
-  const storedCode = resolveLanguageCode(cached?.language ?? "") ?? cached?.language?.trim().toLowerCase();
-  const chosenCode = resolveLanguageCode(language) ?? language.trim().toLowerCase();
-  if (!cached || storedCode !== chosenCode) {
-    return { showing: fallback, language, pending: "not-generated" };
-  }
-  if (cached.sourceHash !== chatIntroSourceHash()) {
-    return { showing: fallback, language, pending: "out-of-date" };
-  }
-  if (!cached.approved) {
-    return { showing: fallback, language, pending: "awaiting-approval" };
-  }
-  return { showing: "approved", language, pending: null };
-}
-
-/**
- * The keys whose English has changed since a translation was made.
- *
- * Only these need redoing. Everything else keeps its translation,
- * including any wording the owner corrected by hand, which is the whole
- * reason the English is stored alongside.
- */
-export function staleKeys(cached: ChatIntroTranslation | undefined): ChatIntroKey[] {
-  if (!cached) return [];
-  return (Object.keys(CHAT_INTRO_SOURCE) as ChatIntroKey[]).filter(
-    (key) => cached.source?.[key] !== CHAT_INTRO_SOURCE[key]
-  );
-}
 
 // Arabic, Hebrew, Persian/Urdu supplements, and their presentation forms.
 const RTL_SCRIPT = /[\u0591-\u07FF\u08A0-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
@@ -434,44 +301,101 @@ export function isRtlText(text: string): boolean {
 /** The language the fixed strings are authored in. */
 export const SOURCE_LANGUAGE_CODE = "en";
 
+
+
+// ─────────────────────────────────────────────────────────────────────
+// The greeting as literal prose
+//
+// What came before this: fifteen separately translatable strings —
+// opener, opener_with_place, help, and a chip label for each category we
+// could recognise — assembled at render time with {business} and {place}
+// substituted in. Every piece existed because WE needed it translatable
+// independently, and the business owner paid for that with a form of
+// fifteen labelled fields to fill in for a welcome message.
+//
+// The greeting is now one string, written as a visitor will read it,
+// with the business name and city typed into it like any other words.
+//
+// ── Why literal, and what it costs ───────────────────────────────────
+// A business renames itself once in several years, so templating was
+// permanent complexity for a case that barely happens. More importantly,
+// working out which words in an owner's prose are "the business name"
+// is text interpretation, and text interpretation is where every hard
+// bug in this project has come from.
+//
+// The cost is a greeting that goes stale on a rename. That is handled
+// visibly — see greetingNeedsReview — rather than by inference.
+// ─────────────────────────────────────────────────────────────────────
+
+export type StoredGreeting = {
+  /** The whole message, exactly as a visitor reads it. */
+  text: string;
+  /**
+   * The buttons a visitor can tap.
+   *
+   * Absent means "derive them from the knowledge base categories", which
+   * is what every tenant got before and what a tenant who never opens
+   * this still gets. An EMPTY array is different and deliberate: it
+   * means the owner removed them all and wants none. Without that
+   * distinction, deleting every chip regenerates them and reads as a bug.
+   */
+  chips?: string[];
+  /**
+   * Whether the owner has signed this off.
+   *
+   * True for anything they wrote or edited themselves. False only for a
+   * machine translation they have not read yet — the one case where we
+   * produced words in a language we cannot check.
+   */
+  approved: boolean;
+  /**
+   * The business name and city AT THE TIME this was written.
+   *
+   * The whole of the rename story. Compared against the current values
+   * to decide whether to remind the owner that their welcome message
+   * mentions a name they have changed. Nothing is rewritten and nothing
+   * is inferred: the greeting is prose, and only its author knows which
+   * words matter.
+   */
+  wroteWith?: { businessName?: string; place?: string };
+};
+
+/** Greetings by language code. */
+export type StoredGreetings = Record<string, StoredGreeting>;
+
+/** The greeting stored for one language, if there is one. */
+export function storedGreetingFor(
+  greetings: StoredGreetings | undefined,
+  language: string | undefined
+): StoredGreeting | null {
+  const code = resolveLanguageCode(language ?? "") ?? (language ?? "").trim().toLowerCase();
+  if (!code) return null;
+  const found = greetings?.[code];
+  return found && found.text.trim() ? found : null;
+}
+
 /**
- * Which of four situations the greeting is actually in.
+ * Whether a stored greeting predates a change to the name or the city.
  *
- * The card used to derive its shape from whether a draft object happened
- * to exist, which produced a translation workflow for a business whose
- * chat language was English and whose content was already English:
- * "your draft", "Translate again", "Approve & make live", fifteen
- * fields, and then a warning explaining that the draft was still English
- * and could not be made live. Every one of those was true and none of
- * them applied.
+ * Returns WHAT changed, so the reminder can say which — "you changed
+ * your business name" is actionable and "something changed" is not.
  *
- *   native   the chat language IS the language the strings are written
- *            in, so there is nothing to translate and no sign-off to
- *            give. Just wording the owner may edit.
- *   missing  another language, nothing generated for it yet.
- *   review   a generation exists for this language and is not live,
- *            either unapproved or made from older English.
- *   live     approved, current, and what visitors are seeing.
- *
- * Derived here rather than in the component so the states can be tested
- * without rendering anything.
+ * A greeting saved before this field existed has nothing to compare
+ * against and says so by returning null: a reminder nobody can act on is
+ * worse than silence, and the next save records the snapshot.
  */
-export type GreetingMode = "native" | "missing" | "review" | "live";
+export function greetingNeedsReview(
+  stored: StoredGreeting | null,
+  current: { businessName?: string | null; place?: string | null }
+): { name: boolean; place: boolean } | null {
+  if (!stored?.wroteWith) return null;
 
-export function greetingMode(settings: {
-  chat_language?: string;
-  chat_intro?: ChatIntroTranslation;
-}): GreetingMode {
-  const language = settings.chat_language?.trim() ?? "";
-  const code = resolveLanguageCode(language) ?? language.toLowerCase();
+  const was = stored.wroteWith;
+  const name =
+    !!was.businessName &&
+    !!current.businessName &&
+    was.businessName.trim() !== current.businessName.trim();
+  const place = !!was.place && !!current.place && was.place.trim() !== current.place.trim();
 
-  // Checked FIRST, before anything about what is stored. A business
-  // writing English for English-speaking visitors has no translation
-  // step, whatever happens to be cached from a language it used before.
-  if (code === SOURCE_LANGUAGE_CODE) return "native";
-
-  const status = chatIntroStatus(settings);
-  if (status.pending === "not-generated") return "missing";
-  if (status.pending === null) return "live";
-  return "review";
+  return name || place ? { name, place } : null;
 }

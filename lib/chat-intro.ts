@@ -11,10 +11,12 @@
 // but its name still gets a clean, truthful greeting.
 
 import type { TenantSettings } from "./tenant-settings";
+import { splitSentences } from "./punctuation";
 import {
   CHAT_INTRO_SOURCE,
   labelsForLanguage,
   ownLabel,
+  storedGreetingFor,
   resolveChatIntroStrings,
   resolveIntroLine,
   type ChatIntroKey,
@@ -253,6 +255,30 @@ export function chipPlanFor(categories: string[]): {
 }
 
 export function buildChatIntro(input: ChatIntroInput): ChatIntro {
+  // ── The owner's own prose, when they have written it ───────────────
+  //
+  // Preferred over everything below, which is the previous generation:
+  // fifteen separately translatable strings assembled with {business}
+  // and {place} substituted in. That machinery stays, unchanged, as the
+  // fallback for every tenant not yet migrated and every tenant who has
+  // never opened the card — so a missed row degrades to exactly today's
+  // greeting rather than to a blank page.
+  //
+  // Unapproved prose is NOT shown, and that is the one case approval
+  // exists for: a machine translation nobody has read. Anything the
+  // owner typed is saved approved, because it is theirs.
+  const own = storedGreetingFor(input.settings.chat_intro?.greetings, input.settings.chat_language);
+  if (own && own.approved) {
+    const { title, sub } = splitStoredGreeting(own.text, firstSentenceOf(own.text));
+    return {
+      greeting: own.text,
+      title,
+      sub,
+      // Absent means derive; an empty array means the owner wants none.
+      chips: own.chips ?? deriveChips(input),
+    };
+  }
+
   // English unless the owner has chosen another language AND signed off a
   // translation of it; otherwise a hand-written one where one exists.
   const strings = input.settings.chat_language
@@ -325,4 +351,38 @@ export function splitStoredGreeting(
   }
 
   return { title: "", sub: text };
+}
+
+/**
+ * The chips a tenant gets when they have not chosen any.
+ *
+ * The knowledge base categories, in the chat language where the fixed
+ * labels cover them. Unchanged from what every tenant has always had,
+ * and the reason the new chip list is an OVERRIDE rather than a
+ * requirement: a business that never opens the card keeps working, and
+ * its chips still follow when it adds a category.
+ */
+export function deriveChips(input: ChatIntroInput): string[] {
+  const strings = input.settings.chat_language
+    ? resolveChatIntroStrings(input.settings.chat_language, input.settings.chat_intro)
+    : { ...CHAT_INTRO_SOURCE };
+  const labels = labelsForLanguage(
+    input.settings.chat_intro?.ownLabels,
+    input.settings.chat_language
+  );
+  return buildChips(input.categories, strings, labels);
+}
+
+/**
+ * The first sentence, for the greeting headline.
+ *
+ * Literal prose has no title/sub split of its own — the owner wrote one
+ * message — so the composed layout takes the opening sentence as its
+ * headline and the rest as the body. Carved by lib/punctuation.ts,
+ * because a Chinese greeting ends its first sentence on 。 with no space
+ * after it.
+ */
+export function firstSentenceOf(text: string): string {
+  const sentences = splitSentences(text.trim());
+  return sentences.length > 0 ? sentences[0].trim() : text.trim();
 }

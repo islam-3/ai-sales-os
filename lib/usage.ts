@@ -6,8 +6,12 @@ export type UsageCallType =
   | "lead_extraction"
   | "rag_embedding"
   | "knowledge_embedding"
-  // One-off per language, from the dashboard rather than a conversation.
-  | "chat_intro_translation";
+  // One-off, from the dashboard rather than a conversation.
+  | "chat_intro_translation"
+  // Drafting a welcome message from the business's own details, and
+  // translating one. Both owner-initiated, both one call per press.
+  | "greeting_suggestion"
+  | "greeting_translation";
 
 export type RecordUsageInput = {
   tenantId: string;

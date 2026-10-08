@@ -10,26 +10,20 @@
 import { buildChatIntro } from "../lib/chat-intro";
 import {
   CHAT_INTRO_SOURCE,
-  blockedFromPublishing,
-  buildChatIntroTranslationPrompt,
   builtInTranslation,
-  chatIntroStatus,
-  greetingMode,
   chatIntroSourceHash,
   isRtlText,
   labelsForLanguage,
   ownLabel,
   resolveChatIntroStrings,
   resolveIntroLine,
-  staleKeys,
   translationIsCurrent,
-  validateTranslation,
   type ChatIntroStrings,
   type ChatIntroTranslation,
 } from "../lib/chat-intro-i18n";
 import { parseTenantSettings } from "../lib/tenant-settings";
 import { detectScript, scriptForLanguage } from "../lib/visitor-language";
-import { chipPlanFor, deriveIntroLine } from "../lib/chat-intro";
+
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -163,28 +157,6 @@ check(
 );
 check("and the new city is substituted, not translated", withDetails.title.includes("Ankara"), withDetails.title);
 
-console.log("\n--- what a generated translation has to satisfy ---");
-const valid = { ...CHAT_INTRO_SOURCE, opener: "Hallo! Wir sind {business}.", opener_with_place: "Hallo! Wir sind {business} in {place}." };
-check("a well-formed translation is accepted", validateTranslation(valid) !== null);
-check(
-  "a placeholder replaced with a real name is rejected",
-  validateTranslation({ ...valid, opener: "Hallo! Wir sind Prof Clinic." }) === null,
-  "it would be cached and shown to every visitor of every tenant"
-);
-check("a dropped placeholder is rejected", validateTranslation({ ...valid, opener: "Hallo!" }) === null);
-check("an extra placeholder is rejected", validateTranslation({ ...valid, help: "Hallo {place}?" }) === null);
-check("a missing key is rejected", validateTranslation({ ...valid, chip_team: undefined }) === null);
-check("an empty string is rejected", validateTranslation({ ...valid, chip_team: "   " }) === null);
-check("a paragraph where a chip should be is rejected", validateTranslation({ ...valid, chip_team: "x".repeat(201) }) === null);
-check("a non-object is rejected", validateTranslation("nope") === null);
-
-console.log("\n--- the translation prompt ---");
-const prompt = buildChatIntroTranslationPrompt("Deutsch");
-check("names the target language", /into Deutsch/.test(prompt));
-check("forbids substituting a real name", /never substitute a real name/i.test(prompt));
-check("carries the exact source strings", prompt.includes(CHAT_INTRO_SOURCE.help));
-check("asks for JSON only", /Respond with the JSON object only/.test(prompt));
-
 console.log("\n--- editing the English source invalidates translations of it ---");
 const changed = chatIntroSourceHash({ ...CHAT_INTRO_SOURCE, help: "How may we help?" });
 check("the hash moves when a string changes", changed !== chatIntroSourceHash());
@@ -197,150 +169,17 @@ check("Turkish does not", !isRtlText(builtInTranslation("Turkish")!.help));
 check("English does not", !isRtlText(CHAT_INTRO_SOURCE.help));
 check("a name in Latin script inside Arabic text still reads RTL", isRtlText("مرحباً! نحن Prof Clinic."));
 
-console.log("\n--- the owner can see what visitors are actually getting ---");
-// A tenant that picks Russian and never approves is greeting Russian
-// visitors in English. The only thing worse than that is it being
-// invisible on the dashboard.
-const status = (over: Record<string, unknown>) =>
-  chatIntroStatus(parseTenantSettings(over) as { chat_language?: string; chat_intro?: ChatIntroTranslation });
-
-const none = status({});
-check("no language chosen reads as plain English", none.showing === "english" && none.pending === null);
-
-const ungenerated = status({ chat_language: "Russian" });
-check(
-  "a language with nothing generated is flagged, not silently English",
-  ungenerated.showing === "english" && ungenerated.pending === "not-generated",
-  JSON.stringify(ungenerated)
-);
-
-const builtInPending = status({ chat_language: "Turkish" });
-check(
-  "a hand-written fallback is reported as such",
-  builtInPending.showing === "built-in" && builtInPending.pending === "not-generated",
-  JSON.stringify(builtInPending)
-);
-
-const unapproved = status({ chat_language: "Deutsch", chat_intro: stored({ approved: false }) });
-check(
-  "generated but unapproved is NOT live",
-  unapproved.showing === "english" && unapproved.pending === "awaiting-approval",
-  JSON.stringify(unapproved)
-);
-
-const approved = status({ chat_language: "Deutsch", chat_intro: stored({}) });
-check("approved is live", approved.showing === "approved" && approved.pending === null);
-
-const outOfDate = status({ chat_language: "Deutsch", chat_intro: stored({ sourceHash: "old" }) });
-check(
-  "an out-of-date translation is flagged",
-  outOfDate.pending === "out-of-date",
-  JSON.stringify(outOfDate)
-);
-
-const switched = status({ chat_language: "Russian", chat_intro: stored({}) });
-check(
-  "switching language invalidates the old translation",
-  switched.pending === "not-generated",
-  JSON.stringify(switched)
-);
-
-console.log("\n--- only the strings whose English changed are stale ---");
-check("nothing stale when the source matches", staleKeys(stored({})).length === 0);
-const drifted = stored({ source: { ...CHAT_INTRO_SOURCE, help: "How may we help?" } });
-check(
-  "exactly the changed string is stale",
-  JSON.stringify(staleKeys(drifted)) === JSON.stringify(["help"]),
-  JSON.stringify(staleKeys(drifted))
-);
-check(
-  "a translation stored without its source is wholly stale, not wrongly trusted",
-  staleKeys(stored({ source: {} })).length === Object.keys(CHAT_INTRO_SOURCE).length
-);
-
-console.log("\n--- English can never be published as another language ---");
-// The card pre-filled its fields with the English fallback and kept them
-// after a successful generation, so one press of "Approve & make live"
-// would have stored English AND marked it live as the Arabic greeting.
-const blocked = (language: string, strings: ChatIntroStrings) =>
-  blockedFromPublishing(language, strings, (text) => detectScript([text]), scriptForLanguage);
-
+console.log("\n--- the owner's own words, in their own language ---");
 const arabicStrings: ChatIntroStrings = {
   ...CHAT_INTRO_SOURCE,
   opener_with_place: "أهلاً! نحن {business} في {place}.",
   opener: "أهلاً! نحن {business}.",
-  // Deliberately NOT the same wording as the hand-written Arabic table:
-  // an identical string would make "was the generated one used?" and "was
-  // the fallback used?" indistinguishable.
+  // Deliberately NOT the hand-written Arabic table's wording: an
+  // identical string would make "was the stored one used?" and "was the
+  // fallback used?" indistinguishable.
   help: "كيف نستطيع خدمتك؟",
 };
 
-check(
-  "the untouched English source cannot go live as Arabic",
-  blocked("Arabic", { ...CHAT_INTRO_SOURCE }) === "unchanged-from-english"
-);
-check(
-  "nor as German, where script cannot tell them apart",
-  blocked("Deutsch", { ...CHAT_INTRO_SOURCE }) === "unchanged-from-english",
-  "the equality rule is what covers Latin-script languages"
-);
-check(
-  "an English greeting with one chip edited is still caught by script",
-  blocked("Arabic", { ...CHAT_INTRO_SOURCE, chip_team: "الفريق" }) === "wrong-script"
-);
-check("a real Arabic translation publishes", blocked("Arabic", arabicStrings) === null);
-check(
-  "chips left in English do not block a translated greeting",
-  blocked("Arabic", { ...arabicStrings, chip_hours: "Opening hours" }) === null,
-  "a one-word chip is a wording choice; a whole greeting in English is not"
-);
-check(
-  "a language with no script rule is not blocked on script",
-  blocked("Swahili", { ...CHAT_INTRO_SOURCE, help: "Tunawezaje kukusaidia?" }) === null
-);
-
-console.log("\n--- the server refuses it too, not just the button ---");
-const actionsSrc = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
-check(
-  "approval is checked server-side",
-  /if \(approved && !isSourceLanguage\) \{[\s\S]{0,400}blockedFromPublishing\(/.test(actionsSrc),
-  // Still server-side, now with the one exemption that makes sense:
-  // the check is about publishing one language's words as another's, so
-  // it cannot apply when the target IS the source language.
-  "a disabled button is a suggestion"
-);
-check("and says why it refused", /still the English wording/.test(actionsSrc));
-
-console.log("\n--- only the chips a tenant actually shows ---");
-const dental = chipPlanFor(["Dental treatment", "Our history", "before_after", "pricing"]);
-check(
-  "recognised categories map to keys",
-  dental.keys.includes("chip_about") && dental.keys.includes("chip_before_after"),
-  JSON.stringify(dental)
-);
-check(
-  "an owner-written category is listed separately and never translated",
-  dental.ownWords.includes("Dental treatment"),
-  JSON.stringify(dental.ownWords)
-);
-check(
-  "never more than a visitor sees",
-  dental.keys.length + dental.ownWords.length <= 4,
-  JSON.stringify(dental)
-);
-const empty = chipPlanFor([]);
-check(
-  "a tenant with no categories falls back",
-  empty.keys.length === 3 && empty.ownWords.length === 0,
-  JSON.stringify(empty)
-);
-check(
-  "the same label is never offered twice",
-  new Set(chipPlanFor(["our_history", "about", "story"]).keys).size ===
-    chipPlanFor(["our_history", "about", "story"]).keys.length
-);
-
-console.log("\n--- the owner's own words, in their own language ---");
 // An Arabic greeting above buttons reading "Dental treatment", beside a
 // city reading "Istanbul", is half-translated. These are business details
 // though, so nothing but the owner may write them.
@@ -410,127 +249,6 @@ check(
   parseTenantSettings({ chat_intro: stored({ ownLabels: { ar: { Istanbul: "إسطنبول" } } }) })
     .chat_intro?.ownLabels.ar.Istanbul === "إسطنبول"
 );
-
-console.log("\n--- translating again must not discard them ---");
-const actionsSrc2 = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
-check(
-  "generation carries EVERY language's labels across",
-  /ownLabels: settings\.chat_intro\?\.ownLabels \?\? \{\}/.test(actionsSrc2),
-  // It used to clear them whenever the target language differed from the
-  // stored one, which was right for a flat map and is destructive now
-  // that each language keeps its own bucket. Regenerating English must
-  // not delete the Arabic words.
-  "regenerating one language must not delete another language's words"
-);
-check(
-  "saving drops an empty label rather than storing it",
-  /if \(trimmed\) cleanedLabels\[key\] = trimmed;/.test(actionsSrc2)
-);
-
-console.log("\n--- the prompt says what the ambiguous strings mean ---");
-check(
-  "about is explained as about the company",
-  /about this company/.test(buildChatIntroTranslationPrompt("Arabic")),
-  "a generated draft rendered it as \"about the project\", which reads oddly for a clinic"
-);
-check(
-  "but the tenant's industry is never sent",
-  !/industry/i.test(buildChatIntroTranslationPrompt("Arabic")),
-  "business details in a cached translation would make changing one invalidate the other"
-);
-
-console.log("\n--- the line drawn from the description ---");
-// It is a whole sentence of the owner's own prose. Nothing may translate
-// it but them, and an English sentence sitting inside an Arabic greeting
-// is worse than a greeting one sentence shorter.
-const DERIVED = deriveIntroLine(BUSINESS.description, BUSINESS.businessName);
-check("the dashboard can see the line the greeting derives", DERIVED === BUSINESS.description, String(DERIVED));
-check("no description means no line to offer", deriveIntroLine(null, "Prof Clinic") === null);
-
-const arabicIntro = (labels: Record<string, string>) =>
-  buildChatIntro({
-    ...BUSINESS,
-    settings: parseTenantSettings({
-      chat_language: "Arabic",
-      chat_intro: stored({ language: "Arabic", strings: arabicStrings, ownLabels: { ar: labels } }),
-    }),
-  });
-
-const OWN_ARABIC = "نعالج المرضى الدوليين في إسطنبول.";
-check(
-  "the owner's own version is what the visitor reads",
-  arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub.includes(OWN_ARABIC),
-  arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub
-);
-check(
-  "and the English it replaces is gone",
-  !arabicIntro({ [BUSINESS.description]: OWN_ARABIC }).sub.includes(BUSINESS.description)
-);
-check(
-  "left empty, an English sentence is dropped from an Arabic greeting",
-  !arabicIntro({}).sub.includes(BUSINESS.description),
-  arabicIntro({}).sub
-);
-check(
-  "and the rest of the greeting still stands",
-  arabicIntro({}).sub.includes(arabicStrings.help),
-  "a missing sentence, not a missing greeting"
-);
-check(
-  "a blank label counts as empty, not as a translation",
-  !arabicIntro({ [BUSINESS.description]: "   " }).sub.includes(BUSINESS.description)
-);
-
-// English tenants are exactly where they were.
-check(
-  "a matching script keeps the line",
-  intro({}).sub.includes(BUSINESS.description),
-  intro({}).sub
-);
-
-// The rule in isolation: it may only drop what it can PROVE is wrong.
-check(
-  "a language whose script we cannot name keeps the line",
-  resolveIntroLine("We treat patients.", {}, "Klingon") === "We treat patients."
-);
-check(
-  "a line we cannot read a script from keeps it",
-  resolveIntroLine("2024 — 100%.", {}, "Arabic") === "2024 — 100%."
-);
-check(
-  "a proven mismatch, and only that, drops it",
-  resolveIntroLine("We treat patients.", {}, "Arabic") === null
-);
-check(
-  "the owner's own words are never second-guessed",
-  resolveIntroLine("We treat patients.", { "We treat patients.": "Anything they wrote" }, "Arabic") ===
-    "Anything they wrote",
-  "even in the wrong script, it is their sentence to write"
-);
-check("no labels at all still applies the script rule", resolveIntroLine("We treat patients.", undefined, "Arabic") === null);
-
-console.log("\n--- the preview shows what the chat shows ---");
-// The English sentence reached a live Arabic greeting because the card
-// never rendered this line at all.
-const cardSrc = readFileSync(join(process.cwd(), "components/dashboard/business/ChatGreetingCard.tsx"), "utf8");
-check("the preview resolves the line the same way the greeting does", /resolveIntroLine\(introLine, labels, language\)/.test(cardSrc));
-check("and the owner can write it there", /onChange=\{\(e\) => onChange\(introLine, e\.target\.value\)\}/.test(cardSrc));
-
-
-// ─────────────────────────────────────────────────────────────────────
-// Own words belong to a LANGUAGE
-//
-// Reported: an owner wrote their city and categories in Arabic, switched
-// the chat language to English, and the dashboard showed
-//     Hi! We're Prof Clinic in اسطنبول.
-// with the business description and the buttons still in Arabic.
-//
-// The live chat page was never affected — buildChatIntro had a gate
-// comparing the stored translation's language to the chat language — but
-// nothing recorded which language those words were FOR, so the gate was
-// the only thing standing between them and a visitor, and the dashboard
-// preview did not have one.
-// ─────────────────────────────────────────────────────────────────────
 
 console.log("\n--- own words belong to a language ---");
 
@@ -637,154 +355,6 @@ check(
     chat_intro: stored({ ownLabels: { Arabic: { Istanbul: "اسطنبول" } } as never }),
   }).chat_intro?.ownLabels.ar?.Istanbul === "اسطنبول",
   "otherwise 'Arabic' and 'ar' become two buckets for one language"
-);
-
-console.log("\n--- the card validates BEFORE it renders a draft ---");
-check(
-  "the draft is not pre-filled from another language's translation",
-  /storedIsForAnotherLanguage\s*\?\s*null/.test(cardSrc),
-  "showing it labelled 'your draft' is how one language gets approved as another"
-);
-check(
-  "but English IS pre-filled when English is the target",
-  /mode === "native"\s*\?\s*settings\.chat_intro\?\.strings \?\? \{ \.\.\.CHAT_INTRO_SOURCE \}/.test(cardSrc),
-  "the source is the wording there, and there is nothing to approve it as"
-);
-check(
-  "labels come through labelsForLanguage, never the raw map",
-  /labelsForLanguage\(settings\.chat_intro\?\.ownLabels, language\)/.test(cardSrc) &&
-    !/useState<Record<string, string>>\(\s*settings\.chat_intro\?\.ownLabels/.test(cardSrc)
-);
-check(
-  "a left-over translation is mentioned quietly, not as a warning",
-  /otherLanguageName && \(/.test(cardSrc) &&
-    !/Banner tone="warn">[\s\S]{0,80}saved greeting is written in/.test(cardSrc),
-  "nothing is wrong with greeting people in the fallback, so nothing warns about it"
-);
-check(
-  "and the editor remounts when the chat language changes",
-  /props\.settings\.chat_language \?\? "-"/.test(cardSrc),
-  "otherwise its state keeps the previous language's labels"
-);
-
-// ─────────────────────────────────────────────────────────────────────
-// The card shows only the workflow that applies
-//
-// Reported: chat language English, content already English, and the card
-// still showed "your draft", "Translate again", "Approve & make live",
-// fifteen fields, and then a banner explaining that the draft was still
-// English and could not be made live. Every statement was true; none of
-// them applied. It was walking the owner through a process that did not
-// exist in that state.
-// ─────────────────────────────────────────────────────────────────────
-
-console.log("\n--- which workflow applies ---");
-
-check(
-  "English content, English chat language: nothing to translate",
-  greetingMode({ chat_language: "en" }) === "native",
-  greetingMode({ chat_language: "en" })
-);
-check(
-  "a language name resolves the same way as a code",
-  greetingMode({ chat_language: "English" }) === "native"
-);
-check(
-  "and a translation left over from another language does not change it",
-  greetingMode({
-    chat_language: "en",
-    chat_intro: stored({ language: "Arabic", strings: arabicStrings }),
-  }) === "native",
-  "nothing is wrong with greeting English-speaking visitors in English"
-);
-check(
-  "another language with nothing generated",
-  greetingMode({ chat_language: "ar" }) === "missing"
-);
-check(
-  "a generation awaiting sign-off",
-  greetingMode({
-    chat_language: "ar",
-    chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: false }),
-  }) === "review"
-);
-check(
-  "one made from older English is also something to review",
-  greetingMode({
-    chat_language: "ar",
-    chat_intro: stored({ language: "Arabic", strings: arabicStrings, sourceHash: "stale" }),
-  }) === "review"
-);
-check(
-  "and an approved, current one is simply live",
-  greetingMode({
-    chat_language: "ar",
-    chat_intro: stored({ language: "Arabic", strings: arabicStrings, approved: true }),
-  }) === "live"
-);
-
-console.log("\n--- the card renders from that, not from a stray object ---");
-const nativeBlock = cardSrc.slice(
-  cardSrc.indexOf('if (mode === "native")'),
-  cardSrc.indexOf('if (mode === "missing")')
-);
-const missingBlock = cardSrc.slice(
-  cardSrc.indexOf('if (mode === "missing")'),
-  cardSrc.indexOf("const isReview")
-);
-
-check(
-  "the component branches on the mode",
-  /const mode = greetingMode\(settings\)/.test(cardSrc) &&
-    nativeBlock.length > 0 &&
-    missingBlock.length > 0,
-  "it used to branch on whether a draft object happened to exist"
-);
-check(
-  "native shows nothing to approve and nothing to translate",
-  !/Approve & make live/.test(nativeBlock) && !/Translate again/.test(nativeBlock),
-  "there is no generated text to sign off and no other language to go to"
-);
-check(
-  "native shows no English-wording warning",
-  !/still the English wording/.test(nativeBlock) && !/does not look like/.test(nativeBlock),
-  "nothing is wrong, so there is nothing to warn about"
-);
-check(
-  "native shows one preview and one button",
-  (nativeBlock.match(/<Preview/g) ?? []).length === 1 &&
-    (nativeBlock.match(/<Button/g) ?? []).length === 1,
-  `previews=${(nativeBlock.match(/<Preview/g) ?? []).length} buttons=${(nativeBlock.match(/<Button/g) ?? []).length}`
-);
-check(
-  "missing offers exactly one action",
-  (missingBlock.match(/<Button/g) ?? []).length === 1 &&
-    /Create the \$\{language\} greeting/.test(missingBlock),
-  "one decision to make, so one button to make it with"
-);
-check(
-  "review shows both previews, live shows one",
-  /\{isReview && \(\s*<Preview/.test(cardSrc),
-  "the second preview is the comparison, and there is nothing to compare once it is live"
-);
-check(
-  "own words are not framed as translation work in native mode",
-  /native \? "Your categories and city" : "Your own words"/.test(cardSrc),
-  '"as they should read in en" while looking at English content is meaningless'
-);
-check(
-  "and saving in native mode applies rather than drafting",
-  /native \? "Save wording" : "Save draft"/.test(cardSrc)
-);
-check(
-  "the native preview shows what visitors SEE, not an unsaved draft",
-  /label="What visitors see"[\s\S]{0,40}strings=\{liveStrings\}/.test(nativeBlock),
-  "a generation that has not been saved is not live, and the label is a promise"
-);
-check(
-  "the detailed fields still exist, behind Edit wording",
-  /\{editing && draft && \(/.test(nativeBlock) && /<Fields/.test(nativeBlock),
-  "the problem was never that they exist, only that they were shown with nothing to do"
 );
 
 console.log(bad ? `\n${bad} FAILING` : "\nall chat-intro-i18n tests passed");

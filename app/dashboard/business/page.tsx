@@ -6,7 +6,7 @@ import { BrandingForm } from "@/components/dashboard/business/BrandingForm";
 import { LocationContactForm } from "@/components/dashboard/business/LocationContactForm";
 import { OperationsForm } from "@/components/dashboard/business/OperationsForm";
 import { ChatGreetingCard } from "@/components/dashboard/business/ChatGreetingCard";
-import { chipPlanFor, deriveIntroLine } from "@/lib/chat-intro";
+import { buildChatIntro, deriveChips } from "@/lib/chat-intro";
 
 // Always fresh — edits here change what the AI says on /chat immediately,
 // so a stale view would be actively misleading.
@@ -57,8 +57,28 @@ export default async function BusinessPage() {
     const category = (row as { category: string | null }).category;
     if (category && !categories.includes(category)) categories.push(category);
   }
-  const chipPlan = chipPlanFor(categories);
-  const introLine = deriveIntroLine(tenant.description ?? null, tenant.business_name ?? "");
+  // What a visitor sees this moment, from the one assembly the chat page
+  // uses — so the card cannot drift from the product. It covers both
+  // generations: the owner's own prose when they have written it, and
+  // the old fifteen-string assembly when they have not.
+  const liveIntro = buildChatIntro({
+    businessName: tenant.business_name ?? "",
+    industry: tenant.industry ?? null,
+    description: tenant.description ?? null,
+    categories,
+    settings,
+  });
+
+  // What the chips WOULD be with nothing stored, for an owner opening
+  // the editor for the first time and for the "use the ones from my
+  // knowledge base" link.
+  const derivedChips = deriveChips({
+    businessName: tenant.business_name ?? "",
+    industry: tenant.industry ?? null,
+    description: tenant.description ?? null,
+    categories,
+    settings,
+  });
 
   return (
     <DashboardShell
@@ -84,9 +104,9 @@ export default async function BusinessPage() {
         <ChatGreetingCard
           settings={settings}
           businessName={tenant.business_name ?? ""}
-          shownChipKeys={chipPlan.keys}
-          ownWordChips={chipPlan.ownWords}
-          introLine={introLine}
+          liveText={liveIntro.greeting}
+          liveChips={liveIntro.chips}
+          derivedChips={derivedChips}
         />
       </div>
     </DashboardShell>

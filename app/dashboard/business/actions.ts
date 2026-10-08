@@ -2,21 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
+import { type SessionClient } from "@/lib/supabase-session";
 import { parseTenantSettings, type TenantSettings } from "@/lib/tenant-settings";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isValidBrandColor } from "@/lib/branding";
 import { anthropic } from "@/lib/anthropic";
 import { recordUsage } from "@/lib/usage";
-import {
-  CHAT_INTRO_SOURCE,
-  blockedFromPublishing,
-  buildChatIntroTranslationPrompt,
-  chatIntroSourceHash,
-  SOURCE_LANGUAGE_CODE,
-  validateTranslation,
-} from "@/lib/chat-intro-i18n";
-import { detectScript, scriptForLanguage } from "@/lib/visitor-language";
+import { SOURCE_LANGUAGE_CODE } from "@/lib/chat-intro-i18n";
 import { languageName, resolveLanguageCode } from "@/lib/languages";
+import {
+  buildGreetingSuggestionPrompt,
+  buildGreetingTranslationPrompt,
+} from "@/lib/greeting-prompts";
 import { classifyModelError } from "@/lib/model-errors";
 
 export type BusinessIdentityInput = {
@@ -244,50 +241,80 @@ export async function updateBusinessBranding(formData: FormData): Promise<Brandi
 // here is a shop window.
 const TRANSLATION_MODEL = "claude-sonnet-4-6";
 
+// ─────────────────────────────────────────────────────────────────────
+// The greeting, as one message and a list of buttons
+//
+// Replaces generateChatIntroTranslation / saveChatIntroTranslation,
+// which worked on fifteen separately translatable strings. Those are
+// kept for reading old rows (see buildChatIntro) but nothing writes them
+// any more.
+// ─────────────────────────────────────────────────────────────────────
+
+/** The categories a tenant has written about, for context and chips. */
+async function tenantCategories(
+  supabase: SessionClient,
+  tenantId: string
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("knowledge_base")
+    .select("category")
+    .eq("tenant_id", tenantId)
+    .not("category", "is", null);
+  return Array.from(
+    new Set((data ?? []).map((r: { category: string | null }) => r.category ?? "").filter(Boolean))
+  );
+}
+
 /**
- * Translates the fixed greeting and chip strings into the tenant's chat
- * language and stores them UNAPPROVED.
+ * Drafts a welcome message from the business's own details.
  *
- * Unapproved is the point. The owner speaks the language and we do not,
- * so nothing generated here reaches a visitor until they have read it.
- * Until then the chat falls back to a hand-written translation, or to
- * English.
+ * Returns the text for the owner to edit. Deliberately does NOT save:
+ * nothing a model wrote goes live without the owner having had it in
+ * front of them, and the only way to guarantee that is for this to hand
+ * back a string rather than write a row.
+ *
+ * It does not touch the chips either — see lib/greeting-prompts.ts for
+ * why that is a decision rather than an omission.
  */
-export async function generateChatIntroTranslation(): Promise<{ ok: boolean; error?: string }> {
+export async function suggestGreeting(): Promise<
+  { ok: true; text: string } | { ok: false; error: string }
+> {
   const context = await getCurrentTenant();
   if (!context) throw new Error("You must be signed in to do this");
   const { supabase, tenantId } = context;
 
-  const { data: current, error: readError } = await supabase
+  const { data: tenant, error: readError } = await supabase
     .from("tenants")
-    .select("settings")
+    .select("business_name, industry, description, settings")
     .eq("id", tenantId)
     .maybeSingle();
-
-  if (readError || !current) {
-    console.error("Failed to read settings for greeting translation:", readError);
-    return { ok: false, error: "Could not read your settings." };
+  if (readError || !tenant) {
+    console.error("Failed to read tenant for greeting suggestion:", readError);
+    return { ok: false, error: "Could not read your business details." };
   }
 
-  const settings = parseTenantSettings(current.settings);
-  const language = settings.chat_language?.trim();
-  // The stored value is a code; a model is told the NAME. "Translate
-  // into ar" is a markedly worse instruction than "Translate into
-  // Arabic", and the name is what the owner reads on the review card.
-  const languageForModel = languageName(language ?? "") || language;
-  if (!language) return { ok: false, error: "Choose a chat language first." };
+  const settings = parseTenantSettings(tenant.settings);
+  const language = settings.chat_language?.trim() || SOURCE_LANGUAGE_CODE;
 
   try {
     const response = await anthropic.messages.create({
       model: TRANSLATION_MODEL,
-      max_tokens: 1024,
-      system: buildChatIntroTranslationPrompt(languageForModel!),
-      messages: [{ role: "user", content: `Translate into ${languageForModel}.` }],
+      max_tokens: 500,
+      system: buildGreetingSuggestionPrompt({
+        businessName: tenant.business_name,
+        industry: tenant.industry,
+        description: tenant.description,
+        city: settings.location?.city ?? null,
+        country: settings.location?.country ?? null,
+        categories: await tenantCategories(supabase, tenantId),
+        language: languageName(language) || language,
+      }),
+      messages: [{ role: "user", content: "Write it." }],
     });
 
     void recordUsage({
       tenantId,
-      callType: "chat_intro_translation",
+      callType: "greeting_suggestion",
       provider: "anthropic",
       model: TRANSLATION_MODEL,
       tokens: {
@@ -297,71 +324,18 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
     });
 
     const block = response.content.find((b) => b.type === "text");
-    const raw = block?.type === "text" ? block.text : "";
-    const jsonText = raw
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
+    const text = (block?.type === "text" ? block.text : "").trim();
+    if (!text) return { ok: false, error: "Nothing came back. Nothing was changed. Try again." };
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch {
-      console.error("Greeting translation was not valid JSON:", raw.slice(0, 200));
-      return { ok: false, error: "The translation came back malformed. Try again." };
-    }
-
-    // Rejected rather than repaired. A translation that has lost its
-    // {business} placeholder, or had a real clinic name substituted into
-    // it, would be stored and shown to every visitor of this tenant.
-    const strings = validateTranslation(parsed);
-    if (!strings) {
-      console.error("Greeting translation failed validation:", JSON.stringify(parsed).slice(0, 300));
-      return { ok: false, error: "The translation came back malformed. Try again." };
-    }
-
-    const merged = parseTenantSettings({
-      ...settings,
-      chat_intro: {
-        language,
-        sourceHash: chatIntroSourceHash(),
-        strings,
-        source: { ...CHAT_INTRO_SOURCE },
-        approved: false,
-        // Carried across a regeneration, ALL of them. These are the
-        // owner's own words for their own categories and city, not
-        // something the model produced, so translating again must not
-        // throw them away.
-        //
-        // This used to clear them whenever the target language differed
-        // from the stored one — which was the right instinct with a flat
-        // map, and is simply destructive now that each language keeps
-        // its own. Regenerating English must not delete the Arabic
-        // words; they are not in the way, and the owner may switch back.
-        ownLabels: settings.chat_intro?.ownLabels ?? {},
-      },
-    });
-
-    const { error } = await supabase.from("tenants").update({ settings: merged }).eq("id", tenantId);
-    if (error) {
-      console.error("Failed to store greeting translation:", error);
-      return { ok: false, error: "Could not save the translation." };
-    }
-
-    revalidatePath("/dashboard/business");
-    return { ok: true };
+    // Stripped of the quotes a model sometimes wraps prose in, because
+    // the owner would otherwise have to delete them by hand every time.
+    const cleaned = text.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
+    return { ok: true, text: cleaned };
   } catch (err) {
-    // Classified, not swallowed. This used to report every failure as
-    // "The translation service did not respond. Try again." — including
-    // the one that actually happened, where the service responded in
-    // 280ms with a 400 saying the account was out of credit. Retrying
-    // could never work, and the owner had no way to know that.
     const failure = classifyModelError(err);
-    console.error("Greeting translation call failed:", {
+    console.error("Greeting suggestion failed:", {
       kind: failure.kind,
       status: failure.status,
-      retryable: failure.retryable,
       tenantId,
       detail: failure.detail,
     });
@@ -370,26 +344,125 @@ export async function generateChatIntroTranslation(): Promise<{ ok: boolean; err
 }
 
 /**
- * Saves the owner's reviewed wording, and whether it is live.
+ * Translates a greeting and its buttons into the chat language.
  *
- * Their edits win over anything generated: they are the ones who speak
- * the language.
+ * Stored UNAPPROVED, which is the one case approval exists for: words we
+ * produced in a language we cannot check. Everything the owner types is
+ * theirs and goes live on save.
  */
-export async function saveChatIntroTranslation(
-  strings: Record<string, string>,
-  approved: boolean,
-  /** The owner's own words for their categories and city, in this language. */
-  ownLabels: Record<string, string> = {}
-): Promise<{ ok: boolean; error?: string }> {
+export async function translateGreeting(
+  text: string,
+  chips: string[]
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const context = await getCurrentTenant();
   if (!context) throw new Error("You must be signed in to do this");
   const { supabase, tenantId } = context;
 
-  const validated = validateTranslation(strings);
-  if (!validated) {
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, error: "Write the message first, then translate it." };
+
+  const { data: current, error: readError } = await supabase
+    .from("tenants")
+    .select("settings")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (readError || !current) {
+    console.error("Failed to read settings for greeting translation:", readError);
+    return { ok: false, error: "Could not read your settings." };
+  }
+
+  const settings = parseTenantSettings(current.settings);
+  const language = settings.chat_language?.trim();
+  if (!language) return { ok: false, error: "Choose a chat language first." };
+
+  const languageForModel = languageName(language) || language;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: TRANSLATION_MODEL,
+      max_tokens: 900,
+      system: buildGreetingTranslationPrompt({ text: trimmed, chips, language: languageForModel }),
+      messages: [
+        {
+          role: "user",
+          content: JSON.stringify({ text: trimmed, chips }),
+        },
+      ],
+    });
+
+    void recordUsage({
+      tenantId,
+      callType: "greeting_translation",
+      provider: "anthropic",
+      model: TRANSLATION_MODEL,
+      tokens: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      },
+    });
+
+    const block = response.content.find((b) => b.type === "text");
+    const raw = (block?.type === "text" ? block.text : "")
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
+    let parsed: { text?: unknown; chips?: unknown };
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.error("Greeting translation was not valid JSON:", raw.slice(0, 200));
+      return { ok: false, error: "The translation came back malformed. Nothing was changed. Try again." };
+    }
+
+    const translated = typeof parsed.text === "string" ? parsed.text.trim() : "";
+    if (!translated) {
+      return { ok: false, error: "The translation came back empty. Nothing was changed. Try again." };
+    }
+    const translatedChips = Array.isArray(parsed.chips)
+      ? parsed.chips.filter((c): c is string => typeof c === "string" && !!c.trim()).map((c) => c.trim())
+      : chips;
+
+    return await writeGreeting(supabase, tenantId, settings, language, {
+      text: translated,
+      chips: translatedChips,
+      // The one unapproved write in this file. The owner has not read it
+      // yet, and it is in a language we cannot check ourselves.
+      approved: false,
+    });
+  } catch (err) {
+    const failure = classifyModelError(err);
+    console.error("Greeting translation failed:", {
+      kind: failure.kind,
+      status: failure.status,
+      tenantId,
+      detail: failure.detail,
+    });
+    return { ok: false, error: failure.ownerMessage };
+  }
+}
+
+/**
+ * Saves what the owner wrote, live.
+ *
+ * No approval step: they wrote it, in a language they chose, and read it
+ * in the field they typed it into. The review-before-live rule applies
+ * to machine output, not to theirs.
+ */
+export async function saveGreeting(
+  text: string,
+  chips: string[]
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const context = await getCurrentTenant();
+  if (!context) throw new Error("You must be signed in to do this");
+  const { supabase, tenantId } = context;
+
+  const trimmed = text.trim();
+  if (!trimmed) {
     return {
       ok: false,
-      error: "Keep {business} and {place} exactly as they are — they become your name and city.",
+      error: "A welcome message cannot be empty. Clear nothing and visitors see our default instead.",
     };
   }
 
@@ -398,92 +471,71 @@ export async function saveChatIntroTranslation(
     .select("settings")
     .eq("id", tenantId)
     .maybeSingle();
-
   if (readError || !current) {
     console.error("Failed to read settings for greeting save:", readError);
     return { ok: false, error: "Could not read your settings." };
   }
 
   const settings = parseTenantSettings(current.settings);
-  const language = settings.chat_language?.trim();
-  if (!language) return { ok: false, error: "Choose a chat language first." };
+  const language = settings.chat_language?.trim() || SOURCE_LANGUAGE_CODE;
 
-  // Checked here and not only in the card, because a disabled button is a
-  // suggestion. Publishing English as an Arabic greeting is the one
-  // mistake in this flow that reaches every visitor silently.
-  //
-  // Both checks are about publishing one language's words AS another's,
-  // so neither means anything when the target IS the source language.
-  // "This is still the English wording" is the normal and correct state
-  // for a business greeting English-speaking visitors in English —
-  // leaving the check on would have blocked every save they ever made.
-  const isSourceLanguage = (resolveLanguageCode(language) ?? language.toLowerCase()) ===
-    SOURCE_LANGUAGE_CODE;
-  if (approved && !isSourceLanguage) {
-    const blocked = blockedFromPublishing(
-      language,
-      validated,
-      (text) => detectScript([text]),
-      scriptForLanguage
-    );
-    if (blocked === "unchanged-from-english") {
-      return {
-        ok: false,
-        error: `This is still the English wording. Generate a ${language} translation before making it live.`,
-      };
-    }
-    if (blocked === "wrong-script") {
-      return {
-        ok: false,
-        error: `This greeting does not look like ${language}. Check the wording before making it live.`,
-      };
-    }
-  }
-
-  // Trimmed, and an empty one dropped rather than stored: an empty label
-  // means "use the original", and storing it as "" would be a second way
-  // of saying the same thing.
-  const cleanedLabels: Record<string, string> = {};
-  for (const [key, value] of Object.entries(ownLabels)) {
-    const trimmed = typeof value === "string" ? value.trim() : "";
-    if (trimmed) cleanedLabels[key] = trimmed;
-  }
-
-  // Written UNDER THIS LANGUAGE, leaving every other language's words
-  // untouched. An owner who worked in Arabic, switched to English and
-  // writes English words here keeps both — and switching back to Arabic
-  // restores the Arabic ones rather than finding them gone.
-  const languageCode = resolveLanguageCode(language) ?? language;
-  const allLabels: Record<string, Record<string, string>> = {
-    ...(settings.chat_intro?.ownLabels ?? {}),
-  };
-  if (Object.keys(cleanedLabels).length > 0) {
-    allLabels[languageCode] = cleanedLabels;
-  } else {
-    // All cleared for this language: remove the bucket rather than store
-    // an empty one, so "no words yet" has one representation.
-    delete allLabels[languageCode];
-  }
-
-  const merged = parseTenantSettings({
-    ...settings,
-    chat_intro: {
-      language,
-      sourceHash: chatIntroSourceHash(),
-      strings: validated,
-      source: { ...CHAT_INTRO_SOURCE },
-      approved,
-      ownLabels: allLabels,
-    },
+  return await writeGreeting(supabase, tenantId, settings, language, {
+    text: trimmed,
+    chips: chips.map((c) => c.trim()).filter(Boolean),
+    approved: true,
   });
+}
 
-  const { error } = await supabase.from("tenants").update({ settings: merged }).eq("id", tenantId);
+/**
+ * The one write path, so every caller stores the same shape.
+ *
+ * Merged into the raw row rather than through the parser's output: the
+ * parser is an allowlist, and round-tripping through it would silently
+ * drop any settings key it does not yet know about.
+ */
+async function writeGreeting(
+  supabase: SessionClient,
+  tenantId: string,
+  settings: TenantSettings,
+  language: string,
+  entry: { text: string; chips: string[]; approved: boolean }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const code = resolveLanguageCode(language) ?? language.trim().toLowerCase();
+
+  const { data: row } = await supabase
+    .from("tenants")
+    .select("settings, business_name")
+    .eq("id", tenantId)
+    .single();
+  const raw = (row?.settings ?? {}) as Record<string, unknown>;
+  const chatIntro = (raw.chat_intro ?? {}) as Record<string, unknown>;
+  const greetings = { ...((chatIntro.greetings ?? {}) as Record<string, unknown>) };
+
+  greetings[code] = {
+    text: entry.text,
+    chips: entry.chips,
+    approved: entry.approved,
+    // The whole of the rename story: what the name and city were when
+    // this was written. Compared later to remind the owner, never used
+    // to rewrite their words.
+    wroteWith: {
+      ...(row?.business_name ? { businessName: row.business_name } : {}),
+      ...(settings.location?.city || settings.location?.country
+        ? { place: settings.location?.city ?? settings.location?.country }
+        : {}),
+    },
+  };
+
+  const { error } = await supabase
+    .from("tenants")
+    .update({ settings: { ...raw, chat_intro: { ...chatIntro, greetings } } })
+    .eq("id", tenantId);
+
   if (error) {
-    console.error("Failed to save greeting translation:", error);
-    return { ok: false, error: "Could not save your changes." };
+    console.error("Failed to save greeting:", error);
+    return { ok: false, error: "Could not save. Nothing was changed." };
   }
 
   revalidatePath("/dashboard/business");
-  revalidatePath("/chat", "layout");
   return { ok: true };
 }
