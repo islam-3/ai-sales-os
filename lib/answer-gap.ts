@@ -43,6 +43,22 @@ import type Anthropic from "@anthropic-ai/sdk";
 // the time, and some of the time is not a feature.
 export const ANSWER_GAP_MODEL = process.env.ANSWER_GAP_MODEL ?? "claude-sonnet-4-6";
 
+/**
+ * The most judge calls one conversation may ever make.
+ *
+ * Set from measurement, not from a guess: the six smoke-test
+ * conversations average 2.0 question-bearing turns each, so 4 is double
+ * what real traffic does, and every conversation of ordinary length runs
+ * under it without noticing. See scripts/measure-answer-gap-cost.ts.
+ *
+ * The cap exists for the conversations that are not ordinary — a visitor
+ * pasting twenty questions, or a bot. Each call is a whole knowledge base
+ * of input, so without a bound one conversation's cost is unbounded.
+ * Dropping the fifth question costs a dashboard row nobody is waiting
+ * for; the alternative is a bill nobody predicted.
+ */
+export const MAX_JUDGE_CALLS_PER_CONVERSATION = 4;
+
 export type KnowledgeForJudge = { title: string; content: string };
 
 export type AnswerGapVerdict = {
@@ -54,6 +70,8 @@ export type AnswerGapVerdict = {
   note: string;
   /** True when the judge could not be reached. Never counted either way. */
   failed?: true;
+  /** Token usage, so cost is measured rather than estimated. */
+  usage?: { input: number; output: number; cacheWrite: number; cacheRead: number };
 };
 
 export const ANSWER_GAP_PROMPT = `You are checking whether a business's own written material contains the answer to something a customer asked.
@@ -128,10 +146,25 @@ export async function judgeAnswerGap(
     const res = await client.messages.create({
       model,
       max_tokens: 300,
-      system: ANSWER_GAP_PROMPT,
-      messages: [
-        { role: "user", content: `CUSTOMER'S QUESTION:\n${question}\n\nWHAT THE BUSINESS HAS WRITTEN:\n${listing}` },
+      // ── The knowledge base is the cached prefix ──────────────────
+      // It is byte-identical on every judge call for a tenant and it is
+      // almost all of the input — the question is one sentence. So the
+      // instructions and the listing sit in the system block behind a
+      // cache breakpoint, and only the question varies.
+      //
+      // Order is the whole trick: anything that changes has to come
+      // AFTER everything cached, or the prefix differs and nothing is
+      // reused. The question used to be appended to the listing in the
+      // same message, which would have made every call a cache miss.
+      system: [
+        { type: "text" as const, text: ANSWER_GAP_PROMPT },
+        {
+          type: "text" as const,
+          text: `WHAT THE BUSINESS HAS WRITTEN:\n${listing}`,
+          cache_control: { type: "ephemeral" as const },
+        },
       ],
+      messages: [{ role: "user", content: `CUSTOMER'S QUESTION:\n${question}` }],
     });
     const block = res.content.find((b) => b.type === "text");
     const parsed = JSON.parse(firstJsonObject(block?.type === "text" ? block.text : "")) as {
@@ -150,6 +183,12 @@ export async function judgeAnswerGap(
       answered: valid,
       entryTitle: valid ? usable[index - 1].title : null,
       note: typeof parsed.note === "string" ? parsed.note : "",
+      usage: {
+        input: res.usage.input_tokens,
+        output: res.usage.output_tokens,
+        cacheWrite: res.usage.cache_creation_input_tokens ?? 0,
+        cacheRead: res.usage.cache_read_input_tokens ?? 0,
+      },
     };
   } catch (error) {
     // Unreachable is not a gap. Reporting one here would put a row in an
