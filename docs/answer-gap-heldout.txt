@@ -1,0 +1,74 @@
+[heldout] 11 cases x 4 languages against 23 entries
+answered: 6  unanswered: 5 (2 partial)
+
+── en ──
+  years           label=ok   judge=ok   
+  crowns-brand    label=ok   judge=ok   
+  package         label=ok   judge=ok   
+  female-hair     label=ok   judge=ok   
+  cover-reworded  label=ok   judge=ok   
+  weight-offered  label=ok   judge=ok   
+  diabetes        label=GAP  judge=GAP  
+  visa            label=GAP  judge=GAP  
+  parking         label=GAP  judge=GAP  
+  hotel-nights    label=GAP  judge=ok     missed
+  anaesthesia     label=GAP  judge=GAP  
+
+── ar ──
+  years           label=ok   judge=ok   
+  crowns-brand    label=ok   judge=ok   
+  package         label=ok   judge=ok   
+  female-hair     label=ok   judge=ok   
+  cover-reworded  label=ok   judge=ok   
+  weight-offered  label=ok   judge=ok   
+  diabetes        label=GAP  judge=GAP  
+  visa            label=GAP  judge=GAP  
+  parking         label=GAP  judge=GAP  
+  hotel-nights    label=GAP  judge=ok     missed
+  anaesthesia     label=GAP  judge=GAP  
+
+── ru ──
+  years           label=ok   judge=ok   
+  crowns-brand    label=ok   judge=ok   
+  package         label=ok   judge=ok   
+  female-hair     label=ok   judge=ok   
+  cover-reworded  label=ok   judge=ok   
+  weight-offered  label=ok   judge=ok   
+  diabetes        label=GAP  judge=GAP  
+  visa            label=GAP  judge=GAP  
+  parking         label=GAP  judge=GAP  
+  hotel-nights    label=GAP  judge=ok     missed
+  anaesthesia     label=GAP  judge=GAP  
+
+── tr ──
+  years           label=ok   judge=ok   
+  crowns-brand    label=ok   judge=ok   
+  package         label=ok   judge=ok   
+  female-hair     label=ok   judge=ok   
+  cover-reworded  label=ok   judge=ok   
+  weight-offered  label=ok   judge=ok   
+  diabetes        label=GAP  judge=ok     missed
+  visa            label=GAP  judge=GAP  
+  parking         label=GAP  judge=GAP  
+  hotel-nights    label=GAP  judge=ok     missed
+  anaesthesia     label=GAP  judge=GAP  
+
+══════════════════════════════════════════════════════════════════════
+  [heldout] per language
+══════════════════════════════════════════════════════════════════════
+  en  precision 100%  recall  80%   false gaps 0   missed 1
+  ar  precision 100%  recall  80%   false gaps 0   missed 1
+  ru  precision 100%  recall  80%   false gaps 0   missed 1
+  tr  precision 100%  recall  60%   false gaps 0   missed 2
+
+  all   precision 100%  recall 75%   FALSE GAPS 0   missed 5
+  partially answered, caught as gaps: 4/8
+
+  Missed gaps — cheap, but listed:
+    en hotel-nights: pointed at "The package"
+    ar hotel-nights: pointed at "The package"
+    ru hotel-nights: pointed at "The package"
+    tr diabetes: pointed at "Best Dental Implants in Istanbul Turkey"
+    tr hotel-nights: pointed at "The package"
+
+  ZERO false gaps, recall 75% against a floor of 50%

@@ -1,0 +1,76 @@
+[tune] 12 cases x 4 languages against 23 entries
+answered: 6  unanswered: 6 (1 partial)
+
+── en ──
+  warranty        label=ok   judge=ok   
+  implant-brand   label=ok   judge=ok   
+  visits          label=ok   judge=ok   
+  whitening-offered label=ok   judge=ok   
+  screws-reworded label=ok   judge=ok   
+  nose-offered    label=ok   judge=ok   
+  price           label=GAP  judge=GAP  
+  instalments     label=GAP  judge=GAP  
+  doctors         label=GAP  judge=GAP  
+  insurance       label=GAP  judge=GAP  
+  aftercare       label=GAP  judge=GAP  
+  implant-fails   label=GAP  judge=GAP  
+
+── ar ──
+  warranty        label=ok   judge=ok   
+  implant-brand   label=ok   judge=ok   
+  visits          label=ok   judge=ok   
+  whitening-offered label=ok   judge=ok   
+  screws-reworded label=ok   judge=GAP    FALSE GAP
+  nose-offered    label=ok   judge=ok   
+  price           label=GAP  judge=GAP  
+  instalments     label=GAP  judge=GAP  
+  doctors         label=GAP  judge=GAP  
+  insurance       label=GAP  judge=GAP  
+  aftercare       label=GAP  judge=GAP  
+  implant-fails   label=GAP  judge=GAP  
+
+── ru ──
+  warranty        label=ok   judge=ok   
+  implant-brand   label=ok   judge=ok   
+  visits          label=ok   judge=ok   
+  whitening-offered label=ok   judge=ok   
+  screws-reworded label=ok   judge=ok   
+  nose-offered    label=ok   judge=ok   
+  price           label=GAP  judge=GAP  
+  instalments     label=GAP  judge=GAP  
+  doctors         label=GAP  judge=GAP  
+  insurance       label=GAP  judge=GAP  
+  aftercare       label=GAP  judge=GAP  
+  implant-fails   label=GAP  judge=GAP  
+
+── tr ──
+  warranty        label=ok   judge=ok   
+  implant-brand   label=ok   judge=ok   
+  visits          label=ok   judge=ok   
+  whitening-offered label=ok   judge=ok   
+  screws-reworded label=ok   judge=GAP    FALSE GAP
+  nose-offered    label=ok   judge=GAP    FALSE GAP
+  price           label=GAP  judge=GAP  
+  instalments     label=GAP  judge=GAP  
+  doctors         label=GAP  judge=GAP  
+  insurance       label=GAP  judge=GAP  
+  aftercare       label=GAP  judge=GAP  
+  implant-fails   label=GAP  judge=GAP  
+
+══════════════════════════════════════════════════════════════════════
+  [tune] per language
+══════════════════════════════════════════════════════════════════════
+  en  precision 100%  recall 100%   false gaps 0   missed 0
+  ar  precision  86%  recall 100%   false gaps 1   missed 0
+  ru  precision 100%  recall 100%   false gaps 0   missed 0
+  tr  precision  75%  recall 100%   false gaps 2   missed 0
+
+  all   precision 89%  recall 100%   FALSE GAPS 3   missed 0
+  partially answered, caught as gaps: 4/4
+
+  FALSE GAPS — each one tells an owner to rewrite what they already wrote:
+    ar screws-reworded: The business has not specified what brand of screws/implants are used 
+    tr screws-reworded: The business materials describe dental implants and their brands but d
+    tr nose-offered: The question asks about correcting the shape of the nose (burnumun şek
+
+  3 FALSE GAPS — not shippable, recall 100% against a floor of 50%

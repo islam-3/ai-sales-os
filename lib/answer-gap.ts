@@ -29,7 +29,19 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 
-export const ANSWER_GAP_MODEL = process.env.ANSWER_GAP_MODEL ?? "claude-haiku-4-5-20251001";
+// Sonnet, chosen by measurement rather than by cost.
+//
+// On the tune split Haiku reached 100% recall and caught every partially
+// answered question — but produced three FALSE gaps, each one telling an
+// owner to rewrite something already written. It would not accept that a
+// customer's everyday word for a part is the business's technical name
+// for it, even while saying in its own note that it could see the brand.
+//
+// Sonnet produced zero false gaps in all four languages, on both splits.
+// Same trade this codebase already made for lead extraction, for the
+// same reason: the cheaper model followed the harder instruction some of
+// the time, and some of the time is not a feature.
+export const ANSWER_GAP_MODEL = process.env.ANSWER_GAP_MODEL ?? "claude-sonnet-4-6";
 
 export type KnowledgeForJudge = { title: string; content: string };
 
@@ -60,9 +72,17 @@ An item answers the question when a person reading that item would come away kno
 
 An item answers the question even when it is worded completely differently, uses other terms for the same thing, or is written in a different language from the question. Judge the meaning, never the wording, and never the language. Material in English answers a question asked in Arabic if the facts are in it.
 
-A question asking WHETHER the business does something at all is answered by any item showing that it does.
+Customers describe things in everyday words that a business names technically, and the other way round. A question about a part, a device, a material, a symptom or a procedure in plain language is answered by material that names the same thing in professional terms — and the reverse. Before you answer null, go back through the list once and ask of each item: is this the same thing under another name? The customer does not know the business's vocabulary and should not have to.
+
+A question asking WHETHER the business does, treats, offers, performs or can handle something is answered by any item showing that it does — including an item that merely describes that work, in any language.
 
 If an item answers it only in part, use null. Partly answered is not answered — the customer did not get what they asked for.
+
+Three shapes of question that material often looks like it answers and does not. Establishing that a thing EXISTS is not answering a question about it:
+  • asked what HAPPENS in a situation, or what is DONE about it, or who bears the cost — material stating what is covered, guaranteed or included does not answer that;
+  • asked HOW MUCH, HOW MANY, HOW LONG or WHEN — material saying the thing is provided does not answer that;
+  • asked whether something is INSIDE the price — material mentioning the thing as part of the work does not answer that.
+In each case the customer would still have to ask. Use null.
 
 When you genuinely cannot tell, name the closest item that does answer it rather than null. A wrong null tells this business to write something it has already written.`;
 
