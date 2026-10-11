@@ -103,6 +103,79 @@ Before changing any detector that reads text, measure it across all six.
 
 ---
 
+## Cost per conversation
+
+**7.59 cents**, test-clinic, 4,998 recorded calls across 405
+conversations. Regenerate with:
+
+```sh
+DOTENV_CONFIG_PATH=.env.local SLUG=test-clinic \
+  npx tsx -r dotenv/config scripts/report-cost-per-conversation.ts
+```
+
+That script makes **no model calls**. It reads `usage_events`, which is a
+record of calls already made and paid for.
+
+| Call | Model | Per conv | Each | Subtotal | Source |
+|---|---|---|---|---|---|
+| reply | Sonnet | 6.28 | $0.00618 | **$0.03879** | measured |
+| lead extraction | Sonnet | 4.38 | $0.00784 | **$0.03435** | measured |
+| classifier | Haiku | 6.28 | $0.00044 | **$0.00273** | derived |
+| coverage | Haiku | near a close only | — | — | not yet recorded |
+| answer-gap judge | Sonnet | 0–4 | $0.00195 warm / $0.01818 cold | **see below** | derived |
+| question rewrite | Sonnet | only on a gap | $0.00123 | **see below** | derived |
+| question embedding | OpenAI | only on a gap | $0.0000003 | negligible | derived |
+| | | | | **$0.07587** | |
+
+The judge and the rewrite are *not* in the total, because how often they
+run is the thing that varies most and no single figure is honest:
+
+| Scenario | Warm cache | Cold cache | No caching |
+|---|---|---|---|
+| 0 questions asked | $0 | $0 | $0 |
+| 2 questions, both answered | $0.00390 | $0.02013 | $0.02930 |
+| 2 questions, 1 gap | $0.00513 | $0.02136 | $0.03053 |
+| 4 questions (the cap), 2 gaps | $0.01026 | $0.02649 | $0.06106 |
+
+Common case **+7%**, worst case **+35%**, worst case with caching off
+**+80%** — which is what the caching work bought. The judge's cost scales
+with the *knowledge base*, not the conversation: 23 entries is a
+4,703-token prefix, and ten times the material is ten times the cost per
+call.
+
+Three things worth knowing before quoting any of it:
+
+- **A cold cache write costs 24% *more* than no caching at all** — a
+  write bills at 1.25× input. Caching only pays once a second call
+  reuses the prefix, and the cache is per *tenant*, not per conversation.
+- **The rewrite cannot be cached.** Its prefix is 265 tokens, under
+  Anthropic's 1,024-token minimum. Marking it would bill a write at
+  1.25× and never be read back.
+- **Rates live in one place**, `lib/ai-pricing.ts`, which carries a
+  warning to verify them. Every number above is only as good as that file.
+
+### The rule
+
+**Every model call in the product calls `recordUsage`.** A call missing
+from `UsageCallType` is a call missing from the number above — four were
+missing for months (the classifier, coverage, and both halves of capture),
+which made the headline a floor reported as a total. Adding a model call
+means adding a member to that union and a `recordUsage` beside it, in the
+same change.
+
+**A feature that adds a model call states what it adds to this number
+before it is approved.** Measured on real usage where that is possible,
+derived from prompt size where it is not, and labelled either way — the
+script prints `MEASURED` or `DERIVED` per line and flips to the first on
+its own as traffic flows.
+
+**No script that calls Anthropic or OpenAI runs without stating the
+number of calls and the estimated cost first, and waiting.** Production
+chat goes down when credit runs out, so an unannounced measurement run
+is an outage risk, not just a bill.
+
+---
+
 ## The detectors, and what each is for
 
 ### Reading the visitor

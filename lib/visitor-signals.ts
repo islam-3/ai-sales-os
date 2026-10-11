@@ -26,6 +26,7 @@
 // That is a far better trade than a visitor watching a spinner.
 
 import { anthropic } from "./anthropic";
+import { recordUsage } from "./usage";
 
 export type VisitorSignals = {
   /**
@@ -207,7 +208,20 @@ let warnedAboutFailure = false;
  */
 export async function readVisitorSignals(
   message: string,
-  options: { budgetMs?: number; startedAt?: number } = {}
+  options: {
+    budgetMs?: number;
+    startedAt?: number;
+    /**
+     * Who to bill this call to.
+     *
+     * Optional only because the eval harness calls this outside any
+     * request and has no tenant. In the chat route it is always
+     * supplied — without it this call is invisible to the cost
+     * breakdown in README.md, which is how it went unmetered for
+     * months while running on every single turn.
+     */
+     meter?: { tenantId: string; sessionId: string };
+  } = {}
 ): Promise<VisitorSignals> {
   const budget = options.budgetMs ?? SIGNAL_BUDGET_MS;
   const startedAt = options.startedAt ?? Date.now();
@@ -227,6 +241,27 @@ export async function readVisitorSignals(
       },
       { signal: controller.signal }
     );
+
+    // Recorded before parsing, because a call that returned unparseable
+    // JSON was still billed. Not awaited — the visitor is waiting on
+    // this one, it sits on the critical path, and recordUsage never
+    // rejects.
+    if (options.meter) {
+      void recordUsage({
+        tenantId: options.meter.tenantId,
+        sessionId: options.meter.sessionId,
+        callType: "visitor_signals",
+        provider: "anthropic",
+        model: SIGNAL_MODEL,
+        tokens: {
+          inputTokens: res.usage.input_tokens,
+          outputTokens: res.usage.output_tokens,
+          cacheReadInputTokens: res.usage.cache_read_input_tokens ?? 0,
+          cacheWriteInputTokens: res.usage.cache_creation_input_tokens ?? 0,
+        },
+      });
+    }
+
     const block = res.content.find((b) => b.type === "text");
     const parsed = JSON.parse(
       firstJsonObject(block?.type === "text" ? block.text : "")

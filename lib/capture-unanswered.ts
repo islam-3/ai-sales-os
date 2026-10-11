@@ -27,8 +27,9 @@ import {
   MAX_JUDGE_CALLS_PER_CONVERSATION,
   type KnowledgeForJudge,
 } from "./answer-gap";
-import { shortenQuestion } from "./question-short";
+import { shortenQuestion, SHORTEN_MODEL } from "./question-short";
 import { generateEmbedding } from "./embeddings";
+import { recordUsage } from "./usage";
 import { groupForAsk } from "./unanswered-questions";
 import { parseEmbedding } from "./vectors";
 
@@ -106,6 +107,27 @@ export async function captureIfUnanswered({
 
     // ── The judge ─────────────────────────────────────────────────────
     const verdict = await judgeAnswerGap(anthropic, question, knowledge);
+
+    // Metered whatever it decided. "Answered" is the common case and
+    // the cheapest outcome for the owner, but it is not a free call,
+    // and a breakdown that only recorded the gaps would understate
+    // this feature by however often the business has the answer.
+    if (verdict.usage) {
+      await recordUsage({
+        tenantId,
+        sessionId,
+        callType: "answer_gap_judge",
+        provider: "anthropic",
+        model: ANSWER_GAP_MODEL,
+        tokens: {
+          inputTokens: verdict.usage.input,
+          outputTokens: verdict.usage.output,
+          cacheReadInputTokens: verdict.usage.cacheRead,
+          cacheWriteInputTokens: verdict.usage.cacheWrite,
+        },
+      });
+    }
+
     if (verdict.failed) {
       console.warn("[capture] judge unreachable", { tenantId, note: verdict.note });
       return "judge_unreachable";
@@ -114,6 +136,21 @@ export async function captureIfUnanswered({
 
     // ── The dashboard version ─────────────────────────────────────────
     const short = await shortenQuestion(anthropic, question, teamLanguage);
+    if (short.usage) {
+      // Awaited, like the judge above: this whole function already runs
+      // after the response has gone out, so awaiting costs the visitor
+      // nothing and guarantees the row is written before a serverless
+      // invocation can be frozen. The same reasoning as the lead
+      // extractor's recordUsage call.
+      await recordUsage({
+        tenantId,
+        sessionId,
+        callType: "question_shorten",
+        provider: "anthropic",
+        model: SHORTEN_MODEL,
+        tokens: { inputTokens: short.usage.input, outputTokens: short.usage.output },
+      });
+    }
     if (short.rejected) {
       console.warn("[capture] short version rejected", {
         tenantId,
@@ -126,7 +163,10 @@ export async function captureIfUnanswered({
     // ungroupable ask should be.
     let embedding: number[] | null = null;
     try {
-      embedding = await generateEmbedding(short.text, tenantId);
+      embedding = await generateEmbedding(short.text, tenantId, {
+        callType: "question_embedding",
+        sessionId,
+      });
     } catch (error) {
       console.warn("[capture] could not embed the short version", {
         tenantId,

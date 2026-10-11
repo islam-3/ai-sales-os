@@ -26,6 +26,7 @@
 // is not on the path of every reply, unlike lib/visitor-signals.ts.
 
 import { anthropic } from "./anthropic";
+import { recordUsage } from "./usage";
 
 export type AnsweredDimensions = Set<string>;
 
@@ -74,7 +75,9 @@ let warned = false;
  */
 export async function readAnsweredDimensions(
   visitorMessages: string[],
-  assistantMessages: string[] = []
+  assistantMessages: string[] = [],
+  /** Who to bill this to. Omitted only by harnesses with no tenant. */
+  meter?: { tenantId: string; sessionId: string }
 ): Promise<AnsweredDimensions | null> {
   const visitor = visitorMessages.filter((m) => m.trim());
   if (visitor.length === 0) return null;
@@ -100,6 +103,24 @@ export async function readAnsweredDimensions(
       },
       { signal: controller.signal }
     );
+
+    // Before parsing: an unparseable response was still a billed call.
+    if (meter) {
+      void recordUsage({
+        tenantId: meter.tenantId,
+        sessionId: meter.sessionId,
+        callType: "coverage_answered",
+        provider: "anthropic",
+        model: MODEL,
+        tokens: {
+          inputTokens: res.usage.input_tokens,
+          outputTokens: res.usage.output_tokens,
+          cacheReadInputTokens: res.usage.cache_read_input_tokens ?? 0,
+          cacheWriteInputTokens: res.usage.cache_creation_input_tokens ?? 0,
+        },
+      });
+    }
+
     const block = res.content.find((b) => b.type === "text");
     const parsed = JSON.parse(
       firstJsonObject(block?.type === "text" ? block.text : "")

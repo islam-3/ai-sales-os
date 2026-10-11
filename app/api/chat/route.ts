@@ -681,7 +681,10 @@ async function handleChat(body: Record<string, unknown>) {
   // added to what the visitor waits.
   const turnStartedAt = Date.now();
   const signalsPromise = trimmedMessage
-    ? readVisitorSignals(trimmedMessage, { startedAt: turnStartedAt })
+    ? readVisitorSignals(trimmedMessage, {
+        startedAt: turnStartedAt,
+        meter: { tenantId, sessionId },
+      })
     : Promise.resolve(NO_SIGNALS);
 
   const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
@@ -823,7 +826,8 @@ async function handleChat(body: Record<string, unknown>) {
         // is read from the visitor alone and must stay that way — the
         // assistant explaining that a clinic needs an X-ray is not the
         // visitor saying they will send one.
-        turnsWithLatest.filter((x) => x.role === "assistant").map((x) => x.content)
+        turnsWithLatest.filter((x) => x.role === "assistant").map((x) => x.content),
+        { tenantId, sessionId }
       )) ?? undefined
     : undefined;
 
