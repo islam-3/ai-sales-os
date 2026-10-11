@@ -30,6 +30,11 @@
 // it suits, why Istanbul. None of it carries a price, a name, a policy
 // or an eligibility rule.
 //
+// Thirty-three cases now. The last ten were added after the first
+// held-out run reported Turkish recall at 60% against 75% overall — too
+// small a sample to tell a real weakness from noise. They are labelled
+// here, unrun, for the same reason as everything above.
+//
 // PARTIALLY answered counts as UNANSWERED, deliberately. The visitor
 // asking what happens if an implant fails does not get their answer from
 // an entry about what the warranty covers, and the owner adding one line
@@ -299,6 +304,131 @@ export const ANSWER_GAP_CASES: AnswerGapCase[] = [
     ar: "هل التخدير مشمول في السعر؟",
     ru: "наркоз входит в стоимость?",
     tr: "anestezi fiyata dahil mi?",
+  },
+
+  // ── Ten more, added to strengthen Turkish ─────────────────────────
+  //
+  // Turkish was the weakest language on the held-out run: 100%
+  // precision, same as the rest, but 60% recall against 75% overall.
+  // Ten cases is not enough to tell a real weakness from a small
+  // sample, so these ten were added — asked in all four languages, as
+  // the structure requires, and weighted toward UNANSWERED because
+  // recall is what was weak.
+  //
+  // The Turkish wordings lean on what makes Turkish hard for this
+  // judge rather than on more of the same: agglutination carrying the
+  // question ("kalırsam", "gerekiyor") where the other languages use a
+  // separate word, and the dotted/dotless i pair, which is one of the
+  // six failure classes this project tracks.
+  //
+  // Labelled before being run, like every case above. Four tune, six
+  // held-out.
+
+  // Answered — hard negatives, the ones that cost trust if flagged.
+  {
+    id: "hollywood-duration",
+    answered: true,
+    because: "\"The duration\" gives the Hollywood smile as 7 days, one visit.",
+    split: "tune",
+    en: "how long does a Hollywood smile take?",
+    ar: "كم تستغرق ابتسامة هوليوود؟",
+    ru: "сколько времени занимает голливудская улыбка?",
+    tr: "Hollywood gülüşü ne kadar sürüyor?",
+  },
+  {
+    id: "airport-pickup",
+    answered: true,
+    because: "\"The package\" includes VIP airport transport — asked without the word.",
+    split: "heldout",
+    en: "will someone pick me up from the airport?",
+    ar: "هل سيستقبلني أحد في المطار؟",
+    ru: "меня встретят в аэропорту?",
+    tr: "beni havalimanından alacak biri olacak mı?",
+  },
+  {
+    id: "crowns-years",
+    answered: true,
+    because: "\"The warranty\" gives 20 years on the crowns.",
+    split: "heldout",
+    en: "for how many years are the crowns guaranteed?",
+    ar: "كم سنة ضمان التيجان؟",
+    ru: "на сколько лет гарантия на коронки?",
+    tr: "kronların garantisi kaç yıl?",
+  },
+  {
+    id: "istanbul-location",
+    answered: true,
+    because: "Several entries state the clinic is in Istanbul.",
+    split: "heldout",
+    en: "which city is the clinic in?",
+    ar: "في أي مدينة تقع العيادة؟",
+    ru: "в каком городе находится клиника?",
+    tr: "klinik hangi şehirde?",
+  },
+
+  // Not answered — what recall is measured on.
+  {
+    id: "women-only-area",
+    answered: false,
+    because: "Nothing about the premises, facilities or any separate area.",
+    split: "tune",
+    en: "do you have a women-only treatment area?",
+    ar: "هل لديكم قسم مخصص للنساء فقط؟",
+    ru: "есть ли у вас отделение только для женщин?",
+    tr: "sadece kadınlara ayrılmış bir bölüm var mı?",
+  },
+  {
+    id: "deposit",
+    answered: false,
+    because: "No payment terms of any kind — no deposit, no schedule.",
+    split: "tune",
+    en: "how much deposit do I pay upfront?",
+    ar: "كم العربون المطلوب مقدماً؟",
+    ru: "какой нужен депозит заранее?",
+    tr: "peşin olarak ne kadar kapora ödemem gerekiyor?",
+  },
+  {
+    id: "smoking-after",
+    answered: false,
+    because: "No post-operative instruction appears anywhere.",
+    split: "tune",
+    en: "can I smoke after the implant surgery?",
+    ar: "هل يمكنني التدخين بعد عملية الزراعة؟",
+    ru: "можно ли курить после имплантации?",
+    tr: "implant ameliyatından sonra sigara içebilir miyim?",
+  },
+  {
+    id: "cancellation",
+    answered: false,
+    because: "No booking, cancellation or refund policy exists.",
+    split: "heldout",
+    en: "what happens if I have to cancel my trip?",
+    ar: "ماذا يحدث إذا اضطررت لإلغاء رحلتي؟",
+    ru: "что будет, если мне придётся отменить поездку?",
+    tr: "seyahatimi iptal etmek zorunda kalırsam ne olur?",
+  },
+  {
+    id: "bone-graft",
+    answered: false,
+    because:
+      "Two things asked, neither present: no eligibility rule naming grafting, and no price for anything.",
+    split: "heldout",
+    en: "will I need a bone graft, and does it cost extra?",
+    ar: "هل أحتاج إلى ترقيع عظم، وهل تكلفته إضافية؟",
+    ru: "понадобится ли костная пластика и стоит ли она отдельно?",
+    tr: "kemik grefti gerekir mi, ayrı ücret mi?",
+  },
+  {
+    id: "translator",
+    answered: false,
+    partial: true,
+    because:
+      "\"The package\" lists what the trip includes — transport and a hotel — and a translator is not among them. Close enough to the package entry that a judge may read it as covered, and genuinely not stated either way.",
+    split: "heldout",
+    en: "is a translator provided during the treatment?",
+    ar: "هل يوجد مترجم خلال العلاج؟",
+    ru: "предоставляется ли переводчик во время лечения?",
+    tr: "tedavi sırasında tercüman sağlanıyor mu?",
   },
 ];
 

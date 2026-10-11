@@ -2,6 +2,8 @@ import { getCurrentTenant } from "@/lib/dashboard-tenant";
 import { KnowledgeEntry } from "@/lib/knowledge-base";
 import { DashboardShell, DashboardMessage } from "@/components/dashboard/DashboardShell";
 import { KnowledgeBaseManager } from "@/components/dashboard/settings/KnowledgeBaseManager";
+import { groupAsks, activeGroups, type UnansweredAsk } from "@/lib/unanswered-questions";
+import { remainingStarters } from "@/lib/starter-questions";
 
 // Always fetch fresh — content edited here should be immediately visible,
 // same reasoning as the leads dashboard.
@@ -22,14 +24,24 @@ export default async function SettingsPage() {
 
   const { supabase, tenantId, businessName } = context;
 
-  const { data: rows, error } = await supabase
-    .from("knowledge_base")
-    .select(
-      "id, title, category, content, embedding, created_at"
-    )
-    .eq("tenant_id", tenantId)
-    .order("category", { ascending: true })
-    .order("created_at", { ascending: false });
+  const [{ data: rows, error }, { data: askRows, error: askError }] = await Promise.all([
+    supabase
+      .from("knowledge_base")
+      .select("id, title, category, content, embedding, created_at, question_key")
+      .eq("tenant_id", tenantId)
+      .order("category", { ascending: true })
+      .order("created_at", { ascending: false }),
+    // The embedding column is deliberately NOT selected. Grouping was
+    // decided at capture time and stored as group_id; re-deriving it
+    // here would mean shipping 1,536 floats per ask to a page that only
+    // renders text, and would let a threshold change silently re-form
+    // groups an owner has already dismissed.
+    supabase
+      .from("unanswered_questions")
+      .select("id, session_id, asked_at, question_raw, question_short, script, group_id, dismissed_at")
+      .eq("tenant_id", tenantId)
+      .order("asked_at", { ascending: true }),
+  ]);
 
   const entries: KnowledgeEntry[] = (rows ?? []).map((row) => ({
     id: row.id,
@@ -39,6 +51,38 @@ export default async function SettingsPage() {
     hasEmbedding: row.embedding !== null,
     created_at: row.created_at,
   }));
+
+  if (askError) {
+    // Not fatal, and not silent. The knowledge base is the page; this
+    // list is the prompt above it, and losing the prompt must not lose
+    // the page.
+    console.error("Failed to load captured questions:", askError);
+  }
+
+  const asks: UnansweredAsk[] = (askRows ?? []).map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    askedAt: row.asked_at,
+    questionRaw: row.question_raw,
+    questionShort: row.question_short,
+    script: row.script,
+    embedding: null,
+    groupId: row.group_id,
+    dismissedAt: row.dismissed_at,
+  }));
+
+  const active = activeGroups(asks);
+  // Dismissed and not yet back. Shown collapsed at the foot of the page
+  // so an accidental dismissal is recoverable.
+  const dismissed = groupAsks(asks).filter((g) => g.dismissedAt !== null && !g.returned);
+
+  // Suggestions, only while no real question has ever been captured —
+  // including dismissed ones, because a tenant whose owner has dismissed
+  // questions is not a tenant that needs starter suggestions.
+  const starters = remainingStarters(
+    (rows ?? []).map((r) => r.question_key).filter((k): k is string => !!k),
+    asks.length
+  );
 
   return (
     <DashboardShell
@@ -56,7 +100,12 @@ export default async function SettingsPage() {
           Failed to load knowledge base: {error.message}
         </p>
       ) : (
-        <KnowledgeBaseManager entries={entries} />
+        <KnowledgeBaseManager
+          entries={entries}
+          unanswered={active}
+          dismissed={dismissed}
+          starters={starters}
+        />
       )}
     </DashboardShell>
   );

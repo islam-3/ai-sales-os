@@ -161,6 +161,53 @@ number, or a brand written in Chinese characters. It undercounts
 consistently, which is fine for a bar calibrated on the same measure and
 would not be fine if the number were reported as "facts".
 
+### Reading the gap between them
+
+| Module | Question it answers | How |
+|---|---|---|
+| `answer-gap.ts` | Does the business's own material answer what was just asked? | Sonnet, after the reply, names the entry — the boolean is derived in code |
+| `question-short.ts` | What is this question, in the team's language, with no personal detail? | Sonnet, then checked in code |
+| `unanswered-questions.ts` | Is this the same question someone already asked, and has it been dismissed? | Cosine over the *short* version, plus two tested rules |
+| `capture-unanswered.ts` | Orchestrates the four steps, cheapest gate first | Question mark → cap → judge → record |
+
+This is the one detector pointed at the **business**, not the visitor:
+its output is a dashboard list, "Customers asked — no answer yet", at the
+top of the knowledge base page.
+
+Three things about it are load-bearing.
+
+**It never reads the reply.** A reply sounding unsure is not evidence: a
+good assistant hedges about a price it does not have *and* about one it
+does. The only question asked is whether the written material contains
+the answer, asked of the material directly. Detection is structural or it
+is nothing.
+
+**Similarity was tried first and failed conclusively.** Cosine against
+the stored entries overlapped in all four languages with no usable bar —
+"how much do implants cost?" scores 0.520 against a knowledge base full
+of implant entries, none carrying a price. The run is in
+`docs/answerability-detection.txt` and the rejected harness is kept as
+evidence. Similarity measures *topic*; this question is about *presence*.
+
+**The judge is asked for evidence, not a verdict.** It must name the
+numbered entry that answers the question, and `answered` is computed here
+from whether that index is real. Asking a model for a boolean beside its
+reasoning produced answers where the two disagreed.
+
+It fails toward "answered", always. A missed gap costs a dashboard row
+nobody sees; a false gap tells an owner to re-add their own warranty,
+which is exactly what made the card before this unusable.
+
+**When retrieval comes back, this needs one change.** The judge
+deliberately sees the *whole* knowledge base rather than what retrieval
+selected, because a question answered by an entry retrieval *missed* is
+our bug and must never reach an owner's dashboard as their homework.
+Once `RAG_RETRIEVAL_ENABLED` is true, add a title index to the judge's
+material so a verdict can distinguish "not in the knowledge base at all"
+from "in it but not retrieved" — the second is an engineering ticket, not
+an owner's to-do. Not built now: with retrieval off the two are the same
+thing, and building for a branch nobody takes is how dead paths start.
+
 ### Protecting the business
 
 | Module | Rule |
@@ -214,6 +261,24 @@ Produce before/after figures, written to `docs/`. Use `LABEL=before` /
 | `measure-latency.ts` | End-to-end round trip **with reply word counts** |
 | `measure-shape.ts` | Paragraph and question-ending distribution |
 | `classify-eval.ts` | Precision/recall against 71 labelled cases |
+| `measure-answer-gap.ts` | Precision/recall of the answer-gap judge, per language, `SPLIT=tune\|heldout` |
+| `measure-answer-gap-cost.ts` | What the judge adds per conversation, and whether caching holds |
+| `measure-question-grouping.ts` | Whether a similarity threshold can group two short questions |
+
+`measure-answer-gap.ts` reads `SPLIT`. Tune on `tune`; run `heldout`
+**once**, at the end, and report that. The labels and the split live in
+`scripts/answer-gap-cases.ts` and were committed *before* the judge
+existed — a label adjusted after seeing a verdict is a label fitted to
+the verdict.
+
+Both answer-gap scripts refuse to report a clean sheet on nothing. The
+first run of the measurement harness had every call fail on a billing
+refusal and printed "precision 100%, recall 100%, ZERO false gaps",
+because an empty tally defaulted to perfect. Null scores now print `—`
+and any unreachable call exits 1. The cost script has the same guard
+from the other direction: it forces a cold cache with a run-stamped
+marker and exits 1 if the first call is a cache *read*, because a warm
+window made it report a per-conversation cost five times too low.
 
 `measure-latency.ts` records word counts because latency without output
 length is uninterpretable: a turn that got slower because the model wrote
@@ -256,6 +321,26 @@ on the critical path. Embeddings are still used — for coverage relevance.
 
 **A two-signal classifier prompt.** Tried, measured, rejected. See above.
 
+**Asking the business our own questions.** Built as a twelve-question
+guided-entry card, used by an owner, removed — 1,845 lines. Not buggy;
+the wrong shape. It read "0 of 12" while the warranty, the brands, the
+durations and the packages all sat in the list below it, so the owner was
+being asked to redo work they had done. What replaced it asks the
+business nothing and shows it what real customers asked instead.
+
+**A similarity pre-filter in front of the answer-gap judge.** It would
+only have been a cost saving, and the measurement says similarity cannot
+tell answered from unanswered at any threshold — so the filter would
+have discarded real gaps before the judge ever saw them.
+
+**Model-judged grouping of captured questions.** Grouping uses cosine
+over the short version, and the distributions overlap: no threshold
+separates "same question, different words" from "same topic, different
+question". The bar is set high (0.75) so it never merges wrongly, which
+means it sometimes lists one question twice. A model call per captured
+question would fix it and is not worth it — a duplicate line is visible,
+self-correcting, and costs an owner nothing.
+
 **Lead deduplication beyond 24 hours.** Resume restores a conversation
 for 24h, measured from its *first* message. A visitor returning on day
 three gets a new session, a correctly-counted conversation and a second
@@ -297,6 +382,23 @@ has already shipped one truncated reply.
   durable things that came out of this.
 - **Resume dedupes a returning browser, not a returning person.** Phone
   then laptop is still two leads.
+- **The answer-gap judge is weak on partially answered questions.**
+  Held-out: precision 100% in all four languages, recall 75% overall
+  (Turkish 60%), and only 4 of 8 partials caught. A question the material
+  answers *in part* — "a 5-star hotel is included" against "how many
+  nights?" — reads as answered to the judge about half the time. Shipped
+  knowingly: precision over recall stands, because the error that costs
+  trust is telling an owner to write what they already wrote. Ten more
+  cases were added after that run to tell a real Turkish weakness from a
+  small sample.
+- **Captured questions can appear twice.** See grouping, above. At the
+  shipped threshold, 9 of 14 labelled same-meaning pairs stay separate.
+- **A captured question's short version is checked, not verified.** The
+  code rejects an empty line, a second line, an over-long one, a long
+  digit run and a contact detail. It cannot check that a name was
+  removed. That is why the customer's own words stay in `question_raw`
+  and the dashboard links to the transcript — the short version is a
+  convenience, never the record.
 - **CI holds a service-role key** that can read every tenant's leads.
   Acceptable while there is no real customer data. **Launch blocker:**
   replace it with a narrow read-only endpoint scoped to `is_test` tenants

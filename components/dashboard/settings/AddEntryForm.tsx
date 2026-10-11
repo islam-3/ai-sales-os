@@ -11,12 +11,21 @@ import { createKnowledgeEntry } from "@/app/dashboard/settings/actions";
 
 export function AddEntryForm({
   categories,
+  initialTitle = "",
   onDone,
 }: {
   categories: string[];
+  /**
+   * Prefilled when the form was opened from a captured customer
+   * question. The SAME form either way, deliberately: a second form
+   * that only takes answers to questions would be a second place to
+   * add knowledge, and two parallel lists about the same thing is
+   * precisely what made the card before this unusable.
+   */
+  initialTitle?: string;
   onDone: () => void;
 }) {
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initialTitle);
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("");
   const [error, setError] = useState<string | null>(null);

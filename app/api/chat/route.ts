@@ -19,7 +19,7 @@ import {
 } from "@/lib/lead-language";
 import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
-import { resolveVisitorLanguage } from "@/lib/visitor-language";
+import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
 import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
 import { parseEmbedding } from "@/lib/vectors";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/reply-guard";
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
+import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -1005,6 +1006,45 @@ async function handleChat(body: Record<string, unknown>) {
   // run, which re-reads the whole transcript from scratch.
   const priorUserTurns = (history ?? []).filter((row) => row.role === "user").length;
   const userTurnNumber = priorUserTurns + 1;
+
+  // Did the business have an answer for what they just asked?
+  //
+  // After the reply, like the extractor, and for the same reason: the
+  // visitor is not waiting on it and must never be. Nothing it decides
+  // changes the reply they just got — it writes a row an owner reads
+  // later.
+  //
+  // Gated here on the question mark alone, which is free, so the vast
+  // majority of turns cost nothing. Everything expensive — the judge,
+  // the rewrite, the embedding — happens inside, behind the cap.
+  //
+  // Measured cost when it does run: $0.0188 for the first question of a
+  // tenant's cache window and $0.0019 for each after it, against a
+  // measured 2.0 question-bearing turns per conversation. See
+  // scripts/measure-answer-gap-cost.ts.
+  if (trimmedMessage && shouldJudge(trimmedMessage)) {
+    keepAlive(
+      captureIfUnanswered({
+        supabase: supabaseServer,
+        anthropic,
+        tenantId,
+        sessionId,
+        question: trimmedMessage,
+        // The whole knowledge base, not what retrieval picked. A
+        // question answered by an entry retrieval MISSED is our bug,
+        // not the owner's, and must never reach their dashboard as
+        // something for them to write.
+        knowledge: knowledgeEntries.map((e) => ({ title: e.title, content: e.content })),
+        teamLanguage: leadLanguage(tenant.settings),
+        // The script, read off the text itself — free, and it cannot be
+        // wrong in the way a model naming the language can. Shown on
+        // the dashboard row so an owner can see that the people asking
+        // about price are all writing in Arabic.
+        script: detectScript([trimmedMessage]),
+      }),
+      "captureIfUnanswered"
+    );
+  }
 
   if (shouldExtractLead(userTurnNumber, userContent)) {
     const transcript = formatTranscript([
