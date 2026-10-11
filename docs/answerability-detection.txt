@@ -1,0 +1,84 @@
+test-clinic: 23 entries, 23 embedded
+
+── en ──
+  CAN   0.765  what warranty do you give on the crowns?
+  CAN   0.691  which implant brand do you use?
+  CAN   0.638  which crowns do you use?
+  CAN   0.650  how many visits does the implant treatment take?
+  CAN   0.477  what does the package include?
+  CAN   0.561  do you do teeth whitening?
+  CAN   0.671  do you do hair transplants for women?
+  can't 0.520  how much do dental implants cost?
+  can't 0.291  do you offer payment plans or financing?
+  can't 0.282  who are the doctors and what are their qualification
+  can't 0.504  what happens if an implant fails after I go home?
+  can't 0.297  is there an age limit for treatment?
+  can't 0.338  is there parking at the clinic?
+  can't 0.262  do you accept insurance?
+
+── ar ──
+  CAN   0.312  ما هو الضمان على التيجان؟
+  CAN   0.184  ما نوع الغرسات التي تستخدمونها؟
+  CAN   0.195  ما نوع التيجان التي تستخدمونها؟
+  CAN   0.274  كم زيارة تحتاج زراعة الأسنان؟
+  CAN   0.199  ماذا يشمل الباقة؟
+  CAN   0.278  هل تقومون بتبييض الأسنان؟
+  CAN   0.361  هل تقومون بزراعة الشعر للنساء؟
+  can't 0.146  كم تكلفة زراعة الأسنان؟
+  can't 0.173  هل يمكن الدفع على أقساط؟
+  can't 0.144  من هم الأطباء وما هي مؤهلاتهم؟
+  can't 0.103  ماذا يحدث إذا فشلت الغرسة بعد عودتي إلى بلدي؟
+  can't 0.292  هل هناك حد للعمر للعلاج؟
+  can't 0.255  هل يوجد موقف سيارات في العيادة؟
+  can't 0.220  هل تقبلون التأمين الصحي؟
+
+── ru ──
+  CAN   0.478  какая гарантия на коронки?
+  CAN   0.339  какие импланты вы используете?
+  CAN   0.384  какие коронки вы используете?
+  CAN   0.366  сколько визитов нужно для имплантации?
+  CAN   0.363  что входит в пакет?
+  CAN   0.320  вы делаете отбеливание зубов?
+  CAN   0.333  вы делаете пересадку волос женщинам?
+  can't 0.453  сколько стоит имплантация зубов?
+  can't 0.177  можно ли оплатить в рассрочку?
+  can't 0.224  кто врачи и какая у них квалификация?
+  can't 0.247  что будет, если имплант не приживётся после возвраще
+  can't 0.167  есть ли возрастные ограничения?
+  can't 0.270  есть ли парковка у клиники?
+  can't 0.191  вы принимаете страховку?
+
+── tr ──
+  CAN   0.359  kronlar için garanti nedir?
+  CAN   0.570  hangi implant markasını kullanıyorsunuz?
+  CAN   0.229  hangi kronları kullanıyorsunuz?
+  CAN   0.505  implant tedavisi kaç ziyaret sürüyor?
+  CAN   0.383  pakete neler dahil?
+  CAN   0.487  diş beyazlatma yapıyor musunuz?
+  CAN   0.414  kadınlara saç ekimi yapıyor musunuz?
+  can't 0.569  diş implantı ne kadar?
+  can't 0.212  taksitle ödeme imkanı var mı?
+  can't 0.311  doktorlar kim ve nitelikleri neler?
+  can't 0.403  eve döndükten sonra implant başarısız olursa ne olur
+  can't 0.268  tedavi için yaş sınırı var mı?
+  can't 0.373  klinikte otopark var mı?
+  can't 0.208  sigorta kabul ediyor musunuz?
+
+══════════════════════════════════════════════════════════════════
+  Does a bar separate them?
+══════════════════════════════════════════════════════════════════
+  en  answerable 0.477–0.765 (med 0.650)   unanswerable 0.262–0.520 (med 0.297)   OVERLAP
+  ar  answerable 0.184–0.361 (med 0.274)   unanswerable 0.103–0.292 (med 0.173)   OVERLAP
+  ru  answerable 0.320–0.478 (med 0.363)   unanswerable 0.167–0.453 (med 0.224)   OVERLAP
+  tr  answerable 0.229–0.570 (med 0.414)   unanswerable 0.208–0.569 (med 0.311)   OVERLAP
+
+  And does ONE bar work across all four languages?
+    answerable   0.184–0.765
+    unanswerable 0.103–0.569
+    NO SINGLE ABSOLUTE BAR — they overlap by 0.385
+
+  Per-language bars, if that is the answer:
+    en  unusable — overlap
+    ar  unusable — overlap
+    ru  unusable — overlap
+    tr  unusable — overlap
