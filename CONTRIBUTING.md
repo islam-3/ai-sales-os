@@ -61,6 +61,25 @@ go through `say()` in `scripts/_chat-client.ts`, which refuses any tenant
 not marked `is_test` — see `lib/test-tenant.ts`. A script that builds its
 own `fetch` to `/api/chat` fails `scripts/test-test-tenant-guard.ts`.
 
+**That guard only reaches `scripts/`.** A `curl` typed into a terminal is
+outside it, and so is anything run by hand. The rule is the same and it
+is yours to keep: **every production check goes through `test-clinic`**,
+never a real tenant.
+
+Reading is not exempt in spirit. `GET /chat/<slug>` writes nothing — only
+`/api/chat` meters a conversation and creates a lead — so a page load
+against a real tenant is harmless, but reach for `test-clinic` anyway so
+there is one habit rather than a judgement call each time.
+
+To check what a real tenant is actually serving without touching it, the
+chat page reports it: `data-greeting-language` and `data-greeting-source`
+on the chat container say which language the server resolved and whether
+the words came from the owner's saved greeting or the built-in default.
+
+```sh
+curl -s https://<prod>/chat/<slug> | grep -o 'data-greeting-[a-z]*="[^"]*"'
+```
+
 ## Before changing a detector that reads text
 
 Measure it across the six failure classes first: Latin baseline,
