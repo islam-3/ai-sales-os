@@ -382,9 +382,10 @@ export async function translateGreeting(): Promise<{ ok: true } | { ok: false; e
 
   const languageForModel = languageName(language) || language;
 
-  // Nothing to translate is not an error the owner can act on — the
-  // button should not have been there. Reported plainly rather than as
-  // a failure.
+  // Nothing to translate means the button should not have been there.
+  // The card asks translationSourceFor the same question with the same
+  // arguments, so in practice this is unreachable — it is here for the
+  // race where the owner saves in another tab between render and press.
   const source = translationSourceFor(settings.chat_intro?.greetings, language);
   if (!source) {
     return {

@@ -105,6 +105,7 @@ export default async function BusinessPage() {
           settings={settings}
           businessName={tenant.business_name ?? ""}
           liveText={liveIntro.greeting}
+          liveChips={liveIntro.chips}
           derivedChips={derivedChips}
         />
       </div>

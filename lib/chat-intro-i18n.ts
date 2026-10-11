@@ -451,25 +451,27 @@ export function greetingNeedsReview(
  */
 export function translationSourceFor(
   greetings: StoredGreetings | undefined,
-  targetLanguage: string | undefined,
-  options: {
-    /**
-     * Find a source even though the target already has a greeting.
-     *
-     * For re-translating one that has NOT been approved: the owner has
-     * a translation they have not accepted, and redoing it must start
-     * from the original rather than from the translation it produced.
-     * Never set once a translation is live — at that point a greeting
-     * exists for this language and there is nothing left to translate.
-     */
-    ignoreExisting?: boolean;
-  } = {}
+  targetLanguage: string | undefined
 ): { language: string; greeting: StoredGreeting } | null {
   const target = resolveLanguageCode(targetLanguage ?? "") ?? (targetLanguage ?? "").trim().toLowerCase();
   if (!target) return null;
 
-  // Already in the language visitors are greeted in: nothing to do.
-  if (!options.ignoreExisting && storedGreetingFor(greetings, target)) return null;
+  // ── When a greeting already exists for the target ─────────────────
+  // LIVE, so there is nothing to do. Anything else falls through and
+  // looks for a source: either nothing is stored for this language, or
+  // what is stored is a translation the owner has not accepted, and
+  // redoing a bad translation has to start from the ORIGINAL rather
+  // than from the translation it produced.
+  //
+  // This was a parameter the caller passed, and the card passed it
+  // while the server did not — so the card offered "Translate from
+  // English to Russian" and the server answered "there is nothing to
+  // translate, your welcome message is already in Russian". Both were
+  // reading the same data through different rules. A rule two callers
+  // have to remember is a rule that drifts, so there is no longer
+  // anything to remember.
+  const existing = storedGreetingFor(greetings, target);
+  if (existing && existing.approved) return null;
 
   const candidates = Object.entries(greetings ?? {})
     .filter(([code, g]) => code !== target && g.text.trim())
@@ -504,4 +506,33 @@ export function translationSourceFor(
   const pool = authored.length > 0 ? authored : candidates;
 
   return [...pool].sort(byRecency)[0];
+}
+
+/**
+ * Whether Save should be offered.
+ *
+ * ── Measured against what visitors GET, not what is stored ──────────
+ * Those two differ in exactly the state that matters. A translation
+ * nobody has approved is stored but NOT served — visitors still get the
+ * built-in default — so comparing the editor against the stored text
+ * made Save disabled on the one screen whose whole purpose is pressing
+ * it. The card said "read it, then save" above a button that could not
+ * be pressed, and the owner had to hand-edit the text to enable it.
+ *
+ * And unconditionally true while a translation is awaiting review,
+ * because saving IS the approval. There is nothing else to change.
+ */
+export function canSaveGreeting(input: {
+  /** What is in the editor now. */
+  text: string;
+  chips: string[];
+  /** What a visitor is served this moment. */
+  liveText: string;
+  liveChips: string[];
+  /** A stored translation the owner has not accepted yet. */
+  awaitingReview: boolean;
+}): boolean {
+  if (input.awaitingReview) return true;
+  if (input.text !== input.liveText) return true;
+  return JSON.stringify(input.chips) !== JSON.stringify(input.liveChips);
 }

@@ -24,6 +24,7 @@ import { buildChatIntro, deriveChips, firstSentenceOf } from "../lib/chat-intro"
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
+  canSaveGreeting,
   greetingNeedsReview,
   storedGreetingFor,
   translationSourceFor,
@@ -305,13 +306,20 @@ check(
 console.log("\n--- re-translating one that is not live yet ---");
 const notLive = { en: g(), ar: g({ approved: false, origin: "translated" as const }) };
 check(
-  "normally there is nothing to do once a translation exists",
-  translationSourceFor(notLive, "ar") === null
+  "an unapproved one can be redone from the original",
+  translationSourceFor(notLive, "ar")?.language === "en",
+  "redoing a bad translation must start from the original, not from itself"
 );
 check(
-  "but an UNAPPROVED one can be redone from the original",
-  translationSourceFor(notLive, "ar", { ignoreExisting: true })?.language === "en",
-  "redoing a bad translation must start from the original, not from itself"
+  "and a LIVE one leaves nothing to do",
+  translationSourceFor(
+    { en: g(), ar: g({ approved: true, origin: "translated" as const }) },
+    "ar"
+  ) === null,
+  // Approved is the line, not merely present. That distinction is the
+  // whole rule, and it used to be a flag the card passed and the server
+  // did not.
+  "once visitors are being served it, the work is finished"
 );
 
 console.log("\n--- never translating a translation ---");
@@ -405,7 +413,7 @@ const cardSrc = readFileSync(
 const actionsSrc = readFileSync(join(process.cwd(), "app/dashboard/business/actions.ts"), "utf8");
 check(
   "the card shows the button from translationSourceFor",
-  /translationSourceFor\(greetings, language, \{\s*ignoreExisting: awaitingReview,?\s*\}\)/.test(cardSrc)
+  /const translateFrom = translationSourceFor\(greetings, language\);/.test(cardSrc)
 );
 check(
   "and names both languages on it",
@@ -458,6 +466,125 @@ check(
   "and notices use the dashboard's warning tokens, not one-off amber",
   /border-warning\/30 bg-warning\/10/.test(cardSrc) && !/amber-/.test(cardSrc),
   "hard-coded amber does not flip with the theme"
+);
+
+// ─────────────────────────────────────────────────────────────────────
+// Saving a translation, which IS the approval
+//
+// Reported from the browser: right after Translate, the card said "this
+// was translated for you and is not live yet. Read it, then save." and
+// Save was DISABLED. The owner had to hand-edit the text — delete a
+// question mark — before the button that would have published it
+// unchanged became pressable.
+//
+// The cause was comparing the editor against what is STORED. An
+// unapproved translation is stored but not served, so on the one screen
+// whose whole purpose is pressing Save, the editor matched storage
+// exactly and nothing looked changed.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- when Save is offered ---");
+
+const LIVE = "Welcome to Prof Clinic. How can we help?";
+const LIVE_CHIPS = ["Pricing", "About"];
+const save = (over: Partial<Parameters<typeof canSaveGreeting>[0]> = {}) =>
+  canSaveGreeting({
+    text: LIVE,
+    chips: LIVE_CHIPS,
+    liveText: LIVE,
+    liveChips: LIVE_CHIPS,
+    awaitingReview: false,
+    ...over,
+  });
+
+check("nothing touched: not offered", save() === false);
+check("the message changed: offered", save({ text: `${LIVE} Extra.` }) === true);
+check("a chip renamed: offered", save({ chips: ["Prices", "About"] }) === true);
+check("a chip removed: offered", save({ chips: ["Pricing"] }) === true);
+check("a chip reordered: offered", save({ chips: ["About", "Pricing"] }) === true);
+check(
+  "every chip removed: offered",
+  save({ chips: [] }) === true,
+  "an empty list is a deliberate choice and has to be savable"
+);
+check(
+  "an UNAPPROVED translation, untouched: OFFERED",
+  save({ awaitingReview: true }) === true,
+  "this is the bug — saving is the approval, so it cannot require an edit first"
+);
+check(
+  "and still offered once it has also been edited",
+  save({ awaitingReview: true, text: "edited" }) === true
+);
+check(
+  "a translation matching what is live is still offered while unapproved",
+  save({ awaitingReview: true, text: LIVE, chips: LIVE_CHIPS }) === true,
+  "approving it is the change, even when the words happen to match"
+);
+check(
+  "comparing against STORED rather than live is what broke it",
+  // The state the owner was in: the editor holds the stored translation,
+  // and what visitors get is still the built-in default.
+  save({ awaitingReview: true, text: "перевод", liveText: LIVE }) === true
+);
+
+// ─────────────────────────────────────────────────────────────────────
+// One rule, one answer
+//
+// Reported from the browser: the card offered "Translate from English to
+// Russian" and directly beneath it the server answered "there is nothing
+// to translate — your welcome message is already in Russian". Both were
+// reading the same stored data; the card passed an ignoreExisting flag
+// and the server did not.
+//
+// The flag is gone. The rule lives inside translationSourceFor, so there
+// is nothing for a caller to remember or to get wrong.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- the card and the server cannot disagree ---");
+
+const unapproved = {
+  en: g({ origin: "written" as const, savedAt: 1000 }),
+  ru: g({ text: "перевод", approved: false, origin: "translated" as const, savedAt: 2000 }),
+};
+check(
+  "an unapproved translation still has a source, so the button is right",
+  translationSourceFor(unapproved, "ru")?.language === "en",
+  "redoing a bad translation starts from the original"
+);
+check(
+  "and the server asking the same question gets the same answer",
+  // Same function, same arguments, no options: there is no second rule
+  // for the two of them to diverge on.
+  translationSourceFor(unapproved, "ru") !== null,
+  "the card showed a button for an action the server refused"
+);
+
+const approved = {
+  en: g({ origin: "written" as const, savedAt: 1000 }),
+  ru: g({ text: "перевод", approved: true, origin: "translated" as const, savedAt: 2000 }),
+};
+check(
+  "once it is live, both agree there is nothing to do",
+  translationSourceFor(approved, "ru") === null
+);
+
+check(
+  "translationSourceFor takes no options at all",
+  translationSourceFor.length === 2,
+  "a rule two callers have to pass identically is a rule that drifts"
+);
+
+const i18nSrc = readFileSync(join(process.cwd(), "lib/chat-intro-i18n.ts"), "utf8");
+check(
+  "and the rule is inside it, not at the call sites",
+  /const existing = storedGreetingFor\(greetings, target\);\s*\n\s*if \(existing && existing\.approved\) return null;/.test(
+    i18nSrc
+  )
+);
+check(
+  "no caller passes an ignoreExisting flag any more",
+  !/ignoreExisting/.test(cardSrc) && !/ignoreExisting/.test(actionsSrc) && !/ignoreExisting/.test(i18nSrc)
 );
 
 console.log(bad ? `\n${bad} FAILING` : "\nall greeting-prose tests passed");

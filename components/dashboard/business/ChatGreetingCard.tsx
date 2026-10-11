@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard, SectionCardFooter } from "@/components/dashboard/SectionCard";
 import {
+  canSaveGreeting,
   greetingNeedsReview,
   isRtlText,
   storedGreetingFor,
@@ -38,6 +39,7 @@ type Props = {
   businessName: string;
   /** What visitors see right now, whatever is or is not stored. */
   liveText: string;
+  liveChips: string[];
   /** The chips derived from the knowledge base, for a first-time editor. */
   derivedChips: string[];
 };
@@ -63,7 +65,7 @@ export function ChatGreetingCard(props: Props) {
   return <GreetingEditor key={revision} {...props} />;
 }
 
-function GreetingEditor({ settings, businessName, liveText, derivedChips }: Props) {
+function GreetingEditor({ settings, businessName, liveText, liveChips, derivedChips }: Props) {
   const router = useRouter();
   const language = settings.chat_language?.trim() ?? "";
   const languageLabel = languageName(language) || language || "English";
@@ -99,13 +101,21 @@ function GreetingEditor({ settings, businessName, liveText, derivedChips }: Prop
   // It stays available while a translation is UNAPPROVED, so a bad one
   // can be redone from the original rather than hand-edited; once saved,
   // a greeting exists for this language and there is nothing left to do.
-  const translateFrom = translationSourceFor(greetings, language, {
-    ignoreExisting: awaitingReview,
-  });
+  const translateFrom = translationSourceFor(greetings, language);
 
-  const dirty =
-    text !== (stored?.text ?? liveText) ||
-    JSON.stringify(chips) !== JSON.stringify(stored?.chips ?? derivedChips);
+  // ── When Save is offered ───────────────────────────────────────────
+  // Measured against what visitors ACTUALLY GET, not against what is
+  // stored. Those differ in exactly the state that matters: a
+  // translation nobody has approved is stored but not served, so
+  // comparing the editor to it made Save disabled on the one screen
+  // whose entire purpose is pressing Save. The owner had to hand-edit
+  // the text — delete a question mark — to enable the button that would
+  // have published it unchanged.
+  //
+  // And always while a translation is unapproved, because saving IS the
+  // approval. "Read it, then save" has to be followed by a save that
+  // can be pressed.
+  const canSave = canSaveGreeting({ text, chips, liveText, liveChips, awaitingReview });
 
   async function run(kind: "suggest" | "translate" | "save") {
     setBusy(kind);
@@ -167,7 +177,7 @@ function GreetingEditor({ settings, businessName, liveText, derivedChips }: Prop
             ) : null
           }
         >
-          <Button type="button" size="sm" disabled={busy !== null || !dirty} onClick={() => run("save")}>
+          <Button type="button" size="sm" disabled={busy !== null || !canSave} onClick={() => run("save")}>
             {busy === "save" ? "Saving…" : "Save changes"}
           </Button>
         </SectionCardFooter>
