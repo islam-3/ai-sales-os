@@ -91,7 +91,17 @@ const OFFER_ES = "¿Quieres ver fotos de antes y después de casos como el tuyo?
  */
 export const OFFERS = [OFFER_EN, OFFER_AR, OFFER_RU, OFFER_ZH, OFFER_TR, OFFER_ES];
 
-export const CASES: Case[] = [
+/**
+ * The cases that predate asking_for_information.
+ *
+ * A separate array rather than a count, because the count was wrong the
+ * first time: `grep -c "klass:"` returned 71 and one of those was the
+ * type declaration, so a slice(0, 71) would have pulled a NEW case into
+ * the "before" subset and quietly contaminated the paired comparison
+ * this whole exercise depends on. A boundary that cannot drift beats a
+ * number that has to be maintained.
+ */
+export const ORIGINAL_CASES: Case[] = [
   // ── English (Latin baseline) ────────────────────────────────────────
   { klass: "English", ...none, prior: OFFER_EN, text: "yes please", accepts_offer: true },
   { klass: "English", ...none, prior: OFFER_EN, text: "go on then", accepts_offer: true },
@@ -180,10 +190,12 @@ export const CASES: Case[] = [
   { klass: "Spanish", ...none, text: "todavía no has respondido a mi pregunta", impatience: true },
   { klass: "Spanish", ...none, text: "perdí la mayoría de mis dientes superiores hace cinco años" },
   { klass: "Spanish", ...asking, text: "¿cuánto cuesta?" },
+];
 
-  // ════════════════════════════════════════════════════════════════════
-  //  The real shapes, for asking_for_information
-  // ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+//  The real shapes, for asking_for_information
+// ════════════════════════════════════════════════════════════════════
+export const NEW_CASES: Case[] = [
   //
   // Every case above was written for a classifier whose job was photos
   // and mood, so almost all of them are well-formed sentences ending in
@@ -275,6 +287,8 @@ export const CASES: Case[] = [
   { klass: "Chinese", ...none, text: "好的" },
 ];
 
+export const CASES: Case[] = [...ORIGINAL_CASES, ...NEW_CASES];
+
 export const SIGNAL_KEYS = [
   "accepts_offer",
   "direct_request",
@@ -283,13 +297,8 @@ export const SIGNAL_KEYS = [
   "asking_for_information",
 ] as const satisfies readonly (keyof Signals)[];
 
-/**
- * The cases that predate asking_for_information.
- *
- * The before/after on the four original keys is reported on THIS subset
- * as well as on everything, because the new cases are deliberately
- * unlike the old ones — fragments, names, numbers — and a four-key
- * score that moved could otherwise be the new cases rather than the new
- * key. Same cases, same labels, two prompts, one run.
- */
-export const ORIGINAL_CASE_COUNT = 71;
+// The before/after on the four original keys is reported on
+// ORIGINAL_CASES as well as on everything, because the new cases are
+// deliberately unlike the old ones — fragments, names, numbers — and a
+// four-key score that moved could otherwise be the new CASES rather
+// than the new KEY. Same cases, same labels, two prompts, one run.

@@ -35,7 +35,7 @@ import {
   SIGNAL_PROMPT_FOUR_KEY,
   SIGNAL_PROMPT_KEYS,
 } from "../lib/visitor-signals";
-import { CASES, ORIGINAL_CASE_COUNT, SIGNAL_KEYS, type Case, type Signals } from "./classify-cases";
+import { CASES, ORIGINAL_CASES, SIGNAL_KEYS, type Case, type Signals } from "./classify-cases";
 import { detectHesitation, detectImpatience } from "../lib/conversation-state";
 
 const MODEL = process.env.CLASSIFIER_MODEL ?? "claude-haiku-4-5-20251001";
@@ -172,7 +172,8 @@ const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
 
 async function main() {
   const classes = Array.from(new Set(CASES.map((c) => c.klass)));
-  const original = CASES.slice(0, ORIGINAL_CASE_COUNT);
+  const original = ORIGINAL_CASES;
+  const isOriginal = new Set(ORIGINAL_CASES);
 
   const calls = CASES.length * RUNS * (PAIRED ? 2 : 1);
   console.log(`model: ${MODEL}   runs: ${RUNS}   cases: ${CASES.length}`);
@@ -213,13 +214,12 @@ async function main() {
 
   for (let run = 1; run <= RUNS; run++) {
     process.stdout.write(`\nrun ${run}/${RUNS} (5-key): `);
-    for (let i = 0; i < CASES.length; i++) {
-      const c = CASES[i];
+    for (const c of CASES) {
       const got = await classify(c);
       if (got.failed) failures++;
       SCORED.forEach((k) => {
         add(modelBySignal.get(k)!.get(c.klass)!, c[k], got[k]);
-        if (i < ORIGINAL_CASE_COUNT && FOUR_KEYS.includes(k as never)) {
+        if (isOriginal.has(c) && FOUR_KEYS.includes(k as never)) {
           add(fiveKeyOnOriginal.get(k)!.get(c.klass)!, c[k], got[k]);
         }
         if (c[k] !== got[k] && run === 1) {
