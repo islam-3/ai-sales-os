@@ -3,7 +3,8 @@ import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { supabaseServer } from "@/lib/supabase-server";
 import { ChatClient } from "@/components/chat/ChatClient";
 import { buildChatIntro } from "@/lib/chat-intro";
-import { isRtlText } from "@/lib/chat-intro-i18n";
+import { isRtlText, storedGreetingFor } from "@/lib/chat-intro-i18n";
+import { unstable_noStore as noStore } from "next/cache";
 import { buildChatPalette, monogram, type ChatTheme } from "@/lib/branding";
 import "./chat.css";
 
@@ -22,6 +23,22 @@ const instrumentSans = Instrument_Sans({
 // after this route is first built, and a stale "not found" would be a
 // much worse failure mode than a stale success.
 export const dynamic = "force-dynamic";
+
+// ── And never serve a stale GREETING either ──────────────────────────
+// force-dynamic alone is about rendering per request; this is about the
+// data the render reads. Supabase's client calls fetch, Next patches
+// fetch, and a cached tenant row means a business changes its welcome
+// message in the dashboard and visitors keep getting the old one with
+// nothing in the UI to explain why.
+//
+// Stated explicitly rather than relied upon. force-dynamic is
+// documented to imply no-store for fetches that do not opt in, so these
+// two lines should be redundant — and a greeting that was demonstrably
+// stale on production is exactly the situation where "should be
+// redundant" is not good enough. They cost one uncached read per page
+// load, which this page already makes.
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 // Distinct knowledge_base categories for this tenant, used to derive the
 // starter chips. service_role for the same reason the rest of this flow
@@ -74,6 +91,11 @@ export default async function ChatPage({ params }: { params: { slug: string } })
     );
   }
 
+  // Belt and braces with fetchCache above: this one is per-render rather
+  // than per-route, and it is the call Next documents for "never cache
+  // what this render reads".
+  noStore();
+
   const categories = await getCategories(tenant.id);
 
   // Computed on the server so the greeting and chips are in the very first
@@ -86,6 +108,22 @@ export default async function ChatPage({ params }: { params: { slug: string } })
     settings: tenant.settings,
     categories,
   });
+
+  // Which language the server THINKS it is greeting in, and whether that
+  // came from the owner's own saved words or from our built-in default.
+  //
+  // Rendered into the page as data attributes because working out why a
+  // visitor was greeted in the wrong language took a database dump, a
+  // local server and a side-by-side diff — when one request should have
+  // answered it. Nothing secret: the greeting itself is public, and this
+  // only says which bucket it came out of.
+  const greetingLanguage = tenant.settings.chat_language ?? "default";
+  const greetingSource = storedGreetingFor(
+    tenant.settings.chat_intro?.greetings,
+    tenant.settings.chat_language
+  )
+    ? "owner"
+    : "built-in";
 
   // The business chooses how its own customer-facing page looks, so this
   // comes from the tenant's setting and NOT from the visitor's OS
@@ -102,24 +140,28 @@ export default async function ChatPage({ params }: { params: { slug: string } })
     .join(", ");
   const subline = place || tenant.industry || null;
 
+  // Not a fragment: the attributes have to land on a real element in
+  // the HTML, and ChatClient owns its own root.
   return (
-    <ChatClient
-      slug={params.slug}
-      businessName={tenant.businessName}
-      logoUrl={tenant.logoUrl}
-      monogram={monogram(tenant.businessName)}
-      theme={theme}
-      palette={palette}
-      fontClassName={instrumentSans.variable}
-      subline={subline}
-      // Judged on the greeting itself rather than on a language name:
-      // the setting is free text, and "Arabic", the Arabic for it and
-      // "ar" are all things an owner might type.
-      direction={isRtlText(intro.greeting) ? "rtl" : "ltr"}
-      greeting={intro.greeting}
-      greetingTitle={intro.title}
-      greetingSub={intro.sub}
-      starterChips={intro.chips}
-    />
+    <div data-greeting-language={greetingLanguage} data-greeting-source={greetingSource}>
+      <ChatClient
+        slug={params.slug}
+        businessName={tenant.businessName}
+        logoUrl={tenant.logoUrl}
+        monogram={monogram(tenant.businessName)}
+        theme={theme}
+        palette={palette}
+        fontClassName={instrumentSans.variable}
+        subline={subline}
+        // Judged on the greeting itself rather than on a language name:
+        // the setting is free text, and "Arabic", the Arabic for it and
+        // "ar" are all things an owner might type.
+        direction={isRtlText(intro.greeting) ? "rtl" : "ltr"}
+        greeting={intro.greeting}
+        greetingTitle={intro.title}
+        greetingSub={intro.sub}
+        starterChips={intro.chips}
+      />
+    </div>
   );
 }

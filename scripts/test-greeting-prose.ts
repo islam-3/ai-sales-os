@@ -587,5 +587,74 @@ check(
   !/ignoreExisting/.test(cardSrc) && !/ignoreExisting/.test(actionsSrc) && !/ignoreExisting/.test(i18nSrc)
 );
 
+// ─────────────────────────────────────────────────────────────────────
+// The approved greeting for the chat language is the one served
+//
+// Reported: chat language saved as Russian, Russian greeting saved and
+// approved, and the live chat still greeted in English — in a fresh
+// incognito window, so not the resume path.
+//
+// The selection itself was correct. Proven by running the identical code
+// against the identical database row: locally it served the Russian
+// greeting (dir=rtl for Arabic, Cyrillic for Russian) while production
+// served English. Same database, confirmed by writing through production
+// and reading the row back.
+//
+// These assertions pin the selection so that if it ever IS the cause,
+// the failure is here rather than in a browser.
+// ─────────────────────────────────────────────────────────────────────
+
+console.log("\n--- the chat language decides, in every stored form ---");
+
+const THREE = {
+  en: g({ text: "Welcome to Prof Clinic in Istanbul. What brings you here?", origin: "suggested" as const }),
+  ar: g({ text: "مرحباً! نحن Prof Clinic.", origin: "written" as const }),
+  ru: g({ text: "Добро пожаловать в Prof Clinic.", origin: "written" as const }),
+};
+
+const servedFor = (chat_language: string) =>
+  buildChatIntro({
+    ...BUSINESS,
+    settings: parseTenantSettings({
+      chat_language,
+      location: { city: "Istanbul" },
+      chat_intro: { language: chat_language, sourceHash: "x", strings: { help: "h" }, greetings: THREE },
+    }),
+  }).greeting;
+
+check("a code picks its own language", servedFor("ru") === THREE.ru.text, servedFor("ru").slice(0, 40));
+check(
+  "and so does the full name — the exact shape the real tenants differ in",
+  servedFor("Russian") === THREE.ru.text,
+  // prof-clinic stores "ar" and test-clinic stores "Arabic". One of them
+  // working and the other not would be invisible until a visitor saw it.
+  servedFor("Russian").slice(0, 40)
+);
+check("Arabic by code", servedFor("ar") === THREE.ar.text);
+check("Arabic by name", servedFor("Arabic") === THREE.ar.text);
+check("English by code", servedFor("en") === THREE.en.text);
+check(
+  "and nothing bleeds between them",
+  new Set([servedFor("en"), servedFor("ar"), servedFor("ru")]).size === 3
+);
+
+console.log("\n--- the page cannot serve a cached greeting ---");
+const pageSrc = readFileSync(join(process.cwd(), "app/chat/[slug]/page.tsx"), "utf8");
+check(
+  "the route renders per request",
+  /export const dynamic = "force-dynamic"/.test(pageSrc)
+);
+check(
+  "and reads its data uncached, said out loud rather than inferred",
+  /export const fetchCache = "force-no-store"/.test(pageSrc) && /noStore\(\);/.test(pageSrc),
+  "a tenant row cached for even a minute means an owner changes the greeting and visitors do not"
+);
+check(
+  "and the page says which language it thinks it is greeting in",
+  /data-greeting-language=\{greetingLanguage\}/.test(pageSrc) &&
+    /data-greeting-source=\{greetingSource\}/.test(pageSrc),
+  "diagnosing this took a database dump, a local server and a diff; one request should do it"
+);
+
 console.log(bad ? `\n${bad} FAILING` : "\nall greeting-prose tests passed");
 process.exit(bad ? 1 : 0);
