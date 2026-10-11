@@ -43,36 +43,6 @@ export type TenantSettings = {
    * business's own name, city or description.
    */
   chat_intro?: ChatIntroTranslation;
-  /**
-   * Guided data entry: the parts of it that are not knowledge entries.
-   *
-   * Answers themselves are ordinary knowledge_base rows — that is what
-   * makes them reach the assistant with no new retrieval path. Only two
-   * things cannot live there.
-   */
-  guided?: {
-    /**
-     * Questions the owner chose not to answer, by category.
-     *
-     * "Prefer not to say" has NO content by definition. A knowledge row
-     * recording that an owner declined to comment would be read out to a
-     * customer, which is worse than the silence they asked for — so the
-     * decline is recorded here and produces nothing at all.
-     *
-     * Null inside the array is the all-categories decline, matching how
-     * an answer's category works.
-     */
-    declined?: Record<string, (string | null)[]>;
-    /**
-     * The industry this tenant signed up with, recorded when no pack
-     * matched it.
-     *
-     * So the next pack is chosen from what businesses actually are,
-     * rather than from a guess about what they might be. Written once,
-     * and cleared if a pack later covers them.
-     */
-    noPackFor?: string;
-  };
   contact?: {
     /**
      * The OWNER's own number, for the platform to reach them.
@@ -339,27 +309,6 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
 
   const chatIntro = parseChatIntro(root.chat_intro);
   if (chatIntro) parsed.chat_intro = chatIntro;
-
-  const guidedRaw = asObject(root.guided);
-  const declinedRaw = asObject(guidedRaw.declined);
-  const declined: Record<string, (string | null)[]> = {};
-  for (const key of Object.keys(declinedRaw)) {
-    const value = declinedRaw[key];
-    if (!Array.isArray(value)) continue;
-    // null is meaningful here — it is the all-categories decline — so it
-    // survives the filter that drops everything else malformed.
-    const categories = value
-      .filter((c) => c === null || typeof c === "string")
-      .map((c) => (c === null ? null : asString(c) ?? null));
-    if (categories.length > 0) declined[key] = categories;
-  }
-  const noPackFor = asString(guidedRaw.noPackFor);
-  if (Object.keys(declined).length > 0 || noPackFor) {
-    parsed.guided = {
-      ...(Object.keys(declined).length > 0 ? { declined } : {}),
-      ...(noPackFor ? { noPackFor } : {}),
-    };
-  }
 
   const serviceArea = asString(root.service_area);
   if (serviceArea) parsed.service_area = serviceArea;
