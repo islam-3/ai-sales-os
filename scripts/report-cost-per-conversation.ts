@@ -344,35 +344,87 @@ async function main() {
     console.log(`                                    so caching cannot apply and does not change it`);
     console.log(`  embedding             $0.0000003   (~15 tokens, a 3,000th of a cent)\n`);
 
+    // ── The realistic model ──────────────────────────────────────────
+    //
+    // The FIRST judge call of a conversation is cold and the rest are
+    // warm. Not an all-warm average.
+    //
+    // The cache is per tenant with a five-minute TTL, so an all-warm
+    // figure assumes another conversation was judged within five
+    // minutes. A clinic with a few conversations a day never has that:
+    // every conversation opens a cold window, pays the write once, and
+    // reads it for the rest of its own turns. Reporting the warm
+    // number as the headline would understate a small tenant by 5x,
+    // and small tenants are all there are right now.
+    //
+    // The all-warm column stays, labelled as what it is: the floor a
+    // busy tenant converges on.
+    const realistic = (nQ: number, nGap: number) =>
+      nQ === 0 ? 0 : judgeCold + (nQ - 1) * judgeWarm + nGap * rewrite;
+    const busy = (nQ: number, nGap: number) => nQ * judgeWarm + nGap * rewrite;
+    const uncached = (nQ: number, nGap: number) => nQ * judgeUncached + nGap * rewrite;
+
     const scenarios: [string, number, number][] = [
-      ["0 questions asked (prof-clinic's actual traffic)", 0, 0],
-      ["2 questions, business answers both", 2, 0],
-      ["2 questions, 1 is a gap", 2, 1],
-      ["2 questions, both gaps", 2, 2],
-      [`${MAX_JUDGE_CALLS_PER_CONVERSATION} questions (the cap), 2 gaps`, MAX_JUDGE_CALLS_PER_CONVERSATION, 2],
+      ["0 requests — the question-mark gate on prof-clinic", 0, 0],
+      ["1 request, answered", 1, 0],
+      ["1 request, 1 gap", 1, 1],
+      ["2 requests, 1 gap  <- prof-clinic's measured rate", 2, 1],
+      ["2 requests, both gaps", 2, 2],
+      [`${MAX_JUDGE_CALLS_PER_CONVERSATION} requests (the cap), 2 gaps`, MAX_JUDGE_CALLS_PER_CONVERSATION, 2],
     ];
     console.log(
-      "  scenario".padEnd(52) + "cold".padStart(10) + "warm".padStart(10) + "no cache".padStart(11)
+      "  scenario".padEnd(52) +
+        "realistic".padStart(11) +
+        "busy".padStart(10) +
+        "no cache".padStart(11)
+    );
+    console.log(
+      "  (first call cold, rest warm)".padEnd(52) +
+        "<- quote this".padStart(11)
     );
     for (const [name, nQ, nGap] of scenarios) {
-      const cold = nQ === 0 ? 0 : judgeCold + (nQ - 1) * judgeWarm + nGap * rewrite;
-      const warm = nQ * judgeWarm + nGap * rewrite;
-      const none = nQ * judgeUncached + nGap * rewrite;
       console.log(
         `  ${name.padEnd(50)}` +
-          money(cold).padStart(10) +
-          money(warm).padStart(10) +
-          money(none).padStart(11)
+          money(realistic(nQ, nGap)).padStart(11) +
+          money(busy(nQ, nGap)).padStart(10) +
+          money(uncached(nQ, nGap)).padStart(11)
       );
     }
+
+    // prof-clinic's own traffic, hand-classified against the new gate.
+    // 14 of 53 distinct visitor messages are a request for information
+    // under the labelling in scripts/classify-cases.ts, across 9
+    // conversations — so about 1.6 per conversation, which is where the
+    // "2 requests" row comes from. The question-mark gate scores 0 of
+    // 57 on the same messages.
+    const REQUESTS_PER_CONVERSATION = 1.6;
+    const GAP_RATE = 0.5;
+    const expected =
+      judgeCold +
+      (REQUESTS_PER_CONVERSATION - 1) * judgeWarm +
+      REQUESTS_PER_CONVERSATION * GAP_RATE * rewrite;
     console.log(
-      `\n  Against a baseline of ${money(total)}, the worst realistic case` +
-        `\n  (${MAX_JUDGE_CALLS_PER_CONVERSATION} questions, cold cache) is` +
-        ` +${((((judgeCold + (MAX_JUDGE_CALLS_PER_CONVERSATION - 1) * judgeWarm + 2 * rewrite) / total)) * 100).toFixed(0)}%` +
-        ` and the common case (2 questions,` +
-        `\n  1 gap, warm cache) is +${(((2 * judgeWarm + rewrite) / total) * 100).toFixed(0)}%.` +
-        ` With caching off the worst case is` +
-        `\n  +${(((MAX_JUDGE_CALLS_PER_CONVERSATION * judgeUncached + 2 * rewrite) / total) * 100).toFixed(0)}%, which is what the caching work bought.`
+      `\n  Expected, at prof-clinic's measured rate of ${REQUESTS_PER_CONVERSATION} requests per` +
+        `\n  conversation and half of them being gaps: ${money(expected)}` +
+        `\n  Against a baseline of ${money(total)}, that is +${((expected / total) * 100).toFixed(0)}%, taking a` +
+        `\n  conversation from ${(total * 100).toFixed(2)}c to ${((total + expected) * 100).toFixed(2)}c.`
+    );
+    console.log(
+      `\n  Worst case, at the cap: ${money(realistic(MAX_JUDGE_CALLS_PER_CONVERSATION, 2))}` +
+        ` (+${((realistic(MAX_JUDGE_CALLS_PER_CONVERSATION, 2) / total) * 100).toFixed(0)}%).` +
+        `\n  With caching off that becomes ${money(uncached(MAX_JUDGE_CALLS_PER_CONVERSATION, 2))}` +
+        ` (+${((uncached(MAX_JUDGE_CALLS_PER_CONVERSATION, 2) / total) * 100).toFixed(0)}%), which is what caching bought.` +
+        `\n  A busy tenant converges on ${money(busy(2, 1))} (+${((busy(2, 1) / total) * 100).toFixed(0)}%) as the write amortises.`
+    );
+
+    // And the gate itself, which is the cheap part and worth stating so
+    // nobody optimises the wrong thing.
+    console.log(
+      `\n  The GATE costs nothing extra. It is one more key on the` +
+        `\n  visitor-signals classifier, which already runs on every turn:` +
+        `\n  ~45 more input tokens of prompt and ~8 more output tokens, about` +
+        `\n  $0.00005 per turn, ${money(0.00005 * (reply?.perConv ?? 6.28))} per conversation. The question-mark` +
+        `\n  gate was free and caught 0 of 57 real messages.`
     );
   }
 

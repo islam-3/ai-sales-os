@@ -50,6 +50,27 @@ export type VisitorSignals = {
   hesitation: boolean;
   /** Frustrated: repeating a question, or saying they were not answered. */
   impatience: boolean;
+  /**
+   * The visitor wants something from the business — a price, a detail,
+   * what is included, or to be shown examples.
+   *
+   * This is the gate for answer-gap capture, and it exists because the
+   * gate it replaces does not work. `CONTAINS_QUESTION` is free and
+   * catches nothing: 0 of 57 visitor messages on the real clinic's
+   * tenant contain a question mark, in any script. People type
+   * fragments — "give me the price", "dental implants" — and the
+   * feature would have captured nothing at all.
+   *
+   * A keyword list was the obvious alternative and is not available:
+   * the lists this classifier replaced scored ZERO recall on every
+   * signal in five of six scripts. So the question goes to the model
+   * that already runs on every turn, as one more key.
+   *
+   * It is deliberately NOT true for an acceptance, an answer, a name or
+   * a number. Those would each become a judge call and then a dashboard
+   * row reading "yes" under "customers asked — no answer yet".
+   */
+  asking_for_information: boolean;
 };
 
 /** Every signal false. The shape returned whenever we do not know. */
@@ -57,6 +78,7 @@ export const NO_SIGNALS: VisitorSignals = {
   direct_request: false,
   hesitation: false,
   impatience: false,
+  asking_for_information: false,
 };
 
 export const SIGNAL_MODEL = "claude-haiku-4-5-20251001";
@@ -89,12 +111,15 @@ export const SIGNAL_BUDGET_MS = Number(process.env.SIGNAL_BUDGET_MS ?? 2000);
 export const SIGNAL_PROMPT_LONG = `You read ONE message from a visitor to a business's chat and report what it does.
 
 Reply with ONLY this JSON object, no other text:
-{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool}
 
 accepts_offer — the visitor is taking up something the assistant JUST offered to show them. "Yes" answering "what is your name?" is not this.
 direct_request — the visitor is asking to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
 hesitation — the visitor is stepping back: needs to think, wants to consult someone, is not ready to decide.
 impatience — the visitor is frustrated: repeating a question, or saying they were not answered.
+asking_for_information — the visitor wants something FROM the business: a price, a detail, what is included, how long it takes, what happens if something goes wrong, or to be shown examples.
+  It counts however they phrase it — as a question ("how much is it?"), as an instruction ("send me the price"), or as a bare topic typed into the chat ("dental implants", "full mouth"). Punctuation is irrelevant; most visitors use none.
+  It does NOT count when the visitor is answering something the assistant asked, giving their name, their number, their age or a date, saying yes or no, accepting an offer, or describing their own situation. "I lost my teeth five years ago" is telling, not asking.
 
 The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
 
@@ -106,14 +131,42 @@ The message may be in any language. Judge what it does, not what words it uses. 
  * see photos?" as hesitation.
  */
 export const SIGNAL_PROMPT_SHORT = `Report what this visitor message does. Reply with JSON only:
-{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool}
 
 accepts_offer: agreeing to something just offered ("yes please", "go on").
 direct_request: asking to be SHOWN something (photos, results, examples). Offering to send their own photo is not.
 hesitation: stepping back - needs to think, wants to consult someone, not ready.
 impatience: frustrated - repeating a question, or saying they were not answered.
+asking_for_information: wants something from the business - a price, a detail, what is included, examples. Counts as a question, an instruction ("send me the price") or a bare topic ("dental implants"); punctuation is irrelevant. NOT when answering the assistant, giving a name/number/date, saying yes or no, or describing their own situation.
 
 Any language. Judge intent, not wording. Usually all false.`;
+
+/**
+ * The four-key prompt, kept so the fifth key's effect can be MEASURED.
+ *
+ * Not a fallback and not a variant anyone should ship. It is the
+ * "before" arm of a paired comparison: the same labelled cases scored
+ * under both prompts in one run, so a change in hesitation precision is
+ * attributable to adding the key rather than to a different day, a
+ * different model build or a different case list.
+ *
+ * This project has twice measured that changing which keys a classifier
+ * is asked for moves the OTHER keys — direct_request 100% to 55%, then
+ * hesitation 95% to 57%, both from REMOVING keys. Adding one is the
+ * same lever pulled the other way, and there is no reason to assume it
+ * is safe in that direction without looking.
+ */
+export const SIGNAL_PROMPT_FOUR_KEY = `You read ONE message from a visitor to a business's chat and report what it does.
+
+Reply with ONLY this JSON object, no other text:
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool}
+
+accepts_offer — the visitor is taking up something the assistant JUST offered to show them. "Yes" answering "what is your name?" is not this.
+direct_request — the visitor is asking to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
+hesitation — the visitor is stepping back: needs to think, wants to consult someone, is not ready to decide.
+impatience — the visitor is frustrated: repeating a question, or saying they were not answered.
+
+The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
 
 // ── The two-signal prompt, tried and rejected ────────────────────────
 // Image sending is gone, so accepts_offer and direct_request decide
@@ -165,6 +218,7 @@ export const SIGNAL_PROMPT_KEYS: readonly string[] = [
   "direct_request",
   "hesitation",
   "impatience",
+  "asking_for_information",
 ];
 
 // There was a second, much shorter budget here, for turns where
@@ -270,6 +324,7 @@ export async function readVisitorSignals(
       direct_request: parsed.direct_request === true,
       hesitation: parsed.hesitation === true,
       impatience: parsed.impatience === true,
+      asking_for_information: parsed.asking_for_information === true,
     };
   } catch (error) {
     // Once per instance. A degraded classifier looks exactly like a
