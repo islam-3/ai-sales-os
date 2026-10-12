@@ -5,7 +5,7 @@ import { openai } from "@/lib/openai";
 import { supabaseServer } from "@/lib/supabase-server";
 import { isValidSessionId } from "@/lib/constants";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
-import { BEHAVIOUR_PROMPT, buildSystemPrompt } from "@/lib/business-prompt";
+import { BEHAVIOUR_PROMPT, buildSystemPrompt, businessFactsForJudge } from "@/lib/business-prompt";
 import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { keepAlive } from "@/lib/keep-alive";
@@ -1037,11 +1037,30 @@ async function handleChat(body: Record<string, unknown>) {
         tenantId,
         sessionId,
         question: trimmedMessage,
-        // The whole knowledge base, not what retrieval picked. A
+        // EXACTLY what the reply was given about this business, which
+        // is the knowledge base plus the facts from settings.
+        //
+        // The settings half is not optional politeness. Without it the
+        // judge sees no opening hours, no location, no service area, no
+        // currency and no contact details — so a business that filled
+        // those fields in gets told on its dashboard that customers
+        // asked about its opening hours and it has no answer, for a
+        // question the assistant answered correctly. That is the false
+        // gap this whole feature exists to avoid, arriving through the
+        // one door nobody checked.
+        //
+        // The whole knowledge base too, not what retrieval picked: a
         // question answered by an entry retrieval MISSED is our bug,
-        // not the owner's, and must never reach their dashboard as
-        // something for them to write.
-        knowledge: knowledgeEntries.map((e) => ({ title: e.title, content: e.content })),
+        // not the owner's.
+        knowledge: [
+          businessFactsForJudge({
+            businessName: tenant.businessName,
+            industry: tenant.industry,
+            description: tenant.description,
+            settings: tenant.settings,
+          }),
+          ...knowledgeEntries.map((e) => ({ title: e.title, content: e.content })),
+        ],
         teamLanguage: leadLanguage(tenant.settings),
         // The script, read off the text itself — free, and it cannot be
         // wrong in the way a model naming the language can. Shown on

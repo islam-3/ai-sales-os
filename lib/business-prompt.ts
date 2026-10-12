@@ -69,15 +69,34 @@ Never state a fact about this business that you have not been given. If you are 
 
 ${NO_IMAGES_INSTRUCTION}`;
 
-// Builds the identity half: who the assistant actually represents.
-// Every line is conditional, so a business that has filled in nothing
-// beyond its name still produces a clean, truthful block rather than a
-// list of blanks the model might read as real values.
-function buildIdentityBlock(business: BusinessIdentity): string {
+/**
+ * Every FACT the assistant is given about the business, outside the
+ * knowledge base.
+ *
+ * ── Why this is its own function ────────────────────────────────────
+ * Because two things need exactly the same list, and a copy would
+ * drift. The reply's system prompt needs it, and so does the
+ * answer-gap judge: the judge decides whether the business has an
+ * answer, and if it only sees knowledge_base rows then a business that
+ * filled in "Opening hours" gets told on its dashboard that customers
+ * asked about opening hours and it has no answer — for a question the
+ * assistant answered correctly from this very list.
+ *
+ * That is the exact false gap the whole feature is designed against,
+ * and it was live until someone read the two call sites side by side.
+ * test-clinic has `opening_hours: "24/7"`.
+ *
+ * So: anything added here reaches both. Anything added to the identity
+ * block BELOW this instead of here reaches only the reply, and
+ * scripts/test-business-facts.ts is what notices.
+ *
+ * Every line is conditional, so a business that has filled in nothing
+ * beyond its name produces a short truthful list rather than a set of
+ * blanks a model might read as real values.
+ */
+export function businessFactLines(business: BusinessIdentity): string[] {
   const { businessName, industry, description, settings } = business;
-  const lines: string[] = ["BUSINESS IDENTITY"];
-
-  lines.push(`You represent ${businessName}.`);
+  const lines: string[] = [`You represent ${businessName}.`];
 
   // Stated as its own labelled line rather than inlined as "a {industry}".
   // Industry is free text, so the value can be a noun phrase ("Dental
@@ -104,6 +123,10 @@ function buildIdentityBlock(business: BusinessIdentity): string {
   // never appear here - the assistant was previously handed a single
   // "phone" field and volunteered it to visitors without the business
   // ever agreeing that it could be shared.
+  //
+  // It must not reach the judge either, for the same reason by a
+  // different route: the judge's material becomes question_short, which
+  // is stored and rendered.
   const contact = settings.contact;
   if (contact) {
     const parts = [
@@ -113,6 +136,34 @@ function buildIdentityBlock(business: BusinessIdentity): string {
     ].filter(Boolean);
     if (parts.length) lines.push(`Contact details: ${parts.join(", ")}`);
   }
+
+  return lines;
+}
+
+/** The title the judge sees this material under. */
+export const BUSINESS_FACTS_TITLE = "The business's own details";
+
+/**
+ * The same facts, as one entry the answer-gap judge can point at.
+ *
+ * Handed to the judge alongside the knowledge_base rows so "do you
+ * open on Sundays?", "where are you?", "do you serve my country?" and
+ * "how do I reach you on WhatsApp?" are all recognised as answered when
+ * the owner has filled those fields in.
+ */
+export function businessFactsForJudge(
+  business: BusinessIdentity
+): { title: string; content: string } {
+  return { title: BUSINESS_FACTS_TITLE, content: businessFactLines(business).join("\n") };
+}
+
+// Builds the identity half: who the assistant actually represents. The
+// facts come from businessFactLines above, which the judge reads too;
+// everything added here is instruction and persona, which it does not.
+function buildIdentityBlock(business: BusinessIdentity): string {
+  const { businessName, settings } = business;
+  const lines: string[] = ["BUSINESS IDENTITY", ...businessFactLines(business)];
+  const contact = settings.contact;
 
   // Stated whether or not a number exists, because the failure is the
   // same shape as an invented price: a number given to a patient that
