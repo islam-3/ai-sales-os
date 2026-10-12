@@ -175,10 +175,24 @@ async function main() {
   const original = ORIGINAL_CASES;
   const isOriginal = new Set(ORIGINAL_CASES);
 
-  const calls = CASES.length * RUNS * (PAIRED ? 2 : 1);
+  // Printed because spend needs approval before it happens, so the
+  // number here has to be the number that will actually be billed.
+  //
+  // The first version multiplied CASES.length by 2 for the paired arm,
+  // which over-reported by 150 calls: the four-key arm runs over
+  // ORIGINAL_CASES only, because the new cases are the ones the fifth
+  // key was written for and scoring a four-key prompt on them says
+  // nothing. An approved budget quoted from the wrong formula is not a
+  // rounding error.
+  const fiveKeyCalls = CASES.length * RUNS;
+  const fourKeyCalls = PAIRED ? original.length * RUNS : 0;
   console.log(`model: ${MODEL}   runs: ${RUNS}   cases: ${CASES.length}`);
   console.log(
-    `${calls} model calls${PAIRED ? ` (paired: ${CASES.length * RUNS} five-key + ${CASES.length * RUNS} four-key)` : ""}\n`
+    `${fiveKeyCalls + fourKeyCalls} model calls` +
+      (PAIRED
+        ? ` = ${fiveKeyCalls} five-key over ${CASES.length} cases + ${fourKeyCalls} four-key over ${original.length}`
+        : "") +
+      "\n"
   );
 
   // ── the regexes, measured once: they are deterministic ──────────────

@@ -1,0 +1,287 @@
+﻿model: claude-haiku-4-5-20251001   runs: 3   cases: 120
+720 model calls (paired: 360 five-key + 360 four-key)
+
+════════════════════════════════════════════════════════════════════════
+  CURRENT REGEXES
+════════════════════════════════════════════════════════════════════════
+
+accepts_offer  —  precision 100%  recall 0%  F1 0%
+    English   P 100%  R   0%   tp=0 fp=0 fn=2
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+direct_request  —  precision 100%  recall 0%  F1 0%
+    English   P 100%  R   0%   tp=0 fp=0 fn=4
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=4
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=4
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=4
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=4
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=4
+
+hesitation  —  precision 100%  recall 17%  F1 29%
+    English   P 100%  R 100%   tp=2 fp=0 fn=0
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+impatience  —  precision 100%  recall 8%  F1 15%
+    English   P 100%  R  50%   tp=1 fp=0 fn=1
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=2
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=2
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=2
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=2
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=2
+
+asking_for_information  —  precision 100%  recall 0%  F1 0%
+    English   P 100%  R   0%   tp=0 fp=0 fn=8
+    Arabic    P 100%  R   0%   tp=0 fp=0 fn=7
+    Russian   P 100%  R   0%   tp=0 fp=0 fn=7
+    Chinese   P 100%  R   0%   tp=0 fp=0 fn=7
+    Turkish   P 100%  R   0%   tp=0 fp=0 fn=7
+    Spanish   P 100%  R   0%   tp=0 fp=0 fn=7
+
+run 1/3 (5-key): ........................................................................................................................
+run 1/3 (4-key): ......................................................................
+run 2/3 (5-key): ........................................................................................................................
+run 2/3 (4-key): ......................................................................
+run 3/3 (5-key): ........................................................................................................................
+run 3/3 (4-key): ......................................................................
+
+════════════════════════════════════════════════════════════════════════
+  CLASSIFIER (claude-haiku-4-5-20251001, 3 runs, 5 call failures)
+    5x  Connection error.
+════════════════════════════════════════════════════════════════════════
+
+accepts_offer  —  precision 95%  recall 100%  F1 97%
+    English   P  75%  R 100%   tp=6 fp=2 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+direct_request  —  precision 100%  recall 100%  F1 100%
+    English   P 100%  R 100%   tp=12 fp=0 fn=0
+    Arabic    P 100%  R 100%   tp=12 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=12 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=12 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=12 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=12 fp=0 fn=0
+
+hesitation  —  precision 92%  recall 100%  F1 96%
+    English   P  67%  R 100%   tp=6 fp=3 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+impatience  —  precision 100%  recall 100%  F1 100%
+    English   P 100%  R 100%   tp=6 fp=0 fn=0
+    Arabic    P 100%  R 100%   tp=6 fp=0 fn=0
+    Russian   P 100%  R 100%   tp=6 fp=0 fn=0
+    Chinese   P 100%  R 100%   tp=6 fp=0 fn=0
+    Turkish   P 100%  R 100%   tp=6 fp=0 fn=0
+    Spanish   P 100%  R 100%   tp=6 fp=0 fn=0
+
+asking_for_information  —  precision 100%  recall 42%  F1 59%
+    English   P 100%  R  38%   tp=9 fp=0 fn=15
+    Arabic    P 100%  R  43%   tp=9 fp=0 fn=12
+    Russian   P 100%  R  43%   tp=9 fp=0 fn=12
+    Chinese   P 100%  R  43%   tp=9 fp=0 fn=12
+    Turkish   P 100%  R  43%   tp=9 fp=0 fn=12
+    Spanish   P 100%  R  43%   tp=9 fp=0 fn=12
+
+────────────────────────────────────────────────────────────────────────
+  asking_for_information — the two mistakes are not equal
+────────────────────────────────────────────────────────────────────────
+  FALSE POSITIVES  0/360 calls   each one is a judge call AND a dashboard row
+
+  false negatives  75/360 calls   each one is a question nobody sees
+  [English] run 1: "can I see photos of your work?"
+  [English] run 1: "do you have pictures of the results?"
+  [English] run 1: "should I send you a photo of my teeth?"
+  [Arabic] run 1: "ممكن أشوف صور لنتائج سابقة؟"
+  [Arabic] run 1: "عندكم صور للحالات اللي عملتوها؟"
+  [Russian] run 1: "можно посмотреть фото ваших работ?"
+  [Russian] run 1: "у вас есть снимки результатов?"
+  [Chinese] run 1: "可以看看你们做过的案例照片吗？"
+  [Chinese] run 1: "有没有效果图？"
+  [Turkish] run 1: "yaptığınız işlerin fotoğraflarını görebilir miyim?"
+  [Turkish] run 1: "sonuç fotoğrafınız var mı?"
+  [Spanish] run 1: "¿puedo ver fotos de vuestros trabajos?"
+  [Spanish] run 1: "¿tenéis imágenes de resultados?"
+  [English] run 1: "send me before and after photos"
+  [Arabic] run 1: "اعطيني صور قبل وبعد"
+  [Russian] run 1: "пришлите фото до и после"
+  [Chinese] run 1: "发给我前后对比照片"
+  [Turkish] run 1: "bana öncesi sonrası fotoğraf gönderin"
+  [Spanish] run 1: "mándame fotos de antes y después"
+  [English] run 1: "I want to see results from previous patients"
+  [Arabic] run 1: "بدي اشوف نتائج مرضى سابقين"
+  [Russian] run 1: "хочу увидеть результаты прошлых пациентов"
+  [Chinese] run 1: "我想看以前患者的效果"
+  [Turkish] run 1: "önceki hastaların sonuçlarını görmek istiyorum"
+  [Spanish] run 1: "quiero ver resultados de pacientes anteriores"
+  [English] run 2: "can I see photos of your work?"
+  [English] run 2: "do you have pictures of the results?"
+  [English] run 2: "should I send you a photo of my teeth?"
+  [Arabic] run 2: "ممكن أشوف صور لنتائج سابقة؟"
+  [Arabic] run 2: "عندكم صور للحالات اللي عملتوها؟"
+  [Russian] run 2: "можно посмотреть фото ваших работ?"
+  [Russian] run 2: "у вас есть снимки результатов?"
+  [Chinese] run 2: "可以看看你们做过的案例照片吗？"
+  [Chinese] run 2: "有没有效果图？"
+  [Turkish] run 2: "yaptığınız işlerin fotoğraflarını görebilir miyim?"
+  [Turkish] run 2: "sonuç fotoğrafınız var mı?"
+  [Spanish] run 2: "¿puedo ver fotos de vuestros trabajos?"
+  [Spanish] run 2: "¿tenéis imágenes de resultados?"
+  [English] run 2: "send me before and after photos"
+  [Arabic] run 2: "اعطيني صور قبل وبعد"
+  [Russian] run 2: "пришлите фото до и после"
+  [Chinese] run 2: "发给我前后对比照片"
+  [Turkish] run 2: "bana öncesi sonrası fotoğraf gönderin"
+  [Spanish] run 2: "mándame fotos de antes y después"
+  [English] run 2: "I want to see results from previous patients"
+  [Arabic] run 2: "بدي اشوف نتائج مرضى سابقين"
+  [Russian] run 2: "хочу увидеть результаты прошлых пациентов"
+  [Chinese] run 2: "我想看以前患者的效果"
+  [Turkish] run 2: "önceki hastaların sonuçlarını görmek istiyorum"
+  [Spanish] run 2: "quiero ver resultados de pacientes anteriores"
+  [English] run 3: "can I see photos of your work?"
+  [English] run 3: "do you have pictures of the results?"
+  [English] run 3: "should I send you a photo of my teeth?"
+  [Arabic] run 3: "ممكن أشوف صور لنتائج سابقة؟"
+  [Arabic] run 3: "عندكم صور للحالات اللي عملتوها؟"
+  [Russian] run 3: "можно посмотреть фото ваших работ?"
+  [Russian] run 3: "у вас есть снимки результатов?"
+  [Chinese] run 3: "可以看看你们做过的案例照片吗？"
+  [Chinese] run 3: "有没有效果图？"
+  [Turkish] run 3: "yaptığınız işlerin fotoğraflarını görebilir miyim?"
+  [Turkish] run 3: "sonuç fotoğrafınız var mı?"
+  [Spanish] run 3: "¿puedo ver fotos de vuestros trabajos?"
+  [Spanish] run 3: "¿tenéis imágenes de resultados?"
+  [English] run 3: "send me before and after photos"
+  [Arabic] run 3: "اعطيني صور قبل وبعد"
+  [Russian] run 3: "пришлите фото до и после"
+  [Chinese] run 3: "发给我前后对比照片"
+  [Turkish] run 3: "bana öncesi sonrası fotoğraf gönderin"
+  [Spanish] run 3: "mándame fotos de antes y después"
+  [English] run 3: "I want to see results from previous patients"
+  [Arabic] run 3: "بدي اشوف نتائج مرضى سابقين"
+  [Russian] run 3: "хочу увидеть результаты прошлых пациентов"
+  [Chinese] run 3: "我想看以前患者的效果"
+  [Turkish] run 3: "önceki hastaların sonuçlarını görmek istiyorum"
+  [Spanish] run 3: "quiero ver resultados de pacientes anteriores"
+
+════════════════════════════════════════════════════════════════════════
+  THE FOUR ORIGINAL KEYS — four-key prompt vs five-key prompt
+  Same 70 cases, same labels, same run.
+════════════════════════════════════════════════════════════════════════
+
+  accepts_offer
+    precision  97% -> 100%  (+3 pts)
+    recall     97% -> 100%  (+3 pts)
+      English   P  83% -> 100%   R  83% -> 100%
+      Arabic    P 100% -> 100%   R 100% -> 100%
+      Russian   P 100% -> 100%   R 100% -> 100%
+      Chinese   P 100% -> 100%   R 100% -> 100%
+      Turkish   P 100% -> 100%   R 100% -> 100%
+      Spanish   P 100% -> 100%   R 100% -> 100%
+
+  direct_request
+    precision  92% -> 100%  (+8 pts)
+    recall     100% -> 100%  (no change)
+      English   P 100% -> 100%   R 100% -> 100%
+      Arabic    P 100% -> 100%   R 100% -> 100%
+      Russian   P 100% -> 100%   R 100% -> 100%
+      Chinese   P  67% -> 100%   R 100% -> 100%
+      Turkish   P 100% -> 100%   R 100% -> 100%
+      Spanish   P 100% -> 100%   R 100% -> 100%
+
+  hesitation
+    precision  92% -> 92%  (no change)
+    recall     100% -> 100%  (no change)
+      English   P  67% ->  67%   R 100% -> 100%
+      Arabic    P 100% -> 100%   R 100% -> 100%
+      Russian   P 100% -> 100%   R 100% -> 100%
+      Chinese   P 100% -> 100%   R 100% -> 100%
+      Turkish   P 100% -> 100%   R 100% -> 100%
+      Spanish   P 100% -> 100%   R 100% -> 100%
+
+  impatience
+    precision  100% -> 100%  (no change)
+    recall     100% -> 100%  (no change)
+      English   P 100% -> 100%   R 100% -> 100%
+      Arabic    P 100% -> 100%   R 100% -> 100%
+      Russian   P 100% -> 100%   R 100% -> 100%
+      Chinese   P 100% -> 100%   R 100% -> 100%
+      Turkish   P 100% -> 100%   R 100% -> 100%
+      Spanish   P 100% -> 100%   R 100% -> 100%
+
+════════════════════════════════════════════════════════════════════════
+  No regression on the four original keys, no false positives on the new one.
+════════════════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────────────────────
+  DISAGREEMENTS ON RUN 1 (27) — check the LABEL first
+────────────────────────────────────────────────────────────────────────
+  [English] asking_for_information: labelled true, model said false
+      "can I see photos of your work?"
+  [English] asking_for_information: labelled true, model said false
+      "do you have pictures of the results?"
+  [English] hesitation: labelled false, model said true
+      "should I send you a photo of my teeth?"
+  [English] asking_for_information: labelled true, model said false
+      "should I send you a photo of my teeth?"
+  [Arabic] asking_for_information: labelled true, model said false
+      "ممكن أشوف صور لنتائج سابقة؟"
+  [Arabic] asking_for_information: labelled true, model said false
+      "عندكم صور للحالات اللي عملتوها؟"
+  [Russian] asking_for_information: labelled true, model said false
+      "можно посмотреть фото ваших работ?"
+  [Russian] asking_for_information: labelled true, model said false
+      "у вас есть снимки результатов?"
+  [Chinese] asking_for_information: labelled true, model said false
+      "可以看看你们做过的案例照片吗？"
+  [Chinese] asking_for_information: labelled true, model said false
+      "有没有效果图？"
+  [Turkish] asking_for_information: labelled true, model said false
+      "yaptığınız işlerin fotoğraflarını görebilir miyim?"
+  [Turkish] asking_for_information: labelled true, model said false
+      "sonuç fotoğrafınız var mı?"
+  [Spanish] asking_for_information: labelled true, model said false
+      "¿puedo ver fotos de vuestros trabajos?"
+  [Spanish] asking_for_information: labelled true, model said false
+      "¿tenéis imágenes de resultados?"
+  [English] asking_for_information: labelled true, model said false
+      "send me before and after photos"
+  [Arabic] asking_for_information: labelled true, model said false
+      "اعطيني صور قبل وبعد"
+  [Russian] asking_for_information: labelled true, model said false
+      "пришлите фото до и после"
+  [Chinese] asking_for_information: labelled true, model said false
+      "发给我前后对比照片"
+  [Turkish] asking_for_information: labelled true, model said false
+      "bana öncesi sonrası fotoğraf gönderin"
+  [Spanish] asking_for_information: labelled true, model said false
+      "mándame fotos de antes y después"
+  [English] asking_for_information: labelled true, model said false
+      "I want to see results from previous patients"
+  [Arabic] asking_for_information: labelled true, model said false
+      "بدي اشوف نتائج مرضى سابقين"
+  [Russian] asking_for_information: labelled true, model said false
+      "хочу увидеть результаты прошлых пациентов"
+  [Chinese] asking_for_information: labelled true, model said false
+      "我想看以前患者的效果"
+  [Turkish] asking_for_information: labelled true, model said false
+      "önceki hastaların sonuçlarını görmek istiyorum"
+  [Spanish] asking_for_information: labelled true, model said false
+      "quiero ver resultados de pacientes anteriores"
+  [English] accepts_offer: labelled false, model said true
+      "yes"
