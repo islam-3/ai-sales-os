@@ -3,10 +3,20 @@
 //   BASE_URL=https://<prod> DOTENV_CONFIG_PATH=.env.local \
 //     npx tsx -r dotenv/config scripts/live-capture-check.ts
 //
-// ── PAID. Roughly 54 Anthropic calls and 6 OpenAI embeddings, ~$0.21 ──
-// Most of that is the chat replies and lead extraction the conversations
-// would cost anyway; the new feature's share is about $0.05. Do not run
-// this without saying so first.
+// ── PAID. Roughly 50 Anthropic calls and 6 OpenAI embeddings, ~$0.19 ──
+//
+//   chat_reply        12  $0.0742
+//   lead_extraction  ~8   $0.0627
+//   answer_gap_judge  9   $0.0338   (1 cold write + 8 warm reads)
+//   question_shorten  6   $0.0074
+//   visitor_signals  12   $0.0053
+//   coverage_answered ~3  $0.0015
+//
+// Two thirds of that is the replies and lead extraction these twelve
+// turns would cost whatever this script asserted. The capture feature's
+// own share is about $0.04. Do not run this without saying so first and
+// waiting — production chat degrades to the safe fallback when the
+// Anthropic account runs dry.
 //
 // test-clinic only — say() refuses any other tenant before the first
 // message goes out.
