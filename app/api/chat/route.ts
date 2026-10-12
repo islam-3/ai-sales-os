@@ -1018,15 +1018,18 @@ async function handleChat(body: Record<string, unknown>) {
   // changes the reply they just got — it writes a row an owner reads
   // later.
   //
-  // Gated here on the question mark alone, which is free, so the vast
-  // majority of turns cost nothing. Everything expensive — the judge,
-  // the rewrite, the embedding — happens inside, behind the cap.
+  // Gated on the classifier result already computed above for this
+  // turn, so the gate itself costs one extra key on a call that was
+  // always going to happen rather than a call of its own.
   //
-  // Measured cost when it does run: $0.0188 for the first question of a
-  // tenant's cache window and $0.0019 for each after it, against a
-  // measured 2.0 question-bearing turns per conversation. See
-  // scripts/measure-answer-gap-cost.ts.
-  if (trimmedMessage && shouldJudge(trimmedMessage)) {
+  // The question-mark gate this replaces caught 0 of 57 real visitor
+  // messages. See shouldJudge for the measurement behind the OR.
+  //
+  // Measured cost when it does run: $0.0182 for the first request of a
+  // tenant's cache window and $0.0019 for each after it, against 1.6
+  // requests per conversation on real traffic — about +26% on a 7.69c
+  // conversation. See scripts/report-cost-per-conversation.ts.
+  if (trimmedMessage && shouldJudge(signals)) {
     keepAlive(
       captureIfUnanswered({
         supabase: supabaseServer,

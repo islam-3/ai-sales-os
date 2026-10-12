@@ -4,7 +4,9 @@
 // never waits on any of it. Four steps, in this order, each one gated by
 // the last so the expensive ones only run when they can matter:
 //
-//   1. does the message even contain a question?   — a regex, free
+//   1. is the visitor asking for anything at all?  — one key on the
+//                                                    classifier that
+//                                                    already ran this turn
 //   2. has this conversation used up its cap?      — a count, free
 //   3. does the knowledge base answer it?          — the judge, Sonnet
 //   4. rewrite it for the dashboard and group it   — Sonnet + embedding
@@ -20,7 +22,6 @@
 import { randomUUID } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CONTAINS_QUESTION } from "./punctuation";
 import {
   judgeAnswerGap,
   ANSWER_GAP_MODEL,
@@ -34,7 +35,6 @@ import { groupForAsk } from "./unanswered-questions";
 import { parseEmbedding } from "./vectors";
 
 export type CaptureOutcome =
-  | "no_question"
   | "capped"
   | "answered"
   | "judge_unreachable"
@@ -44,16 +44,54 @@ export type CaptureOutcome =
 /**
  * Whether this turn is worth judging at all.
  *
- * The cap counts asks already CAPTURED for this session, not judge calls
- * made, because that is what the table records and a count is cheaper
- * and more honest than a counter we would have to keep in step. It is a
- * slight over-allowance — a conversation of five answered questions
- * makes five judge calls — and that is the right way to be wrong: the
- * cap exists to bound the pathological case, and a visitor asking five
- * questions the business CAN answer is the product working.
+ * ── Why not a question mark ─────────────────────────────────────────
+ * That was the first gate, it was free, and it caught NOTHING: 0 of 57
+ * visitor messages on the real clinic's tenant contain a question mark,
+ * in any script. People type fragments — "give me the price", "dental
+ * implants". A keyword list was the obvious alternative and is not
+ * available either: the lists this project's classifier replaced scored
+ * ZERO recall on every signal in five of six failure classes.
+ *
+ * So the gate is a key on the Haiku classifier that already runs on
+ * every turn. Added cost ~$0.00005 per turn, measured at ~45 more input
+ * and ~8 more output tokens.
+ *
+ * ── Why the OR, which is the measurement talking ────────────────────
+ * `asking_for_information` alone scored 100% precision and only 42%
+ * recall, and 24 of the 25 misses per run were ONE behaviour: the model
+ * treats the keys as mutually exclusive, so a request to be shown
+ * photos sets `direct_request` and leaves this one false. Identical in
+ * all six classes, all three runs.
+ *
+ * `direct_request` scored 100% precision and 100% recall in the same
+ * run, and there is not a single labelled case where it is true while
+ * `asking_for_information` is false — so the OR adds no false-positive
+ * surface at all. Together: recall 97.7%, still zero false positives.
+ *
+ * Both halves come from the one validated run,
+ * docs/classifier-five-key-2026-10-11.log.
+ *
+ * ── Which way it fails ──────────────────────────────────────────────
+ * A false positive here costs a judge call AND puts a non-question on
+ * an owner's dashboard — "khaled" under "customers asked, no answer
+ * yet". Zero of those in 360 calls. A false negative costs a row nobody
+ * sees. The one surviving miss is "should I send you a photo of my
+ * teeth?", which the classifier reads as hesitation instead.
+ *
+ * ── The dependency this gate introduces ─────────────────────────────
+ * The classifier has to complete. It runs on a 2,000ms budget and
+ * returns NO_SIGNALS on a timeout or any error, so every key reads
+ * false and nothing is captured for that turn. Capture fails CLOSED,
+ * which is the right direction — a missed row beats a wrong one — but
+ * it is a dependency the question-mark gate did not have. A degraded
+ * classifier now means a quietly empty dashboard as well as a quietly
+ * blunted assistant.
  */
-export function shouldJudge(message: string): boolean {
-  return CONTAINS_QUESTION.test(message);
+export function shouldJudge(signals: {
+  asking_for_information: boolean;
+  direct_request: boolean;
+}): boolean {
+  return signals.asking_for_information || signals.direct_request;
 }
 
 /**
@@ -87,7 +125,9 @@ export async function captureIfUnanswered({
   script: string | null;
 }): Promise<CaptureOutcome> {
   try {
-    if (!shouldJudge(question)) return "no_question";
+    // The gate is the caller's decision, not re-derived here. It reads
+    // the classifier result the chat route already has, and re-reading
+    // it would mean a second classifier call on every turn.
 
     // ── The cap ───────────────────────────────────────────────────────
     const { count, error: countError } = await supabase

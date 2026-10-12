@@ -154,6 +154,74 @@ Three things worth knowing before quoting any of it:
 - **Rates live in one place**, `lib/ai-pricing.ts`, which carries a
   warning to verify them. Every number above is only as good as that file.
 
+### Ready lever: defer the judge to a daily batch
+
+**Not built. Build it when any tenant exceeds ~5 conversations a day.**
+
+The judge runs in real time today, after the reply, so every conversation
+on a quiet tenant opens its own cold cache window and pays the write.
+Deferring it — capture stores the request as *pending*, a once-a-day
+Vercel cron judges a tenant's pending requests back to back, then
+rewrites, embeds and groups as now — means **one** cold write per tenant
+per day instead of one per conversation. Same judge prompt and model, so
+no re-validation.
+
+What it would save, from the measured per-call figures (cold $0.01818,
+warm $0.00195, rewrite $0.00123) against the 7.69¢ baseline:
+
+| Conv/day | Requests | Added/conv | vs real-time | Total/conv |
+|---|---|---|---|---|
+| 1 | 1.6 | $0.02033 | 0% | 9.72¢ |
+| 2 | 3.2 | $0.01222 | −40% | 8.91¢ |
+| 5 | 8 | $0.00735 | −64% | 8.42¢ |
+| 10 | 16 | $0.00573 | −72% | 8.26¢ |
+| 20 | 32 | $0.00492 | −76% | 8.18¢ |
+| 50 | 80 | $0.00443 | −78% | 8.13¢ |
+| floor | ∞ | $0.00410 | −80% | 8.10¢ |
+
+**It buys exactly nothing at one conversation a day** — one cold write is
+unavoidable when there is one conversation. What it really buys is making
+a quiet tenant pay the *busy*-tenant rate, because "busy" was never about
+volume, it was about cache warmth, and a batch manufactures warmth.
+Hence the trigger: below ~5 conversations a day it is not worth the
+problems below.
+
+Vercel, from the docs: **Hobby** allows 100 cron jobs but a minimum
+interval of once per day with ±59 min precision; **Pro** allows once per
+minute. A daily batch fits Hobby. Function duration with fluid compute is
+**300s hard max on Hobby** (Pro: 800s, 1800s in beta), and at ~2.5s per
+judge call that caps a single invocation at roughly 50 conversations a
+day for one tenant — past that it needs a cursor and chunking, or Pro.
+
+What it breaks, all of which has to be handled in the same change:
+
+- **Day one reads as broken.** An owner sets up, tests the chat, opens
+  this page and sees nothing until tomorrow — at the exact moment they
+  are deciding whether the product works. Starter suggestions cover an
+  empty list, but their own test questions vanishing is worse than an
+  empty state. Needs an immediate judge for a tenant's first few
+  requests, or a "check now" button.
+- **A silently broken cron is invisible.** The list just stops updating.
+  Same shape as the empty test tenant that went unnoticed for days.
+  Needs a visible `last_judged_at` and pending count.
+- **The cap moves.** `MAX_JUDGE_CALLS_PER_CONVERSATION` is enforced today
+  by counting captured rows before judging. Deferred, it must cap the
+  *pending insert* per session, or one pathological conversation stores
+  50 pending and the batch judges all 50.
+- **A per-tenant daily cap becomes necessary.** One invocation making
+  unbounded Sonnet calls is a failure mode real time does not have,
+  because real time is bounded per conversation.
+- **`asked_at` must stay the ask time**, not the judge time, or the
+  "returns after 3 asks since dismissal" rule breaks silently — a whole
+  day's asks would share one timestamp.
+
+Three things would get better: a gap answered by the owner during the day
+is judged against the new knowledge base and correctly never appears;
+grouping is more consistent, done in one pass against a fixed set rather
+than one at a time against a moving one; and two model calls leave the
+post-response path, so capture becomes a single INSERT that cannot be
+killed mid-judge.
+
 ### The rule
 
 **Every model call in the product calls `recordUsage`.** A call missing
@@ -182,7 +250,7 @@ is an outage risk, not just a bill.
 
 | Module | Question it answers | How |
 |---|---|---|
-| `visitor-signals.ts` | Is this visitor hesitating or impatient? | Haiku classifier, 2s budget, falls back to "no" |
+| `visitor-signals.ts` | Is this visitor hesitating, impatient, or asking for something? | Haiku classifier, 2s budget, falls back to "no" |
 | `visitor-language.ts` | What script and language is this? | Script detection vetoes a model's guess |
 | `coverage-answered.ts` | Which practical details have they already given? | Haiku, only near a close |
 | `punctuation.ts` | Where do sentences end, how many words is this? | Every mark declared by **codepoint** |
@@ -191,7 +259,46 @@ is an outage risk, not just a bill.
 question mark, is visually identical to `;`. A literal in a regex is a
 bug nobody can see.
 
-The classifier is asked for four signals and only two are read.
+### The fifth key, and what adding one costs
+
+`asking_for_information` is the gate for answer-gap capture. The gate it
+replaced was a question mark, which is free and catches **nothing**: 0 of
+57 visitor messages on the real clinic's tenant contain one, in any
+script. People type fragments — `give me the price`, `dental implants`.
+A keyword list was not available either, for the reason below.
+
+Measured paired against the four-key prompt, same 120 cases, same run
+(`docs/classifier-five-key-2026-10-11.log`, 570 calls):
+
+| | Precision | Recall |
+|---|---|---|
+| `asking_for_information` alone | **100%** | 42% |
+| `asking_for_information \|\| direct_request` | **100%** | **97.7%** |
+
+**Zero false positives in 360 calls, in all six classes.** That is the
+mistake that matters: a false positive is a judge call *and* a row
+reading `khaled` under "customers asked — no answer yet".
+
+The 42% is one systematic behaviour, not scattered weakness: 24 of the
+25 misses per run are requests to be shown photos, where the model sets
+`direct_request` and leaves this key false. The model partitions the
+keys. Identical in all six classes, all three runs — so the gate is the
+OR, and `direct_request` scored 100/100 in the same run with **no**
+labelled case where it is true and this key is false.
+
+**Adding a key did not cost the other four.** `accepts_offer` +3/+3,
+`direct_request` precision +8, the other two unchanged, nothing worse in
+any class. That is the opposite of the two experiments below and
+consistent with their explanation: removing a box cost precision because
+the model had nowhere to put what it saw, so adding one gives it
+somewhere. Do not read this as "key changes are safe" — read it as "key
+changes move the other keys, in whichever direction, so measure them".
+
+Capture now **fails closed** on the classifier: a timeout returns
+NO_SIGNALS and nothing is captured. A degraded classifier means a
+quietly empty dashboard as well as a quietly blunted assistant.
+
+The classifier is asked for five signals and only three are read.
 `accepts_offer` and `direct_request` decide nothing since image sending
 was removed — but removing either from the prompt costs precision on the
 live ones, measured twice (100%→55% on one, 95%→57% on the other). With
