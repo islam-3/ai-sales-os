@@ -586,6 +586,35 @@ has already shipped one truncated reply.
 
 ---
 
+## Before the first paying customer
+
+Nothing here is needed while test-clinic and prof-clinic are the only
+tenants and nobody is paying. Every item is a thing that is survivable
+today and is not survivable the day a clinic is paying for uptime.
+
+- **Enable auto-reload on the Anthropic account.** Credit ran out on
+  2026-10-12 and production chat served the safe fallback to every
+  visitor for three days. That is the deliberate arrangement for now:
+  there are no real customers, the account emails when credit runs out,
+  and it gets topped up at the start of a working session. It stops
+  being acceptable the moment a clinic is paying — a billing threshold
+  crossed on a Friday is a weekend of degraded chat.
+- **Build a degraded-chat alert.** The outage lasted three days because
+  graceful degradation is invisible: `/api/chat` returns HTTP 200 and a
+  safe fallback in the visitor's language, so nothing errors, nothing
+  pages, and the only way to know is to look. The `degraded` flag is
+  already on the response and `scripts/live-degraded-check.ts` already
+  knows how to read it — what is missing is something that runs it, or
+  reads the same flag off real traffic, and shouts. The same shape of
+  blindness hid an empty test tenant for days and would hide a silently
+  broken judge cron.
+- **Replace CI's service-role key** with a narrow read-only endpoint
+  scoped to `is_test` tenants. Stated in full under Known limitations:
+  the key can read every tenant's leads, which is acceptable only while
+  no tenant holds real customer data.
+
+---
+
 ## Where the receipts are
 
 `docs/` holds every measurement that has been taken, before and after.
