@@ -68,6 +68,11 @@ const JUDGE = MAX_JUDGE_CALLS_PER_CONVERSATION;
  * reach the cost breakdown in README.md. A free test that wrote $0 rows
  * into the spend table would be quietly corrupting the one number this
  * project publishes.
+ *
+ * So a passing run PRINTS "Failed to record usage event ... invalid
+ * input syntax for type uuid". That is recordUsage refusing the write,
+ * which is the mechanism working, not a failure. If those lines ever
+ * stop appearing, this test has started billing itself.
  */
 const sessionForTest = () => `cap-test-${randomUUID()}`;
 
