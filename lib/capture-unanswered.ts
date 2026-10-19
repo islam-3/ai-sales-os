@@ -130,21 +130,66 @@ export async function captureIfUnanswered({
     // it would mean a second classifier call on every turn.
 
     // ── The cap ───────────────────────────────────────────────────────
-    const { count, error: countError } = await supabase
-      .from("unanswered_questions")
-      .select("id", { count: "exact", head: true })
-      .eq("tenant_id", tenantId)
-      .eq("session_id", sessionId);
+    //
+    // A RESERVATION, not a count. This used to count the session's rows
+    // and then call the judge, which is two operations with seconds
+    // between them: the judge, the rewrite and the embedding all run
+    // before the row exists. A visitor whose next message arrives inside
+    // that window got a second capture counting the same stale total.
+    //
+    // Observed, not theorised — 2026-10-17, against production: a
+    // session captured five rows against a cap of four, and the fifth
+    // was inserted 2.8s after the fourth, less time than its own chain
+    // takes. The cost of the overrun is a judge call, which is a whole
+    // knowledge base of input.
+    //
+    // reserve_capture_slot takes the slot under an advisory lock on the
+    // session, counting rows AND slots held by captures still deciding,
+    // so two in flight cannot both pass. See the migration for why the
+    // reservations are not pending rows in this table.
+    const { data: slotId, error: reserveError } = await supabase.rpc("reserve_capture_slot", {
+      p_tenant_id: tenantId,
+      p_session_id: sessionId,
+      p_max: MAX_JUDGE_CALLS_PER_CONVERSATION,
+    });
 
-    // A failed count is treated as at the cap, not under it. Each judge
-    // call is a whole knowledge base of input; the failure that costs
-    // money is the one that decides to spend it.
-    if (countError) {
-      console.error("[capture] could not count this session's asks", countError);
+    // A failed reservation is treated as at the cap, not under it. Each
+    // judge call is a whole knowledge base of input; the failure that
+    // costs money is the one that decides to spend it.
+    if (reserveError) {
+      console.error("[capture] could not reserve a capture slot", reserveError);
       return "failed";
     }
-    if ((count ?? 0) >= MAX_JUDGE_CALLS_PER_CONVERSATION) return "capped";
+    if (!slotId) return "capped";
 
+    // Released on EVERY path below, including the throw: a slot held by
+    // a capture that is no longer running is a judge call this session
+    // can never spend. The row, once written, is what holds the count.
+    try {
+      return await judgeAndRecord();
+    } finally {
+      const { error: releaseError } = await supabase
+        .from("unanswered_capture_slots")
+        .delete()
+        .eq("id", slotId);
+      if (releaseError) {
+        // Not fatal and not worth failing an outcome that already
+        // happened. The reservation is reclaimed as stale five minutes
+        // from now, and until then this session is one slot poorer —
+        // which is the direction that does not spend money.
+        console.warn("[capture] could not release the capture slot", releaseError.message);
+      }
+    }
+  } catch (error) {
+    console.error("[capture] unexpected failure", error);
+    return "failed";
+  }
+
+  /**
+   * Everything the reserved slot pays for. Inner so that the release
+   * above wraps all of it, including the paths that return early.
+   */
+  async function judgeAndRecord(): Promise<CaptureOutcome> {
     // ── The judge ─────────────────────────────────────────────────────
     const verdict = await judgeAnswerGap(anthropic, question, knowledge);
 
@@ -268,8 +313,5 @@ export async function captureIfUnanswered({
     }
 
     return "captured";
-  } catch (error) {
-    console.error("[capture] unexpected failure", error);
-    return "failed";
   }
 }

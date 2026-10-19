@@ -348,7 +348,7 @@ would not be fine if the number were reported as "facts".
 | `answer-gap.ts` | Does the business's own material answer what was just asked? | Sonnet, after the reply, names the entry — the boolean is derived in code |
 | `question-short.ts` | What is this question, in the team's language, with no personal detail? | Sonnet, then checked in code |
 | `unanswered-questions.ts` | Is this the same question someone already asked, and has it been dismissed? | Cosine over the *short* version, plus two tested rules |
-| `capture-unanswered.ts` | Orchestrates the four steps, cheapest gate first | Question mark → cap → judge → record |
+| `capture-unanswered.ts` | Orchestrates the four steps, cheapest gate first | Classifier key → reserve a slot → judge → record |
 
 This is the one detector pointed at the **business**, not the visitor:
 its output is a dashboard list, "Customers asked — no answer yet", at the
@@ -410,6 +410,10 @@ trusting `waitUntil` to no-op silently.
 
 No network, no model, no database. Run the lot before any push; the
 pre-push hook runs the typecheck and build but not these.
+
+One exception, and it is deliberate: `test-capture-cap.ts` talks to the
+database, because the bound it checks is a Postgres advisory lock and a
+faked lock proves nothing. It still makes no model call.
 
 ```sh
 npx tsx scripts/test-punctuation.ts     # and every other test-*
@@ -579,6 +583,19 @@ has already shipped one truncated reply.
   removed. That is why the customer's own words stay in `question_raw`
   and the dashboard links to the transcript — the short version is a
   convenience, never the record.
+- **The assistant can commit the TEAM to sending photos.** Rule 3 stops
+  it claiming a limitation it does not have, and `lib/no-images.ts`
+  stops it implying it will send an image itself. Neither covers what it
+  said to an Arabic visitor on 2026-10-17: *"فريقنا سيرسل لك صور قبل
+  وبعد مباشرةً على الواتساب"* — our team will send you before-and-after
+  photos directly on WhatsApp. For prof-clinic that is approved and
+  true: the clinic has three before-and-after entries and a WhatsApp
+  number, and a human does send them. It is a promise made on the
+  business's behalf, though, and nothing checks the business ever agreed
+  to it. **Open:** for a tenant that does not share photos, a reply like
+  this is a commitment it cannot keep, and the fix is probably a fact
+  the business states rather than a prompt rule. Not built — no tenant
+  is in that position today.
 - **CI holds a service-role key** that can read every tenant's leads.
   Acceptable while there is no real customer data. **Launch blocker:**
   replace it with a narrow read-only endpoint scoped to `is_test` tenants
