@@ -7,7 +7,10 @@
 //   1. is the visitor asking for anything at all?  — one key on the
 //                                                    classifier that
 //                                                    already ran this turn
-//   2. has this conversation used up its cap?      — a count, free
+//   2. has this conversation used up either cap?   — a reservation
+//                                                    taken in Postgres,
+//                                                    free: 4 rows and
+//                                                    8 judge calls
 //   3. does the knowledge base answer it?          — the judge, Sonnet
 //   4. rewrite it for the dashboard and group it   — Sonnet + embedding
 //
@@ -25,6 +28,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   judgeAnswerGap,
   ANSWER_GAP_MODEL,
+  MAX_CAPTURED_ROWS_PER_CONVERSATION,
   MAX_JUDGE_CALLS_PER_CONVERSATION,
   type KnowledgeForJudge,
 } from "./answer-gap";
@@ -35,7 +39,18 @@ import { groupForAsk } from "./unanswered-questions";
 import { parseEmbedding } from "./vectors";
 
 export type CaptureOutcome =
+  /** The conversation already has its four rows. */
   | "capped"
+  /**
+   * The conversation has spent its eight judge calls.
+   *
+   * Told apart from "capped" on purpose. They mean different things to
+   * anyone reading logs: the first is a dashboard that has heard enough
+   * from one visitor, the second is a conversation that has cost what
+   * it is allowed to cost — and a tenant hitting the second often is
+   * the signal that the real-time judge should become the daily batch.
+   */
+  | "judge_capped"
   | "answered"
   | "judge_unreachable"
   | "captured"
@@ -147,10 +162,16 @@ export async function captureIfUnanswered({
     // session, counting rows AND slots held by captures still deciding,
     // so two in flight cannot both pass. See the migration for why the
     // reservations are not pending rows in this table.
-    const { data: slotId, error: reserveError } = await supabase.rpc("reserve_capture_slot", {
+    //
+    // TWO caps, one reservation. Rows bound what reaches the dashboard;
+    // judge calls bound what the conversation can spend. The second did
+    // not exist before — the old cap counted rows and let an answered
+    // question buy a judge call for free.
+    const { data, error: reserveError } = await supabase.rpc("reserve_capture_slot", {
       p_tenant_id: tenantId,
       p_session_id: sessionId,
-      p_max: MAX_JUDGE_CALLS_PER_CONVERSATION,
+      p_max_rows: MAX_CAPTURED_ROWS_PER_CONVERSATION,
+      p_max_judge_calls: MAX_JUDGE_CALLS_PER_CONVERSATION,
     });
 
     // A failed reservation is treated as at the cap, not under it. Each
@@ -160,23 +181,31 @@ export async function captureIfUnanswered({
       console.error("[capture] could not reserve a capture slot", reserveError);
       return "failed";
     }
-    if (!slotId) return "capped";
 
-    // Released on EVERY path below, including the throw: a slot held by
-    // a capture that is no longer running is a judge call this session
-    // can never spend. The row, once written, is what holds the count.
+    // A table-returning function comes back as an array of one row.
+    const reservation = (Array.isArray(data) ? data[0] : data) as
+      | { slot_id: string | null; refusal: string | null }
+      | undefined;
+    const slotId = reservation?.slot_id ?? null;
+    if (!slotId) return reservation?.refusal === "judge_calls" ? "judge_capped" : "capped";
+
+    // Released on EVERY path below, including the throw: a slot still
+    // held by a capture that is no longer running is a dashboard row
+    // this session can never fill. Marked released rather than deleted,
+    // so it still counts as a judge call spent — see the migration.
+    // The row, once written, is what holds the row count.
     try {
       return await judgeAndRecord();
     } finally {
       const { error: releaseError } = await supabase
         .from("unanswered_capture_slots")
-        .delete()
+        .update({ released_at: new Date().toISOString() })
         .eq("id", slotId);
       if (releaseError) {
         // Not fatal and not worth failing an outcome that already
-        // happened. The reservation is reclaimed as stale five minutes
-        // from now, and until then this session is one slot poorer —
-        // which is the direction that does not spend money.
+        // happened. The reservation is swept five minutes from now, and
+        // until then this session is one row poorer — which is the
+        // direction that does not spend money.
         console.warn("[capture] could not release the capture slot", releaseError.message);
       }
     }

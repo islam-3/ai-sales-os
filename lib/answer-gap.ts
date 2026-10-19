@@ -44,20 +44,44 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const ANSWER_GAP_MODEL = process.env.ANSWER_GAP_MODEL ?? "claude-sonnet-4-6";
 
 /**
- * The most judge calls one conversation may ever make.
+ * The most rows one conversation may put on an owner's dashboard.
  *
  * Set from measurement, not from a guess: the six smoke-test
  * conversations average 2.0 question-bearing turns each, so 4 is double
  * what real traffic does, and every conversation of ordinary length runs
  * under it without noticing. See scripts/measure-answer-gap-cost.ts.
  *
- * The cap exists for the conversations that are not ordinary — a visitor
- * pasting twenty questions, or a bot. Each call is a whole knowledge base
- * of input, so without a bound one conversation's cost is unbounded.
- * Dropping the fifth question costs a dashboard row nobody is waiting
- * for; the alternative is a bill nobody predicted.
+ * Dropping the fifth gap costs a dashboard row nobody is waiting for.
  */
-export const MAX_JUDGE_CALLS_PER_CONVERSATION = 4;
+export const MAX_CAPTURED_ROWS_PER_CONVERSATION = 4;
+
+/**
+ * The most judge calls one conversation may ever make.
+ *
+ * ── Why this is separate from the row cap, and why it exists ────────
+ * It used to BE the row cap: one constant, named for judge calls,
+ * enforced by counting captured rows. So a question the business can
+ * answer cost a judge call and counted toward nothing, and a
+ * conversation of twenty answered questions made twenty judge calls
+ * under a "cap" of four. Measured on 2026-10-17 against production: one
+ * nine-turn session made EIGHT judge calls, and a perfectly held row cap
+ * would still have made seven.
+ *
+ * Each call is a whole knowledge base of input, so that was not a
+ * ceiling, it was a floor with a ceiling's name.
+ *
+ * Capping rows alone cannot fix it without costing recall: that same
+ * session asked three answerable questions BEFORE its four real gaps, so
+ * a four-judge-call limit would have captured one of them instead of
+ * four. Hence two bounds. Four rows keeps recall where it was; eight
+ * judge calls puts a ceiling on the bill — $0.0368 added in the worst
+ * case against a 7.59c conversation, which is the figure in README.md.
+ *
+ * Both are enforced in Postgres, by reserve_capture_slot, because a cap
+ * read in the application is a cap that two in-flight captures can both
+ * pass.
+ */
+export const MAX_JUDGE_CALLS_PER_CONVERSATION = 8;
 
 export type KnowledgeForJudge = { title: string; content: string };
 

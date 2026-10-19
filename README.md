@@ -122,7 +122,7 @@ record of calls already made and paid for.
 | lead extraction | Sonnet | 4.38 | $0.00784 | **$0.03435** | measured |
 | classifier | Haiku | 6.28 | $0.00044 | **$0.00273** | derived |
 | coverage | Haiku | near a close only | — | — | not yet recorded |
-| answer-gap judge | Sonnet | 0–4 | $0.00195 warm / $0.01818 cold | **see below** | derived |
+| answer-gap judge | Sonnet | 0–8 | $0.00195 warm / $0.01818 cold | **see below** | derived |
 | question rewrite | Sonnet | only on a gap | $0.00123 | **see below** | derived |
 | question embedding | OpenAI | only on a gap | $0.0000003 | negligible | derived |
 | | | | | **$0.07587** | |
@@ -135,13 +135,46 @@ run is the thing that varies most and no single figure is honest:
 | 0 questions asked | $0 | $0 | $0 |
 | 2 questions, both answered | $0.00390 | $0.02013 | $0.02930 |
 | 2 questions, 1 gap | $0.00513 | $0.02136 | $0.03053 |
-| 4 questions (the cap), 2 gaps | $0.01026 | $0.02649 | $0.06106 |
+| 4 questions, 2 gaps | $0.01026 | $0.02649 | $0.06106 |
+| **8 questions (judge cap), 4 gaps (row cap)** | **$0.02052** | **$0.03675** | **$0.12212** |
 
-Common case **+7%**, worst case **+35%**, worst case with caching off
-**+80%** — which is what the caching work bought. The judge's cost scales
-with the *knowledge base*, not the conversation: 23 entries is a
-4,703-token prefix, and ten times the material is ten times the cost per
-call.
+Common case **+7%**, worst case **+48%**, worst case with caching off
+**+161%** — the caching work is what stands between those two. The
+judge's cost scales with the *knowledge base*, not the conversation: 23
+entries is a 4,703-token prefix, and ten times the material is ten times
+the cost per call.
+
+### The two caps, and why the worst case used to be understated
+
+There are two, both enforced in Postgres by `reserve_capture_slot`:
+
+| Cap | Value | Bounds |
+|---|---|---|
+| `MAX_CAPTURED_ROWS_PER_CONVERSATION` | 4 | what one conversation can put on the dashboard |
+| `MAX_JUDGE_CALLS_PER_CONVERSATION` | 8 | what one conversation can spend |
+
+Until 2026-10-19 there was one constant, named for judge calls and
+enforced by counting captured **rows**. So a question the business
+*could* answer cost a judge call and counted toward nothing, and the
+`0–4` in the table above was not a ceiling — it was the number of rows,
+reported as the number of calls. Measured against production: a
+nine-turn session made **eight** judge calls, three of them on questions
+that were answered and captured nothing.
+
+Capping rows alone cannot fix that without costing recall, because the
+answered questions come first: that same session asked three answerable
+questions *before* its four real gaps, so a four-judge-call limit would
+have caught one gap instead of four. Hence two numbers rather than one.
+
+And the row cap itself was not a bound. It was a `SELECT` taken before
+the judge call, with a judge, a rewrite and an embedding between it and
+the `INSERT` — several seconds, all of it after the reply has gone out.
+A visitor whose next message landed inside that window got a second
+capture counting the same stale total, and the same session captured
+**five** rows against a cap of four. A cap that can be raced is a budget
+that can be raced, so the slot is now reserved *before* the judge call,
+under an advisory lock on the session, and `scripts/test-capture-cap.ts`
+fires fourteen at once to prove it.
 
 Three things worth knowing before quoting any of it:
 
@@ -204,10 +237,12 @@ What it breaks, all of which has to be handled in the same change:
 - **A silently broken cron is invisible.** The list just stops updating.
   Same shape as the empty test tenant that went unnoticed for days.
   Needs a visible `last_judged_at` and pending count.
-- **The cap moves.** `MAX_JUDGE_CALLS_PER_CONVERSATION` is enforced today
-  by counting captured rows before judging. Deferred, it must cap the
-  *pending insert* per session, or one pathological conversation stores
-  50 pending and the batch judges all 50.
+- **The caps move.** Both are enforced today by `reserve_capture_slot`,
+  taken before the judge call. Deferred, the reservation has to move to
+  the *pending insert* per session — a conversation that stores 50
+  pending rows has spent nothing yet, and the batch would then judge all
+  50. The work is smaller than it was: the reservation already exists
+  and is already atomic, so what changes is when it is taken.
 - **A per-tenant daily cap becomes necessary.** One invocation making
   unbounded Sonnet calls is a failure mode real time does not have,
   because real time is bounded per conversation.
