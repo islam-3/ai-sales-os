@@ -37,3 +37,6 @@ next-env.d.ts
 dev.log
 backups/
 .test-owner-credentials
+
+# Supabase CLI scratch, written by any npx supabase invocation
+supabase/.temp/
