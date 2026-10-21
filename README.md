@@ -618,6 +618,44 @@ has already shipped one truncated reply.
   removed. That is why the customer's own words stay in `question_raw`
   and the dashboard links to the transcript — the short version is a
   convenience, never the record.
+- **No route ingests a Supabase auth link, and the Site URL points at a
+  page that runs no JavaScript.** The only place a link becomes a
+  session is the *browser* client in `lib/supabase.ts`, whose
+  `detectSessionInUrl` writes it into cookies for middleware to read —
+  so a link only works if it lands on a page that mounts that client.
+  There is no `/auth/callback`. The Site URL is the bare origin, and
+  `app/page.tsx:22` is a server component whose whole body is
+  `redirect("/dashboard")`, which then fails middleware and goes to
+  `/login`. The session never arrives: `/auth/v1/verify` returns it in
+  the URL **hash**, and a hash is never sent to a server.
+
+  Measured on 2026-10-21, not reasoned: an admin-generated magic link
+  aimed at the Site URL consumed its token — `last_sign_in_at` moved —
+  and still landed signed-out. Pointed at `/login` instead, which is
+  `"use client"` and imports the browser client, the same link works.
+
+  **Why it is not breaking signup today:** email confirmation is OFF.
+  `/auth/v1/settings` reports `mailer_autoconfirm: true`, and both
+  existing accounts were confirmed within 0.1s of being created, so
+  `signUp` returns a session immediately and `app/signup/page.tsx:102`
+  can push straight to `/dashboard`.
+
+  **What happens the day it is turned on:** `signUp` at
+  `app/signup/page.tsx:87` passes no `emailRedirectTo`, so every
+  confirmation link falls back to the Site URL — and every new customer
+  dead-ends on `/login` at their first interaction with the product.
+  The push to `/dashboard` would bounce too, so signup would look broken
+  before the email was even opened. The fix is an `/auth/callback` route
+  that ingests the session before redirecting, plus an explicit
+  `emailRedirectTo` on every link; not built, because with
+  autoconfirm on there is no link to catch, and building for a branch
+  nobody takes is how dead paths start.
+
+  **One live flow already has the narrow version of this.** The email
+  change in `components/dashboard/profile/EmailForm.tsx:32` sends its
+  confirmation to `/dashboard/profile`, which is behind the middleware
+  matcher — so it works only when the link is opened in a browser that
+  still holds a valid session cookie, and dead-ends anywhere else.
 - **The assistant can commit the TEAM to sending photos.** Rule 3 stops
   it claiming a limitation it does not have, and `lib/no-images.ts`
   stops it implying it will send an image itself. Neither covers what it
@@ -664,6 +702,15 @@ today and is not survivable the day a clinic is paying for uptime.
   scoped to `is_test` tenants. Stated in full under Known limitations:
   the key can read every tenant's leads, which is acceptable only while
   no tenant holds real customer data.
+- **Build `/auth/callback` before turning email confirmation on.**
+  Stated in full under Known limitations. Confirmation is off today
+  (`mailer_autoconfirm: true`), which is the only reason signup works:
+  nothing in the app can turn an auth link into a session unless the
+  link lands on a page that mounts the browser client, and the Site URL
+  is a server-only redirect. Switching confirmation on without the
+  route dead-ends every new customer on their first interaction. These
+  two belong together — a real signup is the first paying customer's
+  first minute.
 
 ---
 
