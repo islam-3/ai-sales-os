@@ -1,4 +1,5 @@
-import { Phone, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { Phone, AlertTriangle, MessagesSquare } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusDropdown } from "./StatusDropdown";
 import { QualificationDetails } from "./QualificationDetails";
@@ -67,7 +68,25 @@ export function LeadCard({ lead }: { lead: LeadProfile }) {
 
         <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3.5">
           <StatusDropdown leadId={lead.id} initialStatus={lead.status} />
-          <span className="text-xs text-muted-foreground">{formatDate(lead.created_at)}</span>
+          <div className="flex items-center gap-3">
+            {/* Only when there is a conversation to open. A lead written
+                before the session id was stored would otherwise get a
+                link to a page that can only say "not found".
+
+                RLS does the access control: the page queries through the
+                owner's own client, and the policy on conversations keeps
+                it to tenants they own. */}
+            {lead.session_id && (
+              <Link
+                href={`/dashboard/conversations/${encodeURIComponent(lead.session_id)}`}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <MessagesSquare className="h-3.5 w-3.5" />
+                View conversation
+              </Link>
+            )}
+            <span className="text-xs text-muted-foreground">{formatDate(lead.created_at)}</span>
+          </div>
         </div>
 
         <QualificationDetails leadId={lead.id} data={lead.qualification_data} />

@@ -53,6 +53,16 @@ export type LeadProfile = {
   ai_summary: string | null;
   qualification_score: number | null;
   qualification_data: QualificationData | null;
+  /**
+   * The conversation this lead came out of, so the card can link to it.
+   *
+   * Nullable because the column is only as old as the conversation page:
+   * leads written before it exists carry no session id and get no link,
+   * rather than a link to nothing. The summary is a model's reading of
+   * the conversation; the transcript is what was actually said, and a
+   * rep about to phone someone should be able to reach it.
+   */
+  session_id: string | null;
 };
 
 export type ScoreTier = "hot" | "warm" | "cold";

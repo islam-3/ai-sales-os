@@ -11,21 +11,15 @@ import {
 } from "@/app/dashboard/settings/unanswered-actions";
 
 /**
- * Script names as an owner would read them.
+ * How many lines are shown before the list has to be asked for.
  *
- * Deliberately named as scripts, because that is what was detected. "7
- * asked in Arabic" is true of the script and only probably true of the
- * language; labelling it "Arabic" and being wrong about Persian would
- * send an owner to write an answer in the wrong language.
+ * Three, because activeGroups already sorts by count and the top of that
+ * ranking is the whole point of the card — it says what is costing the
+ * business most. Nine lines of equal visual weight said nothing and took
+ * over the page, which is how the twelve-question card before this one
+ * failed too: a list long enough to scroll past is a list nobody reads.
  */
-const SCRIPT_LABEL: Record<string, string> = {
-  arabic: "Arabic script",
-  cyrillic: "Cyrillic script",
-  hebrew: "Hebrew script",
-  greek: "Greek script",
-  cjk: "Chinese/Japanese/Korean",
-  latin: "Latin script",
-};
+const COLLAPSED_COUNT = 3;
 
 /**
  * "Customers asked — no answer yet".
@@ -56,6 +50,7 @@ export function UnansweredQuestions({
   const [pending, startTransition] = useTransition();
   const [acting, setActing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   // Nothing captured and nothing to suggest: no card at all. An empty
   // box explaining what would appear here is a box an owner scrolls
@@ -77,6 +72,8 @@ export function UnansweredQuestions({
   }
 
   const isStarters = groups.length === 0;
+  const shown = expanded ? groups : groups.slice(0, COLLAPSED_COUNT);
+  const hidden = groups.length - shown.length;
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -94,25 +91,21 @@ export function UnansweredQuestions({
         </div>
 
         <ul className="flex flex-col divide-y">
-          {groups.map((group) => (
+          {shown.map((group) => (
             <li
               key={group.groupId}
-              className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+              className="flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">{group.question}</p>
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                {/* The script labels used to sit here. Dropped to keep the
+                    row to one line — `scripts` is still on QuestionGroup
+                    and still captured, so bringing them back is a render
+                    change and not a data one. */}
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                   <span>
                     {group.count === 1 ? "1 customer asked" : `${group.count} customers asked`}
                   </span>
-                  {group.scripts.length > 0 && (
-                    <>
-                      <span aria-hidden>·</span>
-                      <span>
-                        {group.scripts.map((s) => SCRIPT_LABEL[s] ?? s).join(", ")}
-                      </span>
-                    </>
-                  )}
                   {group.returned && (
                     <>
                       <span aria-hidden>·</span>
@@ -134,32 +127,31 @@ export function UnansweredQuestions({
                 </p>
               </div>
 
-              <div className="flex shrink-0 gap-2">
-                <Button size="sm" onClick={() => onAddAnswer(group.question)} className="gap-1.5">
-                  <Plus className="h-3.5 w-3.5" />
+              <div className="flex shrink-0 gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={() => onAddAnswer(group.question)}
+                  className="h-7 gap-1 px-2.5 text-xs"
+                >
+                  <Plus className="h-3 w-3" />
                   Add answer
                 </Button>
-                {group.returned ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => dismiss(group.groupId)}
-                    disabled={pending && acting === group.groupId}
-                  >
-                    Hide again
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => dismiss(group.groupId)}
-                    disabled={pending && acting === group.groupId}
-                    className="gap-1.5"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Dismiss
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => dismiss(group.groupId)}
+                  disabled={pending && acting === group.groupId}
+                  className="h-7 gap-1 px-2 text-xs"
+                >
+                  {group.returned ? (
+                    "Hide again"
+                  ) : (
+                    <>
+                      <X className="h-3 w-3" />
+                      Dismiss
+                    </>
+                  )}
+                </Button>
               </div>
             </li>
           ))}
@@ -182,6 +174,27 @@ export function UnansweredQuestions({
             </li>
           ))}
         </ul>
+
+        {/* Only when there is something behind it. A control that expands
+            nothing is a control an owner learns to distrust. */}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="self-start text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Show all {groups.length} questions
+          </button>
+        )}
+        {expanded && groups.length > COLLAPSED_COUNT && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="self-start text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Show fewer
+          </button>
+        )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

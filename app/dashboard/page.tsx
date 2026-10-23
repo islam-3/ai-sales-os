@@ -41,7 +41,7 @@ export default async function DashboardPage() {
     supabase
       .from("lead_profile")
       .select(
-        "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data"
+        "id, name, contact_info, status, created_at, ai_summary, qualification_score, qualification_data, session_id"
       )
       .eq("tenant_id", tenantId)
       // Newest first. This used to sort by qualification_score, which
