@@ -56,9 +56,10 @@ export type LeadProfile = {
   /**
    * The conversation this lead came out of, so the card can link to it.
    *
-   * Nullable because the column is only as old as the conversation page:
-   * leads written before it exists carry no session id and get no link,
-   * rather than a link to nothing. The summary is a model's reading of
+   * NOT NULL in the table since lead_profile was created
+   * (20260805000002), so every lead has one. Typed nullable only so the
+   * card's guard holds if a query ever leaves the column out of its
+   * select: no link beats a link to nothing. The summary is a model's reading of
    * the conversation; the transcript is what was actually said, and a
    * rep about to phone someone should be able to reach it.
    */
