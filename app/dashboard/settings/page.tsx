@@ -4,6 +4,7 @@ import { DashboardShell, DashboardMessage } from "@/components/dashboard/Dashboa
 import { KnowledgeBaseManager } from "@/components/dashboard/settings/KnowledgeBaseManager";
 import { groupAsks, activeGroups, type UnansweredAsk } from "@/lib/unanswered-questions";
 import { remainingStarters } from "@/lib/starter-questions";
+import { parseTenantSettings } from "@/lib/tenant-settings";
 
 // Always fetch fresh — content edited here should be immediately visible,
 // same reasoning as the leads dashboard.
@@ -24,7 +25,11 @@ export default async function SettingsPage() {
 
   const { supabase, tenantId, businessName } = context;
 
-  const [{ data: rows, error }, { data: askRows, error: askError }] = await Promise.all([
+  const [
+    { data: rows, error },
+    { data: askRows, error: askError },
+    { data: tenantRow },
+  ] = await Promise.all([
     supabase
       .from("knowledge_base")
       .select("id, title, category, content, embedding, created_at, question_key")
@@ -41,6 +46,9 @@ export default async function SettingsPage() {
       .select("id, session_id, asked_at, question_raw, question_short, script, group_id, dismissed_at")
       .eq("tenant_id", tenantId)
       .order("asked_at", { ascending: true }),
+    // Only for the dismissed starters. A failed read shows all four,
+    // which is the harmless direction.
+    supabase.from("tenants").select("settings").eq("id", tenantId).maybeSingle(),
   ]);
 
   const entries: KnowledgeEntry[] = (rows ?? []).map((row) => ({
@@ -81,7 +89,8 @@ export default async function SettingsPage() {
   // questions is not a tenant that needs starter suggestions.
   const starters = remainingStarters(
     (rows ?? []).map((r) => r.question_key).filter((k): k is string => !!k),
-    asks.length
+    asks.length,
+    parseTenantSettings(tenantRow?.settings).dismissed_starters ?? []
   );
 
   return (

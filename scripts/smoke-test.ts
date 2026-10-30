@@ -216,7 +216,11 @@ async function runCase(c: Case): Promise<Failure[]> {
     // is exactly the kind of result worth reporting rather than hiding.
     let reply: string;
     try {
-      ({ reply } = await say(sessionId, c.turns[i]));
+      // No capture: these turns are ours and identical on every push.
+      // Captured, they would fill test-clinic's "no answer yet" list with
+      // the same scripted questions and spend a judge call each time.
+      // scripts/live-capture-check.ts is what verifies capture.
+      ({ reply } = await say(sessionId, c.turns[i], undefined, { skipCapture: true }));
     } catch (error) {
       failures.push({
         case: c.label,

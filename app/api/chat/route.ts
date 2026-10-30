@@ -34,6 +34,7 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
+import { shouldSkipCapture } from "@/lib/test-tenant";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -627,12 +628,14 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage } = body as {
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture } = body as {
     message?: unknown;
     photoPath?: unknown;
     sessionId?: unknown;
     slug?: unknown;
     openingMessage?: unknown;
+    /** Smoke-test only. Ignored unless the tenant is a test tenant. */
+    skipCapture?: unknown;
   };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
@@ -1029,7 +1032,14 @@ async function handleChat(body: Record<string, unknown>) {
   // tenant's cache window and $0.0019 for each after it, against 1.6
   // requests per conversation on real traffic — about +26% on a 7.69c
   // conversation. See scripts/report-cost-per-conversation.ts.
-  if (trimmedMessage && shouldJudge(signals)) {
+  //
+  // The smoke test asks to skip it, and is listened to only on a test
+  // tenant — see shouldSkipCapture for why a real tenant ignores it.
+  if (
+    trimmedMessage &&
+    shouldJudge(signals) &&
+    !shouldSkipCapture(skipCapture, tenant.settings)
+  ) {
     keepAlive(
       captureIfUnanswered({
         supabase: supabaseServer,

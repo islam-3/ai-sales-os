@@ -55,3 +55,28 @@ export function refusalMessage(slug: string): string {
     ``,
   ].join("\n");
 }
+
+/**
+ * Whether this turn's answer-gap capture should be skipped.
+ *
+ * The smoke test runs after every push and asks the same questions every
+ * time — the process step by step, on purpose (see scripts/smoke-test.ts).
+ * Captured, they fill test-clinic's "no answer yet" list with our own
+ * questions, and each capture is a judge call: a whole knowledge base of
+ * input, spent to learn nothing.
+ *
+ * Honoured ONLY on a test tenant. The request is the visitor's, so the
+ * flag is something anyone can send; on a real tenant it must change
+ * nothing, or a visitor could switch off what the owner's dashboard
+ * relies on. Strictly `true` on both sides, for the same reason as
+ * isTestTenant.
+ *
+ * Opt-in per request, not per tenant: scripts/live-capture-check.ts
+ * exists to verify capture against test-clinic and must not skip it.
+ */
+export function shouldSkipCapture(
+  requested: unknown,
+  settings: { is_test?: boolean } | null | undefined
+): boolean {
+  return requested === true && isTestTenant(settings);
+}

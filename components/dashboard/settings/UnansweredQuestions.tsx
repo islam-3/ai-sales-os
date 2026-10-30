@@ -7,6 +7,7 @@ import type { QuestionGroup } from "@/lib/unanswered-questions";
 import type { StarterQuestion } from "@/lib/starter-questions";
 import {
   dismissQuestionGroup,
+  dismissStarter,
   restoreQuestionGroup,
 } from "@/app/dashboard/settings/unanswered-actions";
 
@@ -71,6 +72,20 @@ export function UnansweredQuestions({
     });
   }
 
+  function hideStarter(key: string) {
+    setError(null);
+    setActing(key);
+    startTransition(async () => {
+      try {
+        await dismissStarter(key);
+      } catch {
+        setError("Could not hide that. Try again.");
+      } finally {
+        setActing(null);
+      }
+    });
+  }
+
   const isStarters = groups.length === 0;
   const shown = expanded ? groups : groups.slice(0, COLLAPSED_COUNT);
   const hidden = groups.length - shown.length;
@@ -85,7 +100,7 @@ export function UnansweredQuestions({
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {isStarters
-              ? "Nobody has asked anything you couldn't answer yet. These four get asked of almost every business — answering them now means your assistant has them ready."
+              ? "Nobody has asked anything you couldn't answer yet. These get asked of almost every business — answering them now means your assistant has them ready."
               : "Your assistant had nothing to tell these customers. Add an answer and it will have one next time."}
           </p>
         </div>
@@ -159,18 +174,34 @@ export function UnansweredQuestions({
           {starters.map((starter) => (
             <li
               key={starter.key}
-              className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+              className="flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <p className="min-w-0 flex-1 text-sm text-foreground">{starter.question}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onAddAnswer(starter.title)}
-                className="shrink-0 gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add answer
-              </Button>
+              <div className="flex shrink-0 gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onAddAnswer(starter.title)}
+                  className="h-7 gap-1 px-2.5 text-xs"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add answer
+                </Button>
+                {/* For a suggestion that does not apply — a business with
+                    no guarantee to describe. Unlike a customer's question
+                    there is no "bring back": these are ours, generic, and
+                    an owner who has said one does not fit has said so. */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => hideStarter(starter.key)}
+                  disabled={pending && acting === starter.key}
+                  className="h-7 gap-1 px-2 text-xs"
+                >
+                  <X className="h-3 w-3" />
+                  Dismiss
+                </Button>
+              </div>
             </li>
           ))}
         </ul>

@@ -82,6 +82,12 @@ export type TenantSettings = {
    */
   is_test?: boolean;
   /**
+   * Starter suggestions the owner dismissed, by key (see
+   * lib/starter-questions.ts). Sticky: a suggestion an owner has said
+   * does not apply to their business does not come back.
+   */
+  dismissed_starters?: string[];
+  /**
    * Getting-started checklist state. Only the parts that can't be
    * derived from real data live here — whether the owner has completed
    * their business info or added a knowledge entry is read from those
@@ -329,6 +335,12 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
   // for this and there should not be: a real tenant acquiring it is the
   // failure the flag exists to prevent.
   if (root.is_test === true) parsed.is_test = true;
+
+  // Carried through every save like the rest: the business form writes
+  // the whole parsed object back, so a key this parser dropped would be
+  // a dismissal that quietly undid itself on the next unrelated save.
+  const dismissedStarters = asStringArray(root.dismissed_starters);
+  if (dismissedStarters) parsed.dismissed_starters = dismissedStarters;
 
   const onboarding = asObject(root.onboarding);
   const chatLinkCopied = onboarding.chat_link_copied === true;

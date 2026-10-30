@@ -22,7 +22,13 @@ import {
   type UnansweredAsk,
 } from "../lib/unanswered-questions";
 import { checkShortQuestion, SHORT_MAX_LENGTH } from "../lib/question-short";
-import { remainingStarters, STARTER_QUESTIONS, MAX_STARTERS } from "../lib/starter-questions";
+import {
+  remainingStarters,
+  isStarterKey,
+  STARTER_QUESTIONS,
+  MAX_STARTERS,
+} from "../lib/starter-questions";
+import { parseTenantSettings } from "../lib/tenant-settings";
 
 let bad = 0;
 const check = (name: string, pass: boolean, detail?: string) => {
@@ -241,6 +247,35 @@ console.log("\n--- starter suggestions ---");
   check(
     "an unrelated question_key does not count as answering one",
     remainingStarters(["some_other_key"], 0).length === 4
+  );
+  check(
+    "a dismissed starter disappears",
+    remainingStarters([], 0, ["starter_guarantee"]).every((s) => s.key !== "starter_guarantee") &&
+      remainingStarters([], 0, ["starter_guarantee"]).length === 3
+  );
+  check(
+    "an unknown dismissed key hides nothing",
+    remainingStarters([], 0, ["anything", ""]).length === 4
+  );
+  check(
+    "answered and dismissed together can empty the list",
+    remainingStarters(["starter_price", "starter_included"], 0, [
+      "starter_duration",
+      "starter_guarantee",
+    ]).length === 0
+  );
+  check(
+    "only real starter keys pass the dismiss guard",
+    isStarterKey("starter_price") && !isStarterKey("is_test") && !isStarterKey(1)
+  );
+  // The business form writes the whole parsed object back. A parser that
+  // dropped this key would undo every dismissal on the next brand save.
+  check(
+    "dismissed starters survive a settings round-trip",
+    JSON.stringify(
+      parseTenantSettings(parseTenantSettings({ dismissed_starters: ["starter_price"] }))
+        .dismissed_starters
+    ) === JSON.stringify(["starter_price"])
   );
   check(
     "every starter has a distinct key",

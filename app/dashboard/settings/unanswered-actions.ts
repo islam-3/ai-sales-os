@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentTenant } from "@/lib/dashboard-tenant";
+import { parseTenantSettings } from "@/lib/tenant-settings";
+import { isStarterKey } from "@/lib/starter-questions";
 
 /**
  * Hides a question group from the list.
@@ -57,6 +59,54 @@ export async function restoreQuestionGroup(groupId: string): Promise<void> {
   if (error) {
     console.error("Failed to restore question group:", error);
     throw new Error("Failed to restore");
+  }
+
+  revalidatePath("/dashboard/settings");
+}
+
+/**
+ * Hides one of the starter suggestions for good.
+ *
+ * For an owner whose business genuinely has no answer to give — a
+ * service with no guarantee to describe should not be asked about one
+ * on every visit. Stored in settings rather than a table: there are
+ * four possible keys and no history worth keeping.
+ *
+ * Read-merge-write through parseTenantSettings, the same as every other
+ * settings save, so nothing else in the object is touched. The key is
+ * checked against the starter list first: this is an action a browser
+ * can call with anything.
+ */
+export async function dismissStarter(key: string): Promise<void> {
+  if (!isStarterKey(key)) throw new Error("Unknown suggestion");
+
+  const context = await getCurrentTenant();
+  if (!context) throw new Error("You must be signed in to do this");
+  const { supabase, tenantId } = context;
+
+  const { data: current, error: readError } = await supabase
+    .from("tenants")
+    .select("settings")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (readError || !current) {
+    console.error("Failed to read settings to dismiss a starter:", readError);
+    throw new Error("Failed to dismiss");
+  }
+
+  const settings = parseTenantSettings(current.settings);
+  const already = settings.dismissed_starters ?? [];
+  if (already.includes(key)) return;
+
+  const { error } = await supabase
+    .from("tenants")
+    .update({ settings: { ...settings, dismissed_starters: [...already, key] } })
+    .eq("id", tenantId);
+
+  if (error) {
+    console.error("Failed to dismiss starter:", error);
+    throw new Error("Failed to dismiss");
   }
 
   revalidatePath("/dashboard/settings");

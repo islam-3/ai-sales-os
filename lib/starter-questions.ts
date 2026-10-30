@@ -66,13 +66,23 @@ export const STARTER_QUESTIONS: StarterQuestion[] = [
  *
  * Empty once any real question has been captured — a suggestion of ours
  * must never compete for space with something a customer actually
- * asked. Also empty once all four are answered.
+ * asked. Also empty once all four are answered or dismissed.
+ *
+ * Dismissed keys only ever hide a starter whose key they match. settings
+ * is jsonb and can hold anything, but a stray string there names nothing
+ * in this list and so hides nothing.
  */
 export function remainingStarters(
   answeredKeys: string[],
-  capturedQuestionCount: number
+  capturedQuestionCount: number,
+  dismissedKeys: string[] = []
 ): StarterQuestion[] {
   if (capturedQuestionCount > 0) return [];
-  const answered = new Set(answeredKeys);
-  return STARTER_QUESTIONS.filter((s) => !answered.has(s.key)).slice(0, MAX_STARTERS);
+  const gone = new Set([...answeredKeys, ...dismissedKeys]);
+  return STARTER_QUESTIONS.filter((s) => !gone.has(s.key)).slice(0, MAX_STARTERS);
+}
+
+/** Whether a value names one of the starters. Guards the dismiss action. */
+export function isStarterKey(key: unknown): key is string {
+  return typeof key === "string" && STARTER_QUESTIONS.some((s) => s.key === key);
 }

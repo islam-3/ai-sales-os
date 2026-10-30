@@ -65,7 +65,18 @@ async function ensureTestTenant(slug: string): Promise<void> {
  */
 const ATTEMPTS = Number(process.env.CHAT_CLIENT_ATTEMPTS ?? 3);
 
-export async function say(sessionId: string, message: string, slug: string = SLUG): Promise<Reply> {
+export async function say(
+  sessionId: string,
+  message: string,
+  slug: string = SLUG,
+  /**
+   * skipCapture: no answer-gap judging for this turn. For runs that
+   * would otherwise fill the test tenant's dashboard with their own
+   * scripted questions. The route honours it only on a test tenant —
+   * see shouldSkipCapture.
+   */
+  options: { skipCapture?: boolean } = {}
+): Promise<Reply> {
   await ensureTestTenant(slug);
 
   let last = "";
@@ -74,7 +85,12 @@ export async function say(sessionId: string, message: string, slug: string = SLU
       const res = await fetch(`${BASE}/api/chat`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, sessionId, slug }),
+        body: JSON.stringify({
+          message,
+          sessionId,
+          slug,
+          ...(options.skipCapture === true && { skipCapture: true }),
+        }),
       });
       if (res.ok) return (await res.json()) as Reply;
       last = `${res.status} ${(await res.text()).slice(0, 200)}`;
