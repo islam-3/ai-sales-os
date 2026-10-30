@@ -1,100 +1,182 @@
-# Handoff — 15 October 2026
+# Handoff — 30 October 2026
 
-Written at the end of a long session, for whoever picks this up next
-(including me). README.md is the durable reference; this file is the
-state of play and the reasons behind the recent decisions.
-
----
-
-## 0. READ THIS FIRST: production chat is degraded
-
-**No Anthropic call has succeeded since 2026-10-12 08:17 UTC — three
-days.** Confirmed against production:
-
-```
-POST /api/chat {"slug":"test-clinic", ...}
-  -> {"reply":"عذراً، هل يمكنك أن تعيد ما قلته...","degraded":true}
-```
-
-Every visitor to **prof-clinic, the real clinic**, is getting the safe
-fallback in their own language instead of an answer. The graceful
-degradation is working as designed — nobody sees a 500 — which is also
-why it is invisible unless someone checks.
-
-Almost certainly the Anthropic account is out of credit; it has happened
-twice before in this project. Confirm in the Anthropic console, top up,
-then re-check with the one-line curl above and look for `degraded` to be
-absent.
-
-Nothing else in this document can be verified live until that is fixed.
+The state of play at the end of a session, for whoever picks this up
+next. README.md is the durable reference; this file is what is live,
+what has been proven, and what is still open. The decisions from the
+15 October handoff that still hold are kept at the end (§6).
 
 ---
 
-## 1. The feature: "Customers asked — no answer yet"
+## 0. Production
 
-Replaced a twelve-question guided-entry card that was built, used by the
-owner, and removed (−1,845 lines). It was not buggy; it was the wrong
-shape — it asked the business our questions and counted their answers,
-reading "0 of 12" while the warranty, the brands and the durations all
-sat in the list below it.
+**URL: https://ai-sales-os-drab.vercel.app**
 
-What replaced it asks the business nothing. It records what real
-customers asked that the business has no answer for, and offers those
-back through the add-entry form that already exists.
+Check which commit is serving before any live check. A check that runs
+against the previous build proves nothing about this one:
 
-### Built and pushed
+```sh
+curl -s https://ai-sales-os-drab.vercel.app/api/version
+```
 
-| Piece | Where |
+CI holds the same URL as the `PRODUCTION_URL` secret.
+
+**Chat is working.** The 12–15 October credit outage is over. Model
+calls through `/api/chat` succeeded on 30 October (see §2).
+
+---
+
+## 1. What is live
+
+Production is serving `c2600ce` plus docs/scripts-only commits on top.
+
+| Commit | What |
 |---|---|
-| Table + RLS | `supabase/migrations/20261013000000_unanswered_questions.sql` — **applied** |
-| The judge | `lib/answer-gap.ts` |
-| PII-free rewrite | `lib/question-short.ts` |
-| Grouping + dismissal rules | `lib/unanswered-questions.ts` |
-| Orchestration | `lib/capture-unanswered.ts` |
-| Shared business facts | `lib/business-prompt.ts` → `businessFactLines()` |
-| Starter suggestions | `lib/starter-questions.ts` |
-| Dashboard list | `components/dashboard/settings/UnansweredQuestions.tsx` |
-| Dismiss / restore | `app/dashboard/settings/unanswered-actions.ts` |
-| Conversation view | `app/dashboard/conversations/[sessionId]/page.tsx` |
-| Deployment marker | `app/api/version/route.ts` |
+| `8dc247f` | Doc: nothing in the app ingests an auth link |
+| `3819734` | `.gitignore` for the Supabase CLI scratch directory |
+| `eb6358e` | "No answer yet" list shows the top 3 by count, then "Show all N questions". Compact rows: count and "Read the conversation" kept, script labels gone, 28px buttons. **"View conversation"** on each lead card |
+| `9296a21` | **Dismiss** on the starter suggestions (`settings.dismissed_starters`, no undo). **Smoke test skips capture** via `skipCapture`, honoured only on an `is_test` tenant (`shouldSkipCapture` in `lib/test-tenant.ts`) |
+| `6a1e1cc` | Corrected the `LeadProfile.session_id` comment. The column has been NOT NULL since it was created |
+| `f0e5f77` `73a5d06` | Grouping candidate, its labels (committed before the run), and the validation output |
+| `82f4625` | **Grouping is decided by the model**, see §1.1 |
+| `c2600ce` | Conversation page "Back" link follows `?from=leads` / `?from=questions`. Missing or unknown goes to leads |
+| `79b5345` | `scripts/live-grouping-check.ts` |
 
-### Verified live, on test-clinic
+### 1.1 Grouping, as built
 
-Ten rows were captured through production by the Oct 12 smoke test and
-are still there. They prove the end-to-end path:
+The 0.75 embedding threshold no longer decides anything. It
+under-merged exactly as its own measurement predicted: test-clinic has
+three separate lines asking for the steps of the process.
 
-```
-7x  How much does it cost?                      [arabic, cyrillic, latin]
-2x  What are the steps of the entire process?   [latin]
-1x  What are the detailed steps of the treatment? [arabic]
-```
+Now the shortening call, which already ran once per captured question,
+also picks the group (`shortenAndMatch` in `lib/question-short.ts`):
 
-The 7× group is `how much does it cost?`, `كم التكلفة؟`,
-`Сколько это стоит?`, `费用是多少？`, `Fiyat ne kadar?` and
-`¿Cuánto cuesta?` **grouped into one line across five languages** —
-which is the whole reason grouping runs on the short version rather than
-the raw text. Every short version came back in English, the team's
-language, with no personal detail.
+- **It is shown at most 10 existing groups** (`MATCH_CANDIDATES`). With
+  10 or fewer, all are sent and nothing is ranked, which is exactly the
+  validated condition. With more than 10, the 10 nearest are sent
+  (`nearestGroups`).
+- **The ranking embeds the customer's raw words**, not the short line.
+  The short line is the output of the very call the candidates are for,
+  so it can't be used to choose them. Raw Arabic against English titles
+  ranks less well than English against English.
+- **Every way it fails ends in a duplicate line, never a hidden
+  question.** A group that isn't shown can't be chosen, an unreadable
+  reply counts as "new", and a failed ranking embedding sends no
+  candidates.
+- **Cost:** the call goes from $0.00123 to **$0.0022**, flat however
+  many groups a tenant has. That's +$0.00097 per captured question and
+  +$0.0039 per conversation at the row cap. It's in README.md, along
+  with the call type `question_candidate_embedding`.
 
-### NOT verified live
-
-Two changes landed after the last successful call and have never run
-against a real deployment:
-
-1. **The five-key gate** (`asking_for_information || direct_request`).
-   The ten rows above were captured by the OLD question-mark gate — note
-   every one of them ends in a question mark.
-2. **The settings fix** (`businessFactsForJudge`). See §2.3.
-
-`scripts/live-capture-check.ts` exists to verify both. It is written,
-committed, and was stopped after two turns when the replies came back
-degraded. **~50 Anthropic calls, ~$0.19. Ask before running it.**
+**Existing rows are not regrouped.** test-clinic still shows three
+"steps" lines and two price lines. New asks join one of them.
 
 ---
 
-## 2. Decisions this session, and why
+## 2. What is verified
 
-### 2.1 Sonnet for the judge, not Haiku
+| What | How | Result |
+|---|---|---|
+| Grouping, offline | `scripts/measure-question-match.ts`, 41 labelled cases × 3 runs, 10 groups. Labels committed before the run | **0 wrong merges, 0 splits**, all rewritten questions passed their checks. `docs/question-match-2026-10-30.txt`. $0.2647, against ~$0.20 quoted: the per-call cost was $0.0022, not the $0.0015 estimated |
+| Grouping, live | `scripts/live-grouping-check.ts` against `c2600ce`. test-clinic had **11** groups, so the over-10 ranking ran | **Both PASS.** English "how does the treatment go, step by step?" and Arabic "ممكن تشرح لي مراحل العلاج خطوة بخطوة؟" each joined "What are the detailed steps of the treatment?". $0.063 total, $0.0022 per shorten-and-match call, as README says |
+| Smoke test skips capture | test-clinic since 29 Oct: ~14 smoke sessions across three runs, **0 captured rows, 0 judge calls**. The only two judge calls were the live grouping check | Works in production. The `is_test` restriction is checked by `scripts/test-capture-skip.ts` |
+| Smoke CI | GitHub check runs | `6a1e1cc` pass, **`82f4625` fail** (below), `c2600ce` pass |
+| Code | `tsc`, `next build`, `test-unanswered-questions`, `test-capture-skip`, `test-test-tenant-guard`, `test-business-facts` | All pass |
+
+**The `82f4625` smoke failure:** Arabic turn 5 answered the hesitation
+in 41 words, which was 64% of its longest earlier reply (64 words),
+against a 60% maximum. The hesitation reply was normal length; the
+calibration run had it at 39 words. What was unusual was the
+denominator: that run's earlier replies were short, where the
+calibration run's longest was 116. Grouping can't have caused it,
+because capture runs after the reply and the smoke test skips capture.
+The next deployment passed. Logged as an open item, not fixed.
+
+**Not verified: anything in a browser.** The UI changes in `eb6358e`,
+`9296a21` and `c2600ce` have only been typechecked and built. See §5.
+
+---
+
+## 3. Open items
+
+**Measure before changing:**
+
+1. **Grouping recall with more than 10 groups.** How often the right
+   group makes the top 10 when ranking a customer's raw words against
+   English short lines, across the six failure classes. Embedding calls
+   only (a fraction of a cent), but per the standing rule state it and
+   wait for a yes. Not urgent: no real tenant has more than 10 groups.
+   test-clinic has 11, nearly all from test traffic. Do it before any
+   real tenant gets near 10.
+2. **The smoke test's hesitation ratio** (`HESITATION_MAX_RATIO = 0.6`,
+   `scripts/smoke-test.ts`) is sensitive to how long the earlier
+   replies happened to be. One failure in three runs so far. Don't move
+   the number by eye; if it recurs, measure across runs and consider a
+   different denominator.
+3. **`live-capture-check.ts`** (five-key gate plus the settings fix,
+   ~50 calls, ~$0.19) and **`SPLIT=heldout`** on the ten Turkish-weighted
+   answer-gap cases (132 calls, ~$0.25). Neither has a receipt in
+   `docs/`, so treat both as not run. Capture working live (§2) is
+   evidence for the five-key gate, not proof of it. Both messages in
+   that check also ended in a question mark.
+
+**Known, accepted:**
+
+4. Starter dismissals have no undo. They are our generic suggestions,
+   not something a customer asked.
+5. The README's deferred-batching table still uses the old $0.00123
+   rewrite cost. It says so above the table; the trend is unchanged.
+
+**Carried from 15 October, still open:**
+
+6. `detectScript` misses short CJK (`MIN_CHARS = 8` in
+   `lib/visitor-language.ts`). It needs the six-class measurement
+   before and after.
+7. `judge_note` comes back in the visitor's language. Nothing renders
+   it yet.
+8. **Launch blocker:** CI holds a service-role key that can read every
+   tenant's leads. Scope it to `is_test` tenants before the first
+   paying clinic.
+9. Title index for the judge once `RAG_RETRIEVAL_ENABLED` goes true.
+
+---
+
+## 4. Next step
+
+The browser checklist in §5. It's the only part of this session's work
+nobody has looked at. Then, only if the Arabic hesitation failure
+recurs, item 2.
+
+---
+
+## 5. Browser checklist
+
+First, `/api/version` should show `c2600ce` or later.
+
+1. **`/dashboard/settings` on test-clinic:**
+   - At most 3 lines, then "Show all N questions". Expanding shows
+     "Show fewer".
+   - Each row reads "N customers asked · Read the conversation". No
+     script labels, small buttons.
+2. **Read the conversation** from that list: the back link says
+   "Back to the knowledge base" and goes to settings.
+3. **`/dashboard` (leads):** "View conversation" next to the date opens
+   that lead's transcript. The back link says "Back to leads" and goes
+   to `/dashboard`.
+4. Open `/dashboard/conversations/<id>` with no `?from=`: the back link
+   says "Back to leads".
+5. **Starter Dismiss** needs a tenant with **no** captured questions;
+   test-clinic has 48.
+   - Dismiss one: it goes, and the other three stay.
+   - Reload: still gone.
+   - Save the Business page's brand settings and come back: still gone.
+     This is the round trip the parser change protects.
+6. Light and dark theme, and phone width.
+
+---
+
+## 6. Decisions from 15 October that still hold
+
+### 6.1 Sonnet for the judge, not Haiku
 
 Haiku reached 100% recall on the tune split and produced **three false
 gaps** — each one telling an owner to rewrite something they had already
@@ -119,7 +201,7 @@ Ten more cases were added to `scripts/answer-gap-cases.ts` after that
 run, weighted to Turkish, labelled before running and **not yet
 measured**. Run `SPLIT=heldout` once when credit is back.
 
-### 2.2 The five-key gate
+### 6.2 The five-key gate
 
 `CONTAINS_QUESTION` was free and caught **nothing**: 0 of 57 visitor
 messages on prof-clinic contain a question mark, in any script. People
@@ -155,7 +237,7 @@ Capture now **fails closed** on the classifier: a timeout returns
 NO_SIGNALS and nothing is captured. A degraded classifier means a
 quietly empty dashboard as well as a quietly blunted assistant.
 
-### 2.3 `businessFactLines()` as the single source
+### 6.3 `businessFactLines()` as the single source
 
 **A real false gap, found by reading two call sites side by side.**
 
@@ -184,7 +266,11 @@ reintroduced (six fields reported by name).
 second route to the same exposure, because its material becomes
 `question_short`, which is stored and rendered.
 
-### 2.4 Grouping threshold 0.75, and why it under-merges
+### 6.4 Grouping threshold 0.75, and why it under-merges
+
+**Superseded 30 October** (§1.1): the model now decides grouping, and
+the threshold only explains why similarity ranks rather than decides.
+Kept for the measurement.
 
 Measured, not picked (`scripts/measure-question-grouping.ts`). The
 distributions **overlap** — there is no separating threshold:
@@ -203,7 +289,7 @@ question forever; a wrong **split** shows one twice and is cleared by
 answering it once. 0.75 sits 0.065 above the worst different-meaning
 pair: zero wrong merges, 9 of 14 same pairs split.
 
-**This is visible in the live rows above**: "What are the steps of the
+**This was visible on test-clinic**: "What are the steps of the
 entire process?" and "What are the detailed steps of the treatment?" are
 two lines that arguably should be one. The measurement predicted it.
 
@@ -211,7 +297,7 @@ If under-merging becomes the complaint, the fix is a model call per
 captured question, not a lower number — and a duplicate line does not
 justify that cost.
 
-### 2.5 Deferred batching: a ready lever, not built
+### 6.5 Deferred batching: a ready lever, not built
 
 Recorded in README.md under "Ready lever". **Trigger: build it when any
 tenant exceeds ~5 conversations/day.**
@@ -227,7 +313,7 @@ Vercel, from the docs: Hobby allows 100 cron jobs, minimum once per day,
 hard max on Hobby, which caps one invocation at roughly 50
 conversations/day for a tenant.
 
-### 2.6 Cost per conversation
+### 6.6 Cost per conversation
 
 **7.59¢** on test-clinic, from `usage_events` — 4,998 recorded calls,
 405 conversations. Regenerate with
@@ -251,7 +337,7 @@ project had quoted a floor reported as a total. All now call
 
 ---
 
-## 3. Standing rules
+## 7. Standing rules
 
 1. **test-clinic only.** No script holds a conversation with a real
    tenant; `scripts/_chat-client.ts` enforces it before the first
@@ -259,7 +345,8 @@ project had quoted a floor reported as a total. All now call
    prof-clinic is read-only, and only for diagnosis.
 2. **No script that calls Anthropic or OpenAI runs without first stating
    the number of calls and the estimated cost, and waiting for a yes.**
-   Credit running out takes production chat with it — see §0.
+   Credit running out takes production chat with it: it happened
+   12–15 October 2026, three days of degraded replies on a real clinic.
 3. **Commit before any `git checkout`/`reset`.** Uncommitted work in two
    lib files was destroyed that way earlier in this project.
 4. **A feature that adds a model call states what it adds to the cost
@@ -269,81 +356,10 @@ project had quoted a floor reported as a total. All now call
 
 ---
 
-## 4. Open items
-
-**Blocking:**
-
-- Top up Anthropic credit. Nothing below can be verified until then.
-
-**Then, in order:**
-
-1. Run `scripts/live-capture-check.ts` (~50 calls, ~$0.19) against
-   production with `BASE_URL` set. It verifies the five-key gate and the
-   settings fix — the two things not yet proven live. Check
-   `/api/version` returns the expected commit first.
-2. Browser check on test-clinic — see §5.
-3. Run `SPLIT=heldout` on `scripts/measure-answer-gap.ts` once, to score
-   the ten new Turkish-weighted cases (33 cases × 4 languages = 132
-   calls, ~$0.25 at the warm rate).
-
-**Found, not fixed:**
-
-- **`detectScript` misses short CJK.** `MIN_CHARS = 8` in
-  `lib/visitor-language.ts` is a length floor tuned for alphabetic
-  scripts. `费用是多少？` is 6 characters, so it qualifies as no script
-  at all — visible in the live rows above as a null `script` on the
-  Chinese row while Arabic, Cyrillic and Latin all resolved. It also
-  weakens the lead-routing veto for CJK visitors, which matters more
-  than the dashboard label. Fixing it means changing a threshold, so it
-  needs the six-class measurement before and after, not a guess.
-- **`judge_note` comes back in the visitor's language**, not the team's
-  — Arabic, Turkish and Spanish notes are in the live rows. Nothing
-  renders it today, so it is cosmetic until something does.
-
-**Longer term:**
-
-- **Launch blocker:** CI holds a service-role key that can read every
-  tenant's leads. Replace it with a narrow read-only endpoint scoped to
-  `is_test` tenants before the first paying clinic.
-- Title index for the judge when `RAG_RETRIEVAL_ENABLED` goes true, so a
-  gap can be told from a retrieval miss. Noted in README; not built.
-
----
-
-## 5. Browser checklist (test-clinic)
-
-The ten captured rows are already there, so most of this works **without
-credit**. Only steps 5–6 need a working chat.
-
-1. `/dashboard/settings` → **"Customers asked — no answer yet"** at the
-   top, above the search box, with three lines. The first reads
-   **"7 customers asked"** and lists `arabic, cyrillic, latin`.
-2. Click **[Add answer]** on the 7× line → the ordinary add-entry form
-   opens with the title prefilled and the page scrolls to it. It must be
-   the *same* form used by "Add entry", not a second one.
-3. Click **Read the conversation** → `/dashboard/conversations/<id>`,
-   read-only, visitor's words untranslated. Check an Arabic conversation
-   renders right-aligned and an English one left-aligned **on the same
-   page** — `dir="auto"` is per message, not per page.
-4. **Dismiss** a line → it disappears; "1 dismissed question" appears at
-   the foot of the page, expands, and **Bring back** restores it.
-   Dismissing writes to the canonical row only.
-5. *(needs credit)* Open `/chat/test-clinic`, send `اعطيني السعر` — no
-   question mark — and confirm a row appears. The old gate would have
-   missed it entirely.
-6. *(needs credit)* Send `what are your opening hours?` and confirm **no
-   row appears**: it is answered from settings, and this is the §2.3
-   fix.
-7. Both light and dark theme, and at phone width.
-
----
-
-## 6. Where the receipts are
+## 8. Where the receipts are
 
 `docs/` holds every measurement, before and after. If a number appears
 in a code comment, the run behind it is in there under a matching name.
 If you change a threshold, add the run that justifies it.
 
-Relevant to this session: `answer-gap-heldout.txt`,
-`answer-gap-tune-*.txt`, `answerability-detection.txt` (the rejected
-similarity detector, kept as evidence), `classifier-five-key-2026-10-11.log`.
+This session: `question-match-2026-10-30.txt`.
