@@ -144,3 +144,104 @@ export async function shortenQuestion(
     return fallback(String((error as Error).message).slice(0, 120));
   }
 }
+
+// ── Candidate: shortening and grouping in one call ──────────────────
+// NOT WIRED. Under validation in scripts/measure-question-match.ts.
+//
+// Embedding similarity under-merges by design (0.75, see
+// unanswered-questions.ts): "what are the steps of the entire process?"
+// and "what are the detailed steps of the treatment?" are two lines on
+// test-clinic. This hands the shortening call the tenant's existing
+// group titles and asks it to name the one this question belongs to, or
+// none — no extra call, a few hundred more input tokens.
+//
+// A wrong merge hides a question for good; a wrong split shows it twice.
+// So the prompt asks for a match only when one answer would fully serve
+// both, and the code treats anything it cannot read as "new".
+
+export const MATCH_PROMPT = `${SHORTEN_PROMPT}
+
+You are also given the questions already on the dashboard, each with an id. Decide whether the customer's question is the SAME question as one of them.
+
+It is the same only if one written answer would fully answer both, with nothing left over. Same topic is not enough:
+- "how much is a root canal?" is not "do you do root canals?"
+- "is breakfast included at the hotel?" is not "is the hotel included in the price?"
+- "how many visits will I need?" is not "how long does the treatment take?"
+If you are unsure, it is new. Showing a question twice is a small cost; hiding a question inside another one is a large one.
+
+Reply with exactly two lines and nothing else:
+QUESTION: <the rewritten question>
+MATCH: <an id from the list, or new>`;
+
+export type MatchedQuestion = ShortQuestion & {
+  /** The existing group this belongs to, or null for a new group. */
+  groupId: string | null;
+  /** The model's raw MATCH value, for measurement logs. */
+  matchRaw?: string;
+};
+
+/**
+ * Shortens a question and picks its group in the same call.
+ *
+ * Never throws. The group ids shown to the model are positional (g1,
+ * g2, …) and mapped back here, so a model that garbles a uuid cannot
+ * land a question in a group nobody chose. An id not in the list, or a
+ * reply that cannot be read, is "new": the failure direction is a
+ * duplicate line, never a hidden one.
+ */
+export async function shortenAndMatch(
+  client: Anthropic,
+  question: string,
+  teamLanguage: string,
+  groups: { id: string; title: string }[],
+  model = SHORTEN_MODEL
+): Promise<MatchedQuestion> {
+  const list =
+    groups.length === 0
+      ? "(none yet)"
+      : groups.map((g, i) => `g${i + 1}: ${g.title}`).join("\n");
+
+  try {
+    const res = await client.messages.create({
+      model,
+      max_tokens: 200,
+      system: `${MATCH_PROMPT}\n\nWrite it in: ${teamLanguage}`,
+      messages: [
+        {
+          role: "user",
+          content: `Questions already on the dashboard:\n${list}\n\nCustomer's question:\n${question}`,
+        },
+      ],
+    });
+
+    const block = res.content.find((b) => b.type === "text");
+    const raw = block?.type === "text" ? block.text.trim() : "";
+    const usage = { input: res.usage.input_tokens, output: res.usage.output_tokens };
+
+    const questionLine = raw.match(/^QUESTION:\s*(.+)$/m)?.[1] ?? "";
+    const matchRaw = raw.match(/^MATCH:\s*(\S+)/m)?.[1]?.toLowerCase() ?? "";
+    const index = /^g(\d+)$/.exec(matchRaw)?.[1];
+    const group = index ? groups[Number(index) - 1] : undefined;
+
+    const text = questionLine.replace(/^["'«“]|["'»”]$/g, "").trim();
+    const check = checkShortQuestion(text);
+    if (!check.ok) {
+      return {
+        text: "A question we could not summarise — open the conversation",
+        rejected: true,
+        reason: check.reason,
+        usage,
+        groupId: null,
+        matchRaw,
+      };
+    }
+    return { text, usage, groupId: group?.id ?? null, matchRaw };
+  } catch (error) {
+    return {
+      text: "A question we could not summarise — open the conversation",
+      rejected: true,
+      reason: String((error as Error).message).slice(0, 120),
+      groupId: null,
+    };
+  }
+}
