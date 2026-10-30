@@ -7,6 +7,25 @@ import { DashboardShell, DashboardMessage } from "@/components/dashboard/Dashboa
 export const dynamic = "force-dynamic";
 
 /**
+ * Where "Back" goes, keyed by the page that linked here.
+ *
+ * Two pages open a conversation now, and a back link that names the wrong
+ * one sends an owner reading a lead to the knowledge base. The linking
+ * page says where it is (?from=leads or ?from=questions). Anything else,
+ * or nothing, falls back to leads: that is the page most visits here
+ * start from, and an unknown value from a hand-edited URL must not pick
+ * a destination.
+ */
+const BACK_LINKS = {
+  leads: { href: "/dashboard", label: "Back to leads" },
+  questions: { href: "/dashboard/settings", label: "Back to the knowledge base" },
+} as const;
+
+function backLinkFor(from: string | string[] | undefined) {
+  return from === "questions" ? BACK_LINKS.questions : BACK_LINKS.leads;
+}
+
+/**
  * One conversation, read-only.
  *
  * This exists because the captured-questions list promises a link to the
@@ -30,10 +49,13 @@ export const dynamic = "force-dynamic";
  */
 export default async function ConversationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ sessionId: string }>;
+  searchParams: Promise<{ from?: string | string[] }>;
 }) {
   const { sessionId } = await params;
+  const back = backLinkFor((await searchParams).from);
   const context = await getCurrentTenant();
 
   if (!context) {
@@ -61,11 +83,11 @@ export default async function ConversationPage({
     >
       <div className="flex flex-col gap-5">
         <Link
-          href="/dashboard/settings"
+          href={back.href}
           className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-          Back to the knowledge base
+          {back.label}
         </Link>
 
         {error && (

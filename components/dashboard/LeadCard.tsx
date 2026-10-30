@@ -78,7 +78,7 @@ export function LeadCard({ lead }: { lead: LeadProfile }) {
                 it to tenants they own. */}
             {lead.session_id && (
               <Link
-                href={`/dashboard/conversations/${encodeURIComponent(lead.session_id)}`}
+                href={`/dashboard/conversations/${encodeURIComponent(lead.session_id)}?from=leads`}
                 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
               >
                 <MessagesSquare className="h-3.5 w-3.5" />

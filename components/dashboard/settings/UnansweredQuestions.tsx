@@ -134,7 +134,7 @@ export function UnansweredQuestions({
                   )}
                   <span aria-hidden>·</span>
                   <a
-                    href={`/dashboard/conversations/${encodeURIComponent(group.latest.sessionId)}`}
+                    href={`/dashboard/conversations/${encodeURIComponent(group.latest.sessionId)}?from=questions`}
                     className="font-medium text-foreground underline-offset-2 hover:underline"
                   >
                     Read the conversation
