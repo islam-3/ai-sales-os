@@ -22,7 +22,7 @@
 // instead, so the output is checked in code rather than trusted:
 // anything that comes back empty, over-long, or still carrying a digit
 // run or an address marker is rejected and the ask is stored with a
-// flagged fallback. See shortenQuestion below.
+// flagged fallback. See shortenAndMatch below.
 
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -95,60 +95,13 @@ export function checkShortQuestion(text: string): { ok: true } | { ok: false; re
   return { ok: true };
 }
 
-/**
- * Rewrites one question for the dashboard.
- *
- * Never throws. A failure here must not lose the captured question — the
- * fallback is a neutral line, flagged, with the customer's own words
- * still in question_raw and the transcript one click away.
- */
-export async function shortenQuestion(
-  client: Anthropic,
-  question: string,
-  /** The language the team reads, as a NAME: "English", "Turkish". */
-  teamLanguage: string,
-  model = SHORTEN_MODEL
-): Promise<ShortQuestion> {
-  const fallback = (reason: string): ShortQuestion => ({
-    // Deliberately useless as a question, so nobody mistakes it for one
-    // the owner can answer from the dashboard. It says "go and read it".
-    text: "A question we could not summarise — open the conversation",
-    rejected: true,
-    reason,
-    });
-
-  try {
-    const res = await client.messages.create({
-      model,
-      max_tokens: 150,
-      // The instructions are the cached prefix and the question comes
-      // after, same shape as the judge. The prompt alone is under the
-      // 1024-token minimum, so no cache_control is set: marking a
-      // too-short prefix buys nothing and bills the write at 1.25x.
-      system: `${SHORTEN_PROMPT}\n\nWrite it in: ${teamLanguage}`,
-      messages: [{ role: "user", content: question }],
-    });
-
-    const block = res.content.find((b) => b.type === "text");
-    const raw = block?.type === "text" ? block.text.trim() : "";
-    // Models wrap a one-line answer in quotes often enough to strip it
-    // here rather than ask the prompt again not to.
-    const text = raw.replace(/^["'«“]|["'»”]$/g, "").trim();
-
-    const check = checkShortQuestion(text);
-    const usage = { input: res.usage.input_tokens, output: res.usage.output_tokens };
-    if (!check.ok) return { ...fallback(check.reason), usage };
-
-    return { text, usage };
-  } catch (error) {
-    return fallback(String((error as Error).message).slice(0, 120));
-  }
-}
-
-// ── Candidate: shortening and grouping in one call ──────────────────
-// NOT WIRED. Under validation in scripts/measure-question-match.ts.
+// ── Shortening and grouping in one call ─────────────────────────────
+// Validated by scripts/measure-question-match.ts before it was wired:
+// 41 cases x 3 runs against ten groups, zero wrong merges
+// (docs/question-match-2026-10-30.txt). It replaced a shortening-only
+// call; the capture path shows it at most MATCH_CANDIDATES groups.
 //
-// Embedding similarity under-merges by design (0.75, see
+// Embedding similarity under-merged by design (0.75, see
 // unanswered-questions.ts): "what are the steps of the entire process?"
 // and "what are the detailed steps of the treatment?" are two lines on
 // test-clinic. This hands the shortening call the tenant's existing

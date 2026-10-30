@@ -226,7 +226,7 @@ async function main() {
   const shorten = measured("question_shorten");
   if (shorten) {
     lines.push({
-      label: "question rewrite",
+      label: "question rewrite + group match",
       model: shorten.model,
       perConv: shorten.perConv,
       each: shorten.each,
@@ -239,6 +239,7 @@ async function main() {
   for (const [type, label] of [
     ["rag_embedding", "retrieval embedding"],
     ["question_embedding", "question embedding"],
+    ["question_candidate_embedding", "candidate embedding"],
   ] as const) {
     const e = measured(type);
     if (e) {

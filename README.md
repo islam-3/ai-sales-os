@@ -123,9 +123,20 @@ record of calls already made and paid for.
 | classifier | Haiku | 6.28 | $0.00044 | **$0.00273** | derived |
 | coverage | Haiku | near a close only | — | — | not yet recorded |
 | answer-gap judge | Sonnet | 0–8 | $0.00195 warm / $0.01818 cold | **see below** | derived |
-| question rewrite | Sonnet | only on a gap | $0.00123 | **see below** | derived |
+| question rewrite + group match | Sonnet | only on a gap | $0.0022 | **see below** | measured¹ |
 | question embedding | OpenAI | only on a gap | $0.0000003 | negligible | derived |
+| candidate embedding | OpenAI | on a gap, only over 10 groups | $0.0000003 | negligible | derived |
 | | | | | **$0.07587** | |
+
+¹ The rewrite also picks the question's group. It is shown the tenant's
+existing groups, at most ten, the nearest by embedding. That raised it
+from $0.00123 to **$0.0022**, measured over 123 calls with ten groups
+listed (`docs/question-match-2026-10-30.txt`). Ten is the ceiling,
+because no more are ever sent, so the cost stays flat however long a
+tenant's list grows. A tenant with fewer groups pays slightly less.
+Grouping adds **+$0.00097 per captured question**, or **+$0.0039 per
+conversation at the four-row cap**. Over ten groups it adds one more
+embedding, of the customer's own words, to rank the candidates.
 
 The judge and the rewrite are *not* in the total, because how often they
 run is the thing that varies most and no single figure is honest:
@@ -134,12 +145,12 @@ run is the thing that varies most and no single figure is honest:
 |---|---|---|---|
 | 0 questions asked | $0 | $0 | $0 |
 | 2 questions, both answered | $0.00390 | $0.02013 | $0.02930 |
-| 2 questions, 1 gap | $0.00513 | $0.02136 | $0.03053 |
-| 4 questions, 2 gaps | $0.01026 | $0.02649 | $0.06106 |
-| **8 questions (judge cap), 4 gaps (row cap)** | **$0.02052** | **$0.03675** | **$0.12212** |
+| 2 questions, 1 gap | $0.00610 | $0.02233 | $0.03150 |
+| 4 questions, 2 gaps | $0.01220 | $0.02843 | $0.06300 |
+| **8 questions (judge cap), 4 gaps (row cap)** | **$0.02440** | **$0.04063** | **$0.12600** |
 
-Common case **+7%**, worst case **+48%**, worst case with caching off
-**+161%** — the caching work is what stands between those two. The
+Common case **+8%**, worst case **+54%**, worst case with caching off
+**+166%** — the caching work is what stands between those two. The
 judge's cost scales with the *knowledge base*, not the conversation: 23
 entries is a 4,703-token prefix, and ten times the material is ten times
 the cost per call.
@@ -200,7 +211,10 @@ per day instead of one per conversation. Same judge prompt and model, so
 no re-validation.
 
 What it would save, from the measured per-call figures (cold $0.01818,
-warm $0.00195, rewrite $0.00123) against the 7.69¢ baseline:
+warm $0.00195, rewrite $0.00123) against the 7.69¢ baseline. The rewrite
+is now $0.0022 with grouping, so every Added/conv figure below is about
+$0.001 per captured question low. Not recomputed: the table is there to
+show the trend, and the trend is unchanged:
 
 | Conv/day | Requests | Added/conv | vs real-time | Total/conv |
 |---|---|---|---|---|

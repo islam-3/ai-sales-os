@@ -18,7 +18,8 @@ import {
   SAME_QUESTION_SIMILARITY,
   activeGroups,
   groupAsks,
-  groupForAsk,
+  nearestGroups,
+  MATCH_CANDIDATES,
   type UnansweredAsk,
 } from "../lib/unanswered-questions";
 import { checkShortQuestion, SHORT_MAX_LENGTH } from "../lib/question-short";
@@ -161,40 +162,40 @@ console.log("\n--- dismissal ---");
 console.log("\n--- group assignment ---");
 {
   // Constructed vectors rather than real embeddings: this tests the
-  // SELECTION rule, not the threshold. Two dimensions are enough, and
+  // RANKING rule, not the threshold. Two dimensions are enough, and
   // the cosine of each pair is arithmetic anyone can check.
   const identical = [1, 0];
   const close = [0.95, 0.312]; // cosine ~0.95 with [1,0]
   const far = [0, 1]; // cosine 0
 
-  check(
-    "an ask with no embedding starts its own group",
-    groupForAsk(null, [{ groupId: "x", embedding: identical }]) === null
-  );
-  check(
-    "no existing groups means a new group",
-    groupForAsk(identical, []) === null
-  );
-  check(
-    "a close ask joins",
-    groupForAsk(close, [{ groupId: "x", embedding: identical }]) === "x"
-  );
-  check(
-    "an unrelated ask does not join",
-    groupForAsk(far, [{ groupId: "x", embedding: identical }]) === null
-  );
-  check(
-    "a group with no canonical embedding is skipped, not matched",
-    groupForAsk(identical, [{ groupId: "x", embedding: null }]) === null
-  );
+  const group = (id: string, embedding: number[] | null) => ({ id, embedding });
+  const ids = (gs: { id: string }[]) => gs.map((g) => g.id).join(",");
 
-  // The best match wins, not the first one scanned. Otherwise the
-  // group an ask lands in depends on row order.
-  const best = groupForAsk(identical, [
-    { groupId: "nearly", embedding: close },
-    { groupId: "exactly", embedding: identical },
-  ]);
-  check("the closest group wins, whatever the order", best === "exactly", String(best));
+  // At or under the limit, everything is sent and nothing is ranked —
+  // the condition that was validated, with no embedding needed at all.
+  const few = [group("a", far), group("b", null), group("c", identical)];
+  check("at the limit or under, every group is sent", ids(nearestGroups(null, few, 3)) === "a,b,c");
+  check("no existing groups means no candidates", nearestGroups(identical, []).length === 0);
+
+  // Over the limit, the nearest win, whatever the row order.
+  const many = [group("far", far), group("close", close), group("null", null), group("exact", identical)];
+  check(
+    "over the limit, the nearest are sent, nearest first",
+    ids(nearestGroups(identical, many, 2)) === "exact,close",
+    ids(nearestGroups(identical, many, 2))
+  );
+  check(
+    "a group with no embedding ranks last, never ahead of a real score",
+    ids(nearestGroups(identical, many, 3)) === "exact,close,far",
+    ids(nearestGroups(identical, many, 3))
+  );
+  // A failed query embedding must not fall back to an arbitrary ten:
+  // nothing sent means a new group, which is a duplicate line at worst.
+  check("over the limit with no query embedding, nothing is sent", nearestGroups(null, many, 2).length === 0);
+  check(
+    `the limit is the validated condition (${MATCH_CANDIDATES})`,
+    MATCH_CANDIDATES === 10 && nearestGroups(identical, Array.from({ length: 25 }, (_, i) => group(String(i), identical))).length === 10
+  );
 
   check(
     `the threshold is a measurement, documented (${SAME_QUESTION_SIMILARITY})`,

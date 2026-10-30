@@ -12,7 +12,9 @@
 //                                                    free: 4 rows and
 //                                                    8 judge calls
 //   3. does the knowledge base answer it?          — the judge, Sonnet
-//   4. rewrite it for the dashboard and group it   — Sonnet + embedding
+//   4. rewrite it for the dashboard and group it   — one Sonnet call,
+//                                                    choosing among the
+//                                                    ten nearest groups
 //
 // ── Structural, never by reading the reply ──────────────────────────
 // Nothing here looks at what the assistant said. The reply sounding
@@ -32,10 +34,10 @@ import {
   MAX_JUDGE_CALLS_PER_CONVERSATION,
   type KnowledgeForJudge,
 } from "./answer-gap";
-import { shortenQuestion, SHORTEN_MODEL } from "./question-short";
+import { shortenAndMatch, SHORTEN_MODEL } from "./question-short";
 import { generateEmbedding } from "./embeddings";
 import { recordUsage } from "./usage";
-import { groupForAsk } from "./unanswered-questions";
+import { nearestGroups, MATCH_CANDIDATES } from "./unanswered-questions";
 import { parseEmbedding } from "./vectors";
 
 export type CaptureOutcome =
@@ -248,8 +250,61 @@ export async function captureIfUnanswered({
     }
     if (verdict.answered) return "answered";
 
-    // ── The dashboard version ─────────────────────────────────────────
-    const short = await shortenQuestion(anthropic, question, teamLanguage);
+    // ── The groups it might belong to ─────────────────────────────────
+    // Read BEFORE shortening now, because the shortening call is also
+    // the call that picks the group. Only each group's canonical row —
+    // see nearestGroups for why anchoring beats matching any member.
+    //
+    // Dismissed groups are included: a new ask has to join the group it
+    // belongs to whether or not the owner dismissed it, because joining
+    // it is exactly what eventually brings it back.
+    const { data: canonicalRows, error: groupError } = await supabase
+      .from("unanswered_questions")
+      .select("group_id, embedding, question_short")
+      .eq("tenant_id", tenantId)
+      .eq("is_canonical", true);
+
+    if (groupError) {
+      // Not fatal. Worst case this ask starts its own group and shows
+      // up as a near-duplicate of one already listed, which an owner
+      // can read past. Losing the question would be worse.
+      console.warn("[capture] could not read existing groups", groupError.message);
+    }
+
+    const canonical = (canonicalRows ?? []).map((r) => ({
+      id: r.group_id as string,
+      title: r.question_short as string,
+      embedding: parseEmbedding(r.embedding),
+    }));
+
+    // Ranked by the customer's OWN words, not the short line: the short
+    // line does not exist until the call these candidates are for. Raw
+    // text in any script against short English lines ranks less well
+    // than English against English, and a right group that misses the
+    // top ten is a duplicate line, never a wrong merge. Skipped entirely
+    // at ten groups or fewer, where every group is sent.
+    let queryEmbedding: number[] | null = null;
+    if (canonical.length > MATCH_CANDIDATES) {
+      try {
+        queryEmbedding = await generateEmbedding(question, tenantId, {
+          callType: "question_candidate_embedding",
+          sessionId,
+        });
+      } catch (error) {
+        console.warn("[capture] could not embed the question to rank groups", {
+          tenantId,
+          detail: String((error as Error).message).slice(0, 120),
+        });
+      }
+    }
+    const candidates = nearestGroups(queryEmbedding, canonical);
+
+    // ── The dashboard version, and which group ────────────────────────
+    // One call. The model decides whether the question is one of the
+    // candidates; validated at 0 wrong merges in 123 decisions against
+    // ten groups (docs/question-match-2026-10-30.txt).
+    const short = await shortenAndMatch(anthropic, question, teamLanguage, candidates);
+    const existingGroup = short.groupId;
     if (short.usage) {
       // Awaited, like the judge above: this whole function already runs
       // after the response has gone out, so awaiting costs the visitor
@@ -272,9 +327,9 @@ export async function captureIfUnanswered({
       });
     }
 
-    // Embedded for grouping. A failure here is not a reason to drop the
-    // question: it becomes its own group, which is exactly what an
-    // ungroupable ask should be.
+    // Embedded so that later asks can rank this one as a candidate. A
+    // failure here is not a reason to drop the question; the group just
+    // ranks last until a tenant has few enough groups to send them all.
     let embedding: number[] | null = null;
     try {
       embedding = await generateEmbedding(short.text, tenantId, {
@@ -287,34 +342,6 @@ export async function captureIfUnanswered({
         detail: String((error as Error).message).slice(0, 120),
       });
     }
-
-    // ── Which group ───────────────────────────────────────────────────
-    // Only each group's canonical row is compared against — see
-    // groupForAsk for why anchoring beats matching any member.
-    //
-    // Dismissed groups are included: a new ask has to join the group it
-    // belongs to whether or not the owner dismissed it, because joining
-    // it is exactly what eventually brings it back.
-    const { data: canonicalRows, error: groupError } = await supabase
-      .from("unanswered_questions")
-      .select("group_id, embedding")
-      .eq("tenant_id", tenantId)
-      .eq("is_canonical", true);
-
-    if (groupError) {
-      // Not fatal. Worst case this ask starts its own group and shows
-      // up as a near-duplicate of one already listed, which an owner
-      // can read past. Losing the question would be worse.
-      console.warn("[capture] could not read existing groups", groupError.message);
-    }
-
-    const existingGroup = groupForAsk(
-      embedding,
-      (canonicalRows ?? []).map((r) => ({
-        groupId: r.group_id as string,
-        embedding: parseEmbedding(r.embedding),
-      }))
-    );
 
     // ── The row ───────────────────────────────────────────────────────
     // The id is generated here so a new group can be written in one

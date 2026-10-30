@@ -27,6 +27,9 @@ export type UsageCallType =
   // Separate from knowledge_embedding: that bucket is owner activity,
   // this one is conversation cost.
   | "question_embedding"
+  // Embedding the customer's own words, to rank which existing groups
+  // the shortening call is shown. Only when a tenant has more than ten.
+  | "question_candidate_embedding"
   // One-off, from the dashboard rather than a conversation.
   | "chat_intro_translation"
   // Drafting a welcome message from the business's own details, and

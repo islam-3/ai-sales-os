@@ -43,6 +43,11 @@ export type QuestionGroup = {
 /**
  * How similar two short questions must be to count as the same question.
  *
+ * NO LONGER DECIDES GROUPING. The model does that now, choosing among
+ * nearestGroups below; this threshold under-merged exactly as predicted
+ * here. Kept because scripts/measure-question-grouping.ts still reports
+ * against it and the measurement below is why similarity only ranks.
+ *
  * ── What the measurement found ──────────────────────────────────────
  * scripts/measure-question-grouping.ts embeds 14 hand-labelled
  * same-meaning pairs and 13 different-meaning ones. The two
@@ -89,28 +94,46 @@ export const SAME_QUESTION_SIMILARITY = 0.75;
 export const ASKS_TO_UNDISMISS = 3;
 
 /**
- * Which existing group a new ask joins, or null for a new group.
+ * How many existing groups the shortening call is shown.
  *
- * Compared against each group's CANONICAL embedding rather than against
- * every ask in it. Matching any member lets a group drift: A matches B,
- * B matches C, and C has nothing to do with A. Anchoring to the first
- * ask keeps a group about one thing.
+ * Ten because ten is what was validated: 41 labelled cases x 3 runs
+ * against ten groups, zero wrong merges, zero splits
+ * (docs/question-match-2026-10-30.txt). It also keeps the call's cost
+ * flat however long a tenant's list grows. More groups is an untested
+ * condition, not a free improvement.
  */
-export function groupForAsk(
-  embedding: number[] | null,
-  canonical: { groupId: string; embedding: number[] | null }[]
-): string | null {
-  if (!embedding) return null;
+export const MATCH_CANDIDATES = 10;
 
-  let best: { groupId: string; score: number } | null = null;
-  for (const c of canonical) {
-    if (!c.embedding) continue;
-    const score = cosineSimilarity(embedding, c.embedding);
-    if (score >= SAME_QUESTION_SIMILARITY && (!best || score > best.score)) {
-      best = { groupId: c.groupId, score };
-    }
-  }
-  return best?.groupId ?? null;
+/**
+ * Which existing groups the model is asked to choose between.
+ *
+ * Embeddings pick the candidates; the model decides whether any of them
+ * is the same question. Similarity is not trusted to decide that — see
+ * SAME_QUESTION_SIMILARITY above for why it cannot — but it is good
+ * enough to put the right group in a top ten.
+ *
+ * At or under the limit every group is sent and nothing is ranked, so
+ * the query embedding is not needed. Over it, with no query embedding,
+ * nothing is sent: the question starts its own group. Both failures land
+ * on a duplicate line, never on a wrong merge, because a group that is
+ * not shown cannot be chosen.
+ *
+ * Ranked against each group's CANONICAL embedding, the first ask's, for
+ * the same reason grouping always anchored there: matching any member
+ * lets a group drift from A to C through B.
+ */
+export function nearestGroups<G extends { embedding: number[] | null }>(
+  query: number[] | null,
+  canonical: G[],
+  limit = MATCH_CANDIDATES
+): G[] {
+  if (canonical.length <= limit) return canonical;
+  if (!query) return [];
+  return canonical
+    .map((g) => ({ g, score: g.embedding ? cosineSimilarity(query, g.embedding) : -Infinity }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ g }) => g);
 }
 
 /**
