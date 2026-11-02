@@ -91,8 +91,16 @@ calibration run's longest was 116. Grouping can't have caused it,
 because capture runs after the reply and the smoke test skips capture.
 The next deployment passed. Logged as an open item, not fixed.
 
-**Not verified: anything in a browser.** The UI changes in `eb6358e`,
-`9296a21` and `c2600ce` have only been typechecked and built. See §5.
+**Browser: verified by the user on 2 November 2026**, against the §5
+checklist. All of these passed:
+
+- the conversation view, with back links from both entry points
+- the top-3 question list
+- starter Dismiss, including after a reload and after a Business-page
+  save
+
+Not reported: §5 item 4 (no `?from=` falls back to leads) and item 6
+(light/dark theme, phone width).
 
 ---
 
@@ -142,13 +150,21 @@ The next deployment passed. Logged as an open item, not fixed.
 
 ## 4. Next step
 
-The browser checklist in §5. It's the only part of this session's work
-nobody has looked at. Then, only if the Arabic hesitation failure
-recurs, item 2.
+**Real pricing, from the measured cost per conversation.** The figure and
+its breakdown are in README.md under "Cost per conversation". Regenerate
+it first with `scripts/report-cost-per-conversation.ts`, which makes no
+model calls.
+
+Separately, the smoke-test split into hard and style assertions is
+proposed and waiting for a yes. It would close item 2.
 
 ---
 
 ## 5. Browser checklist
+
+**Verified by the user on 2 November 2026; see §2 for what was
+covered.** Kept as the checklist to repeat after any change to these
+pages.
 
 First, `/api/version` should show `c2600ce` or later.
 
@@ -199,7 +215,9 @@ what killed the previous design.
 
 Ten more cases were added to `scripts/answer-gap-cases.ts` after that
 run, weighted to Turkish, labelled before running and **not yet
-measured**. Run `SPLIT=heldout` once when credit is back.
+measured**. Credit is back, so nothing blocks it except the standing
+rule. Run `SPLIT=heldout` once after stating its cost (132 calls,
+~$0.25) and getting a yes.
 
 ### 6.2 The five-key gate
 
@@ -293,9 +311,10 @@ pair: zero wrong merges, 9 of 14 same pairs split.
 entire process?" and "What are the detailed steps of the treatment?" are
 two lines that arguably should be one. The measurement predicted it.
 
-If under-merging becomes the complaint, the fix is a model call per
-captured question, not a lower number — and a duplicate line does not
-justify that cost.
+The fix for under-merging was not a lower number, and it turned out not
+to need an extra call either. Grouping now uses the shortening call that
+already ran for every captured question (§1.1). It costs more input
+tokens per call, but no additional call per question.
 
 ### 6.5 Deferred batching: a ready lever, not built
 
@@ -326,9 +345,11 @@ conversations/day for a tenant.
 | classifier (Haiku) | 6.28 | $0.00273 |
 | **total** | | **$0.07587** |
 
-Capture adds **+26%** at prof-clinic's measured rate of 1.6 requests per
-conversation (first judge call cold, rest warm), **+34%** worst case at
-the cap, **+7%** on a busy tenant.
+Capture adds **+8%** in the common case and **+54%** in the worst case
+(judge cap and row cap both hit, cold cache). Both figures include the
+grouping cost. **README.md "Cost per conversation" is the source** for
+these numbers and their scenario table; update it there first and copy
+here only if needed.
 
 Four model calls were **unmetered for months** — the classifier,
 coverage, and both halves of capture — which made every cost figure this
