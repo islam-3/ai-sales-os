@@ -1,3 +1,7 @@
+// Type only: this file is imported by every script's tenant guard, and a
+// value import would drag the Anthropic and Supabase clients in with it.
+import type { VisitorSignals } from "./visitor-signals";
+
 // Which tenants automated runs are allowed to talk to.
 //
 // Measurement and live-check scripts hold a chat conversation, which
@@ -79,4 +83,35 @@ export function shouldSkipCapture(
   settings: { is_test?: boolean } | null | undefined
 ): boolean {
   return requested === true && isTestTenant(settings);
+}
+
+/**
+ * What a test run gets back from /api/chat on top of the reply.
+ *
+ * The classifier's verdict for the turn, so the smoke test can assert
+ * that a visitor stepping back was READ as stepping back, in every
+ * language, instead of guessing it from how long the reply was. The
+ * length proxy failed at random (82f4625), and a proxy that fails at
+ * random teaches people to ignore red runs.
+ *
+ * Gated exactly like shouldSkipCapture: asked for in the request AND a
+ * test tenant, both strictly `true`. On a real tenant this returns an
+ * empty object whatever the request says. The verdict describes the
+ * visitor's own message, but it is still our internal reading of a
+ * customer, and a real tenant's chat page has no use for it.
+ *
+ * `available` is signalsAvailable(signals), passed in rather than
+ * computed here for the import reason at the top of this file.
+ *
+ * The route spreads this into its response and nothing else adds the
+ * key; scripts/test-capture-skip.ts checks both.
+ */
+export function testOnlyResponseFields(
+  requested: unknown,
+  settings: { is_test?: boolean } | null | undefined,
+  signals: VisitorSignals,
+  available: boolean
+): { signals?: VisitorSignals & { available: boolean } } {
+  if (requested !== true || !isTestTenant(settings)) return {};
+  return { signals: { ...signals, available } };
 }

@@ -15,7 +15,18 @@ import { isTestTenant, refusalMessage, TEST_TENANT_SLUG } from "../lib/test-tena
 export const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 export const SLUG = process.env.SLUG ?? TEST_TENANT_SLUG;
 
-export type Reply = { reply: string };
+export type Reply = {
+  reply: string;
+  /** Present only when asked for AND the tenant is a test tenant. */
+  signals?: {
+    direct_request: boolean;
+    hesitation: boolean;
+    impatience: boolean;
+    asking_for_information: boolean;
+    /** False when the classifier timed out or failed, not when it said no. */
+    available: boolean;
+  };
+};
 
 // Checked once per process, then remembered: the guard protects against a
 // script aimed at the wrong tenant, which cannot change halfway through.
@@ -74,8 +85,11 @@ export async function say(
    * would otherwise fill the test tenant's dashboard with their own
    * scripted questions. The route honours it only on a test tenant —
    * see shouldSkipCapture.
+   *
+   * includeSignals: return the classifier's verdict for this turn. Same
+   * gate — see testOnlyResponseFields.
    */
-  options: { skipCapture?: boolean } = {}
+  options: { skipCapture?: boolean; includeSignals?: boolean } = {}
 ): Promise<Reply> {
   await ensureTestTenant(slug);
 
@@ -90,6 +104,7 @@ export async function say(
           sessionId,
           slug,
           ...(options.skipCapture === true && { skipCapture: true }),
+          ...(options.includeSignals === true && { includeSignals: true }),
         }),
       });
       if (res.ok) return (await res.json()) as Reply;

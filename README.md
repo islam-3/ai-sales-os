@@ -522,9 +522,24 @@ number in `docs/latency-*.txt`.
 ### `smoke-test.ts` — the real deployment, after every push
 
 Six conversations, one per failure class, against the production URL.
-Asserts: no safe fallback, every reply in the visitor's script, a
-step-back is not answered with a re-pitch, and the lead saved with name
-and number. Runs in CI on Vercel's `deployment_status` event.
+Runs in CI on Vercel's `deployment_status` event. Two kinds of check:
+
+- **Hard checks fail the run:**
+  - no safe fallback
+  - every reply in the visitor's script
+  - the step-back classified as hesitation, in every class
+  - the classifier answering on most turns
+  - the lead saved with name and number
+  - every signed-in dashboard check
+- **Style checks only warn, in the job summary:** today, whether the
+  reply to the step-back was short. That one compares two random reply
+  lengths and failed on 82f4625 with nothing broken. A check that fails
+  at random teaches everyone to ignore a red run.
+
+The classifier's verdict comes back in the chat response only when the
+request asks for it **and** the tenant is a test tenant
+(`testOnlyResponseFields` in `lib/test-tenant.ts`). A real tenant never
+receives it; `scripts/test-capture-skip.ts` checks that.
 
 Every conversation asks for the process **step by step** on purpose: the
 guard bug only fired on replies formatted as a list, and a first draft of

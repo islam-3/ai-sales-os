@@ -15,13 +15,18 @@
 // Adding a seventh language proves much less than covering a seventh
 // property would.
 //
-// Four assertions per conversation, all of them things that have
-// actually gone wrong in production:
+// HARD checks fail the run. Every one is something that has actually
+// gone wrong in production:
 //   1. no reply is the safe fallback  (the guard discarding real replies)
-//   2. every reply is in the visitor's script  (English at an Arabic visitor)
-//   3. a step-back is not answered with a re-pitch  (the signal going
-//      silent outside English, which is what the classifier replaced)
+//   2. the classifier read the step-back as hesitation, in every class
+//      (the signal going silent outside English), and answered on most
+//      turns at all
+//   3. every reply is in the visitor's script  (English at an Arabic visitor)
 //   4. the lead is saved with name AND number  (background work killed)
+//   plus every dashboard check, and any request that failed after retries.
+//
+// STYLE checks only warn, in the job summary: today, whether the reply to
+// the step-back was short. See Severity below for why the split exists.
 //
 // The media assertions are gone with the feature: image sending was
 // removed from the chat, so there is no photo to wait for.
@@ -32,7 +37,8 @@
 // because no turn ever provoked one. A smoke test that cannot fail on a
 // known-bad deployment is decoration.
 
-import { say } from "./_chat-client";
+import { appendFileSync } from "node:fs";
+import { say, type Reply } from "./_chat-client";
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { countWords } from "../lib/punctuation";
 import { detectScript, type VisitorScript } from "../lib/visitor-language";
@@ -186,7 +192,8 @@ const WAIT_SECONDS = 40;
  * whatever language it is in.
  *
  * 0.6 leaves headroom above the worst observed without reaching the
- * failure it exists to catch. This codebase has already shipped one
+ * failure it exists to catch. A warning threshold since 82f4625, not a
+ * failing one: see Severity. This codebase has already shipped one
  * threshold set by eye that rejected a correct answer, so the number and
  * the run behind it are recorded together.
  */
@@ -200,107 +207,151 @@ const PAUSE_BETWEEN_TURNS_MS = Number(process.env.SMOKE_TURN_PAUSE_MS ?? 1500);
 const PAUSE_BETWEEN_CASES_MS = Number(process.env.SMOKE_CASE_PAUSE_MS ?? 5000);
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Failure = { case: string; what: string; detail: string };
+/**
+ * Two kinds of finding, and only one of them fails the run.
+ *
+ * HARD: something is broken. A request that failed after retries, the
+ * safe fallback, a reply in the wrong script, a lead missing what the
+ * visitor gave, the classifier not reading a step-back as one, any
+ * dashboard check. Each of these is a defect whenever it happens.
+ *
+ * STYLE: a judgement about a model's prose that varies run to run by
+ * nature. Reported in the job summary as a warning and never fails the
+ * run. The hesitation length ratio is one: it compares two random
+ * lengths, and on 82f4625 it failed because the earlier replies happened
+ * to be short, not because anything was wrong. A check that fails at
+ * random teaches everyone to ignore a red run, which costs the hard
+ * checks their meaning.
+ */
+type Severity = "hard" | "style";
+type Finding = { severity: Severity; case: string; what: string; detail: string };
 
-async function runCase(c: Case): Promise<Failure[]> {
-  const failures: Failure[] = [];
+/**
+ * When the classifier failing to answer stops being bad luck.
+ *
+ * It runs on a 2,000ms budget against a measured p95 of 1,216ms, so one
+ * turn in a run timing out is expected now and then, and on the
+ * hesitation turn it only means that turn could not be checked. On half
+ * the turns or more, it is not luck: the classifier is down, and every
+ * visitor is getting the blunted assistant.
+ */
+const CLASSIFIER_DOWN_SHARE = 0.5;
+
+type CaseResult = { findings: Finding[]; turns: number; classifierUnavailable: number };
+
+async function runCase(c: Case): Promise<CaseResult> {
+  const findings: Finding[] = [];
+  const hard = (what: string, detail: string) => findings.push({ severity: "hard", case: c.label, what, detail });
+  const style = (what: string, detail: string) => findings.push({ severity: "style", case: c.label, what, detail });
   const sessionId = crypto.randomUUID();
   // Word counts of the assistant's replies before the hesitation turn,
-  // which is what that turn's length is judged against.
+  // which is what that turn's length is compared with.
   const replyWords: number[] = [];
+  let turns = 0;
+  let classifierUnavailable = 0;
   console.log(`\n── ${c.label}`);
 
   for (let i = 0; i < c.turns.length; i++) {
     // A failing request is a smoke-test failure, not a reason to abandon
     // the run: the remaining classes still need checking, and "it threw"
     // is exactly the kind of result worth reporting rather than hiding.
-    let reply: string;
+    let result: Reply;
     try {
       // No capture: these turns are ours and identical on every push.
       // Captured, they would fill test-clinic's "no answer yet" list with
       // the same scripted questions and spend a judge call each time.
       // scripts/live-capture-check.ts is what verifies capture.
-      ({ reply } = await say(sessionId, c.turns[i], undefined, { skipCapture: true }));
+      //
+      // The classifier's verdict comes back with the reply, on the test
+      // tenant only (testOnlyResponseFields), so a step-back can be
+      // checked as a step-back instead of guessed from a length.
+      result = await say(sessionId, c.turns[i], undefined, { skipCapture: true, includeSignals: true });
     } catch (error) {
-      failures.push({
-        case: c.label,
-        what: `turn ${i + 1}: request failed`,
-        detail: String((error as Error).message).slice(0, 140),
-      });
+      hard(`turn ${i + 1}: request failed`, String((error as Error).message).slice(0, 140));
       console.log(`   turn ${i + 1}: ✗ REQUEST FAILED`);
       continue;
     }
     await pause(PAUSE_BETWEEN_TURNS_MS);
-    const flat = reply.replace(/\s+/g, " ").trim();
+    const flat = result.reply.replace(/\s+/g, " ").trim();
 
     // 1. The guard must not be eating real replies.
     if (FALLBACKS.some((f) => flat.startsWith(f.slice(0, 25)))) {
-      failures.push({
-        case: c.label,
-        what: `turn ${i + 1}: safe fallback returned`,
-        detail: flat.slice(0, 90),
-      });
+      hard(`turn ${i + 1}: safe fallback returned`, flat.slice(0, 90));
       console.log(`   turn ${i + 1}: ✗ SAFE FALLBACK`);
       continue;
     }
 
-    // 2. And the reply must be in the visitor's script. Latin cannot
+    // 2. The classifier must have read the turn, and on the step-back it
+    //    must have read it as one. This is the regression the length
+    //    check below used to stand in for: the hesitation signal going
+    //    silent outside English, which is what the keyword lists did in
+    //    five of six classes. The five-key run measured hesitation recall
+    //    at 100% in all six (docs/classifier-five-key-2026-10-11.log), so
+    //    a miss here is a real change, not noise.
+    turns++;
+    if (!result.signals) {
+      // Not a classifier problem: the deployment did not return the
+      // verdict at all, so the gate or the route is wrong.
+      hard(
+        `turn ${i + 1}: no classifier verdict in the response`,
+        "includeSignals was sent to a test tenant and nothing came back"
+      );
+    } else if (!result.signals.available) {
+      classifierUnavailable++;
+      if (i === HESITATION_TURN) {
+        style(
+          `turn ${i + 1}: classifier did not answer on the hesitation turn`,
+          "timed out or failed, so this run cannot say whether hesitation was read"
+        );
+      }
+    } else if (i === HESITATION_TURN && !result.signals.hesitation) {
+      hard(`turn ${i + 1}: hesitation not detected`, `"${c.turns[i]}"`);
+      console.log(`   turn ${i + 1}: ✗ HESITATION NOT DETECTED`);
+    }
+
+    // 3. The reply must be in the visitor's script. Latin cannot
     //    separate English from Turkish from Spanish, so for those this
     //    asserts only that it did not switch script entirely — which is
     //    the failure that actually happened.
     const replyScript = detectScript([flat]);
     if (replyScript && replyScript !== c.script) {
-      failures.push({
-        case: c.label,
-        what: `turn ${i + 1}: replied in ${replyScript}, visitor wrote ${c.script}`,
-        detail: flat.slice(0, 90),
-      });
+      hard(`turn ${i + 1}: replied in ${replyScript}, visitor wrote ${c.script}`, flat.slice(0, 90));
       console.log(`   turn ${i + 1}: ✗ wrong script (${replyScript})`);
       continue;
     }
 
-    // 3. And when they stepped back, the assistant must have noticed.
+    // 4. STYLE. A step-back should get a short reply, not a re-pitch.
     //
-    //    Measured by LENGTH, which is a proxy and is described as one.
-    //    The state block's hesitation branch says to keep it short and
-    //    free of obligation, and forbids restating credentials or
-    //    listing benefits again. When the signal does NOT arrive the
-    //    model gets no instruction at all and answers a step-back with a
-    //    re-pitch of the material it has already given — which is long,
-    //    in any language.
+    //    Measured by LENGTH, which is a proxy and is described as one: a
+    //    re-pitch is caught, a short reply that presses them to decide is
+    //    not. Counted in words, not characters (lib/punctuation.ts).
     //
-    //    What this can and cannot see, stated plainly: a re-pitch is
-    //    caught, a short reply that presses them to decide is not. It
-    //    exists for the regression that actually happened — the signal
-    //    going silent outside English — not as a proof of good manners.
-    //
-    //    Counted in words, not characters: Chinese says in 30 characters
-    //    what English needs 55 for, and a character bar would pass CJK
-    //    unconditionally. See lib/punctuation.ts.
+    //    A warning, not a failure, since 82f4625: the denominator is
+    //    whatever this run's earlier replies happened to be. Whether the
+    //    signal arrived is now checked directly, in 2.
     const words = countWords(flat);
+    let flag = "";
     if (i === HESITATION_TURN) {
       const longest = Math.max(...replyWords, 1);
       const ratio = words / longest;
       if (ratio > HESITATION_MAX_RATIO) {
-        failures.push({
-          case: c.label,
-          what:
-            `turn ${i + 1}: answered hesitation with ${words} words, ` +
+        style(
+          `turn ${i + 1}: hesitation reply ${words} words, ` +
             `${(ratio * 100).toFixed(0)}% of its longest earlier reply (${longest}) — ` +
-            `max ${(HESITATION_MAX_RATIO * 100).toFixed(0)}%`,
-          detail: flat.slice(0, 140),
-        });
-        console.log(`   turn ${i + 1}: ✗ RE-PITCHED AT HESITATION (${words}w, ${(ratio * 100).toFixed(0)}%)`);
-        continue;
+            `guide ${(HESITATION_MAX_RATIO * 100).toFixed(0)}%`,
+          flat.slice(0, 140)
+        );
+        flag = ` ⚠ ${(ratio * 100).toFixed(0)}%`;
       }
     }
     replyWords.push(words);
 
     const marker = i === HESITATION_TURN ? " hesitation" : "          ";
-    console.log(`   turn ${i + 1}:${marker} ${String(words).padStart(3)}w  ${flat.slice(0, 52)}`);
+    const read = result.signals?.available === false ? " (classifier n/a)" : "";
+    console.log(`   turn ${i + 1}:${marker} ${String(words).padStart(3)}w  ${flat.slice(0, 52)}${flag}${read}`);
   }
 
-  // 3. The lead must carry what the visitor gave, including the last turn.
+  // 5. The lead must carry what the visitor gave, including the last turn.
   const { supabaseServer } = await import("../lib/supabase-server");
   let lead: { name: string | null; contact_info: string | null } | null = null;
   for (let waited = 0; waited < WAIT_SECONDS; waited += 5) {
@@ -316,19 +367,11 @@ async function runCase(c: Case): Promise<Failure[]> {
 
   const nameOk = (lead?.name ?? "").includes(c.name);
   const digitsOk = (lead?.contact_info ?? "").replace(/\D/g, "").includes(c.digits);
-  if (!nameOk) {
-    failures.push({ case: c.label, what: "lead name missing", detail: `expected ${c.name}, got ${lead?.name ?? "—"}` });
-  }
-  if (!digitsOk) {
-    failures.push({
-      case: c.label,
-      what: "lead number missing",
-      detail: `expected ${c.digits}, got ${lead?.contact_info ?? "—"}`,
-    });
-  }
+  if (!nameOk) hard("lead name missing", `expected ${c.name}, got ${lead?.name ?? "—"}`);
+  if (!digitsOk) hard("lead number missing", `expected ${c.digits}, got ${lead?.contact_info ?? "—"}`);
   console.log(`   lead: name=${nameOk ? "ok" : "MISSING"} number=${digitsOk ? "ok" : "MISSING"}`);
 
-  return failures;
+  return { findings, turns, classifierUnavailable };
 }
 
 /**
@@ -399,56 +442,128 @@ async function main() {
   const cases = only ? CASES.filter((c) => c.label.toLowerCase().includes(only)) : CASES;
   if (cases.length === 0) throw new Error(`no case matches ONLY="${only}"`);
 
-  const failures: Failure[] = [];
+  const findings: Finding[] = [];
+  let turns = 0;
+  let classifierUnavailable = 0;
   for (const c of cases) {
-    failures.push(...(await runCase(c)));
+    const result = await runCase(c);
+    findings.push(...result.findings);
+    turns += result.turns;
+    classifierUnavailable += result.classifierUnavailable;
     await pause(PAUSE_BETWEEN_CASES_MS);
+  }
+
+  // One timeout is luck; most turns is an outage. See CLASSIFIER_DOWN_SHARE.
+  if (turns > 0 && classifierUnavailable / turns >= CLASSIFIER_DOWN_SHARE) {
+    findings.push({
+      severity: "hard",
+      case: "Classifier",
+      what: `no verdict on ${classifierUnavailable} of ${turns} turns`,
+      detail: "the classifier is timing out or failing; every visitor is getting the blunted assistant",
+    });
   }
 
   // The dashboard, signed in. The chat half of this suite could not see
   // the lockout that told an owner their account had no business: nothing
   // automated had ever signed in. Skipped when a single class is being
-  // re-run, since ONLY means "just chase this one conversation".
+  // re-run, since ONLY means "just chase this one conversation". Every
+  // dashboard check is deterministic, so every one is hard.
   if (!only) {
     const dashboard = await runDashboardChecks(process.env.BASE_URL!);
-    failures.push(...dashboard.map((d) => ({ case: "Dashboard", what: d.what, detail: d.detail })));
+    findings.push(
+      ...dashboard.map((d) => ({ severity: "hard" as const, case: "Dashboard", what: d.what, detail: d.detail }))
+    );
   }
+
+  const failures = findings.filter((f) => f.severity === "hard");
+  const warnings = findings.filter((f) => f.severity === "style");
 
   console.log(`\n${"═".repeat(70)}`);
-  if (failures.length === 0) {
-    console.log(`  SMOKE TEST PASSED — ${cases.length} conversation(s)`);
-    console.log("═".repeat(70));
-    return;
-  }
-  console.log(`  SMOKE TEST FAILED — ${failures.length} problem(s)`);
+  console.log(
+    failures.length === 0
+      ? `  SMOKE TEST PASSED — ${cases.length} conversation(s), ${warnings.length} style warning(s)`
+      : `  SMOKE TEST FAILED — ${failures.length} problem(s), ${warnings.length} style warning(s)`
+  );
   console.log("═".repeat(70));
-  failures.forEach((f) => {
-    console.log(`\n  ${f.case}`);
-    console.log(`    ${f.what}`);
-    console.log(`    ${f.detail}`);
-  });
-
-  // Each failure as an annotation too. Without this the run reports only
-  // "exit code 1" to anyone who cannot download the log, which is the
-  // whole point of running this automatically — the person who needs to
-  // act on it is not always the person with admin on the repository.
-  //
-  // GitHub shows at most 10 annotations per level, so the rest are
-  // summarised rather than silently dropped.
-  if (process.env.CI) {
-    const shown = failures.slice(0, 9);
-    shown.forEach((f) => {
-      const line = `${f.case} — ${f.what}: ${f.detail}`.replace(/\s+/g, " ").slice(0, 400);
-      console.log(`::error title=Smoke test failure::${line}`);
+  for (const [label, list] of [
+    ["FAILURES", failures],
+    ["STYLE WARNINGS (do not fail the run)", warnings],
+  ] as const) {
+    if (list.length === 0) continue;
+    console.log(`\n  ${label}`);
+    list.forEach((f) => {
+      console.log(`\n  ${f.case}`);
+      console.log(`    ${f.what}`);
+      console.log(`    ${f.detail}`);
     });
-    if (failures.length > shown.length) {
-      console.log(
-        `::error title=Smoke test failures continued::` +
-          `${failures.length - shown.length} further problem(s) not listed here; see the log.`
-      );
-    }
   }
-  process.exit(1);
+  console.log(`\n  classifier answered on ${turns - classifierUnavailable} of ${turns} turns`);
+
+  if (process.env.CI) {
+    annotate("error", "Smoke test failure", failures);
+    annotate("warning", "Smoke test style warning", warnings);
+  }
+  writeJobSummary(cases.length, turns, classifierUnavailable, failures, warnings);
+
+  process.exit(failures.length === 0 ? 0 : 1);
+}
+
+/**
+ * Each finding as an annotation. Without this the run reports only
+ * "exit code 1" to anyone who cannot download the log, which is the
+ * whole point of running this automatically — the person who needs to
+ * act on it is not always the person with admin on the repository.
+ *
+ * GitHub shows at most 10 annotations per level, so the rest are
+ * summarised rather than silently dropped.
+ */
+function annotate(level: "error" | "warning", title: string, list: Finding[]) {
+  const shown = list.slice(0, 9);
+  shown.forEach((f) => {
+    const line = `${f.case} — ${f.what}: ${f.detail}`.replace(/\s+/g, " ").slice(0, 400);
+    console.log(`::${level} title=${title}::${line}`);
+  });
+  if (list.length > shown.length) {
+    console.log(`::${level} title=${title}s continued::${list.length - shown.length} more not listed here; see the job summary.`);
+  }
+}
+
+/**
+ * Both kinds, in the job summary, which anyone who can see the run can
+ * read. Style warnings live here and nowhere louder: they are worth a
+ * look, never a red run.
+ */
+function writeJobSummary(
+  conversations: number,
+  turns: number,
+  classifierUnavailable: number,
+  failures: Finding[],
+  warnings: Finding[]
+) {
+  const path = process.env.GITHUB_STEP_SUMMARY;
+  if (!path) return;
+  const cell = (s: string) => s.replace(/\s+/g, " ").replace(/\|/g, "\\|").slice(0, 300);
+  const table = (list: Finding[]) =>
+    ["| Case | What | Detail |", "|---|---|---|", ...list.map((f) => `| ${cell(f.case)} | ${cell(f.what)} | ${cell(f.detail)} |`)].join("\n");
+  const lines = [
+    `## Smoke test: ${failures.length === 0 ? "passed" : "FAILED"}`,
+    "",
+    `${conversations} conversation(s). Classifier answered on ${turns - classifierUnavailable} of ${turns} turns.`,
+    "",
+    `### Hard failures (${failures.length})`,
+    "",
+    failures.length ? table(failures) : "None.",
+    "",
+    `### Style warnings (${warnings.length}), do not fail the run`,
+    "",
+    warnings.length ? table(warnings) : "None.",
+    "",
+  ];
+  try {
+    appendFileSync(path, lines.join("\n"));
+  } catch (error) {
+    console.log(`(could not write the job summary: ${(error as Error).message})`);
+  }
 }
 
 main().catch((e) => {

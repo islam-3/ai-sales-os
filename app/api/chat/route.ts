@@ -21,7 +21,7 @@ import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
-import { NO_SIGNALS, readVisitorSignals } from "@/lib/visitor-signals";
+import { NO_SIGNALS, readVisitorSignals, signalsAvailable } from "@/lib/visitor-signals";
 import { parseEmbedding } from "@/lib/vectors";
 import { coverageProbes, relevantDimensions, type ProbeVectors } from "@/lib/coverage-relevance";
 import { readAnsweredDimensions } from "@/lib/coverage-answered";
@@ -34,7 +34,7 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
-import { shouldSkipCapture } from "@/lib/test-tenant";
+import { shouldSkipCapture, testOnlyResponseFields } from "@/lib/test-tenant";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
@@ -628,15 +628,18 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage, skipCapture } = body as {
-    message?: unknown;
-    photoPath?: unknown;
-    sessionId?: unknown;
-    slug?: unknown;
-    openingMessage?: unknown;
-    /** Smoke-test only. Ignored unless the tenant is a test tenant. */
-    skipCapture?: unknown;
-  };
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals } =
+    body as {
+      message?: unknown;
+      photoPath?: unknown;
+      sessionId?: unknown;
+      slug?: unknown;
+      openingMessage?: unknown;
+      /** Smoke-test only. Ignored unless the tenant is a test tenant. */
+      skipCapture?: unknown;
+      /** Smoke-test only. Ignored unless the tenant is a test tenant. */
+      includeSignals?: unknown;
+    };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
     return NextResponse.json({ error: "slug is required" }, { status: 400 });
@@ -1106,7 +1109,13 @@ async function handleChat(body: Record<string, unknown>) {
     );
   }
 
-  return NextResponse.json({ reply });
+  // The classifier's verdict, for the smoke test, and only ever on a test
+  // tenant. See testOnlyResponseFields: on a real tenant this adds
+  // nothing whatever the request asks for.
+  return NextResponse.json({
+    reply,
+    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals)),
+  });
 }
 
 // Appends the photo's storage path to this session's lead_profile row via

@@ -73,13 +73,32 @@ export type VisitorSignals = {
   asking_for_information: boolean;
 };
 
-/** Every signal false. The shape returned whenever we do not know. */
-export const NO_SIGNALS: VisitorSignals = {
+/**
+ * Every signal false. The shape returned whenever we do not know.
+ *
+ * Returned BY REFERENCE on every failure path, and never on success,
+ * which builds a fresh object. signalsAvailable below relies on that, so
+ * a failure path must return this constant, not a copy of it.
+ */
+export const NO_SIGNALS: VisitorSignals = Object.freeze({
   direct_request: false,
   hesitation: false,
   impatience: false,
   asking_for_information: false,
-};
+});
+
+/**
+ * Whether the classifier actually answered, as opposed to timing out,
+ * erroring, or never being asked.
+ *
+ * Both look like "every signal false" to the rest of the route, which is
+ * the point of failing closed. A check that asserts a signal fired has
+ * to tell them apart, though: a timeout is not the classifier getting
+ * the message wrong, and reporting it as that would make the check flaky.
+ */
+export function signalsAvailable(signals: VisitorSignals): boolean {
+  return signals !== NO_SIGNALS;
+}
 
 export const SIGNAL_MODEL = "claude-haiku-4-5-20251001";
 

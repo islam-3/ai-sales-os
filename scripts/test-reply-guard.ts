@@ -327,7 +327,13 @@ check(
   "the guard is given the text actually injected this turn",
   /const injected = \[BEHAVIOUR_PROMPT, stateBlock \?\? ""\];/.test(routeSrc)
 );
-check("the response returns the gated value", /return NextResponse\.json\(\{ reply \}\)/.test(routeSrc));
+// `reply` as a shorthand key: the gated variable itself, never a
+// reassigned or rebuilt string. The test-only verdict may be spread after
+// it; test-capture-skip.ts checks that spread.
+check(
+  "the response returns the gated value",
+  /return NextResponse\.json\(\{\s*reply,?\s*(\.\.\.testOnlyResponseFields\(.*\),?\s*)?\}\)/.test(routeSrc)
+);
 check("the stored row uses the gated value", /content:\s*reply,/.test(routeSrc));
 check("the fallback exists and is non-empty", SAFE_FALLBACK.length > 20 && !containsInternalState(SAFE_FALLBACK));
 
