@@ -34,7 +34,14 @@ const client = read("components/chat/ChatClient.tsx");
 const page = read("app/chat/[slug]/page.tsx");
 
 console.log("--- nothing in the stylesheet is pinned to a physical side ---");
-const physical = css.match(/(?:margin|padding|border)-(?:left|right)[^:]*:|^\s*(?:left|right):/gm) ?? [];
+// One exception, and only in its exact form: a safe-area inset applied to
+// its own side. The notch is on the phone's physical left or right
+// whatever the text direction, so padding-inline-start would put the
+// left inset on the right in an Arabic chat. Anything else physical
+// still fails.
+const physical = (css.match(/^.*(?:(?:margin|padding|border)-(?:left|right)[^:]*|^\s*(?:left|right)):.*$/gm) ?? [])
+  .filter((line) => !/^\s*padding-(left|right):\s*env\(safe-area-inset-\1,\s*0px\);\s*$/.test(line))
+  .map((line) => line.trim());
 check(
   "no physical left/right properties remain",
   physical.length === 0,

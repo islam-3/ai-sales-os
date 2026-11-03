@@ -1,3 +1,5 @@
+import { cache } from "react";
+import type { Viewport } from "next";
 import { Instrument_Sans } from "next/font/google";
 import { resolveTenantBySlug } from "@/lib/resolve-tenant";
 import { supabaseServer } from "@/lib/supabase-server";
@@ -5,7 +7,7 @@ import { ChatClient } from "@/components/chat/ChatClient";
 import { buildChatIntro } from "@/lib/chat-intro";
 import { isRtlText, storedGreetingFor } from "@/lib/chat-intro-i18n";
 import { unstable_noStore as noStore } from "next/cache";
-import { buildChatPalette, monogram, type ChatTheme } from "@/lib/branding";
+import { buildChatPalette, CHAT_SURFACE, monogram, type ChatTheme } from "@/lib/branding";
 import "./chat.css";
 
 // Loaded here rather than in the root layout so it applies to this route
@@ -40,6 +42,60 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
+// One lookup per request, shared by generateViewport, generateMetadata
+// and the page. Each used to make its own; the viewport made it three.
+const getTenant = cache(resolveTenantBySlug);
+
+// The business chooses how its own customer-facing page looks, so this
+// comes from the tenant's setting and NOT from the visitor's OS
+// preference. Absent means light, and so does an unknown link.
+function chatThemeOf(tenant: Awaited<ReturnType<typeof resolveTenantBySlug>>): ChatTheme {
+  return tenant?.settings.chat_theme === "dark" ? "dark" : "light";
+}
+
+/**
+ * What the phone draws OUTSIDE the page: the status bar area, the
+ * home-indicator strip, the browser's own chrome.
+ *
+ * viewport-fit=cover lets the page draw under the status bar and the
+ * home indicator, which is what makes the env(safe-area-inset-*) padding
+ * on the header and composer in chat.css do anything at all. Without it
+ * those insets are 0 and iOS fills the strips itself, from the page
+ * background.
+ *
+ * theme-color tints the browser chrome. Both come from the tenant's chat
+ * theme, never the device: the bug was a light chat with near-black
+ * strips above and below it on a phone in dark mode.
+ */
+export async function generateViewport({ params }: { params: { slug: string } }): Promise<Viewport> {
+  const theme = chatThemeOf(await getTenant(params.slug));
+  return {
+    width: "device-width",
+    initialScale: 1,
+    viewportFit: "cover",
+    themeColor: CHAT_SURFACE[theme],
+    colorScheme: theme,
+  };
+}
+
+/**
+ * The page background, behind the chat, in the chat's colour.
+ *
+ * The root layout puts every route under next-themes with
+ * defaultTheme="system", so on a phone in dark mode <html> gets the
+ * "dark" class and globals.css paints <body> near-black. That body is
+ * what showed in the safe areas and in any overscroll. A nested page
+ * cannot set attributes on <html>, so this states the background
+ * directly, from the same CHAT_SURFACE as theme-color. !important
+ * because it must beat globals.css whichever class next-themes picked;
+ * color-scheme too, so native controls and scrollbars match the chat
+ * rather than the device.
+ */
+function ChatPageBackground({ theme }: { theme: ChatTheme }) {
+  const css = `html,body{background-color:${CHAT_SURFACE[theme]}!important;color-scheme:${theme}!important}`;
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+}
+
 // Distinct knowledge_base categories for this tenant, used to derive the
 // starter chips. service_role for the same reason the rest of this flow
 // uses it: the visitor is anonymous and has no session.
@@ -69,7 +125,7 @@ async function getCategories(tenantId: string): Promise<string[]> {
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const tenant = await resolveTenantBySlug(params.slug);
+  const tenant = await getTenant(params.slug);
   if (!tenant) return { title: "Chat" };
   return {
     title: `Chat with ${tenant.businessName}`,
@@ -78,11 +134,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 export default async function ChatPage({ params }: { params: { slug: string } }) {
-  const tenant = await resolveTenantBySlug(params.slug);
+  const tenant = await getTenant(params.slug);
 
   if (!tenant) {
     return (
       <div className={`nx-chat ${instrumentSans.variable}`} data-theme="light">
+        <ChatPageBackground theme="light" />
         <div className="nx-empty">
           <p>This chat link isn&apos;t valid</p>
           <p>Please double-check the link you were given.</p>
@@ -125,10 +182,7 @@ export default async function ChatPage({ params }: { params: { slug: string } })
     ? "owner"
     : "built-in";
 
-  // The business chooses how its own customer-facing page looks, so this
-  // comes from the tenant's setting and NOT from the visitor's OS
-  // preference. Absent means light.
-  const theme: ChatTheme = tenant.settings.chat_theme === "dark" ? "dark" : "light";
+  const theme = chatThemeOf(tenant);
   const palette = buildChatPalette(tenant.brandColor, theme);
 
   // Location first, industry as the fallback — a city tells a visitor
@@ -144,6 +198,7 @@ export default async function ChatPage({ params }: { params: { slug: string } })
   // the HTML, and ChatClient owns its own root.
   return (
     <div data-greeting-language={greetingLanguage} data-greeting-source={greetingSource}>
+      <ChatPageBackground theme={theme} />
       <ChatClient
         slug={params.slug}
         businessName={tenant.businessName}

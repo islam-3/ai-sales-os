@@ -181,6 +181,23 @@ export type ChatPalette = Record<string, string>;
  * typing dots and the monogram glyph, which sit ON the dark bubble rather
  * than on the accent.
  */
+/**
+ * The chat surface colour, per tenant theme.
+ *
+ * One source for everything that paints AROUND the chat as well as in it:
+ * the html/body background, the iOS safe areas (status bar, home
+ * indicator), and the browser's theme-color. Those used to come from the
+ * dashboard's next-themes class, which follows the DEVICE, so a light
+ * chat on a phone in dark mode had near-black strips above and below it.
+ *
+ * chat.css's --surface tokens must match; scripts/test-chat-chrome.ts
+ * checks they do.
+ */
+export const CHAT_SURFACE: Record<ChatTheme, string> = {
+  light: "#f7f8f8",
+  dark: "#0d1112",
+};
+
 export function buildChatPalette(brandColor: string | null, theme: ChatTheme): ChatPalette {
   const base = resolveBrandColor(brandColor);
 
