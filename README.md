@@ -464,6 +464,20 @@ One exception, and it is deliberate: `test-capture-cap.ts` talks to the
 database, because the bound it checks is a Postgres advisory lock and a
 faked lock proves nothing. It still makes no model call.
 
+**Free is enforced, not assumed.** `test-live-gate.ts` follows every
+test- script's imports down to the model clients. It fails if any script
+loads a client when it starts, or loads one later without a
+`process.env.LIVE` gate. Two scripts have a live part, and both skip it
+without `LIVE=1`:
+
+- `test-no-images.ts`
+- `test-dialect-judge.ts`: 16 Sonnet calls, which ran unguarded until
+  3 November
+
+`test-capture-cap.ts` is a checked exception. It loads the OpenAI
+client, but its fake judge stops capture before any call, and the sweep
+re-checks that every run.
+
 ```sh
 npx tsx scripts/test-punctuation.ts     # and every other test-*
 ```

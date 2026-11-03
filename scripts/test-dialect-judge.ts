@@ -1,7 +1,13 @@
 // Can the dialect judge actually tell a dialect from a register?
 //
-//   DOTENV_CONFIG_PATH=.env.local npx tsx -r dotenv/config \
+//   LIVE=1 DOTENV_CONFIG_PATH=.env.local npx tsx -r dotenv/config \
 //     scripts/test-dialect-judge.ts
+//
+// ── PAID, despite the name ──────────────────────────────────────────
+// Every sample is a Sonnet call: 16 per run. Without LIVE=1 it says so
+// and exits without touching the model, because test- scripts are run
+// in bulk and assumed free (scripts/test-live-gate.ts enforces that).
+// State the cost and get a yes before setting LIVE=1.
 //
 // scripts/measure-reply-density.ts reports a dialect-mismatch rate, and a
 // rate from an unvalidated judge is worse than no rate: it is a number
@@ -20,7 +26,8 @@
 // plain European Spanish and British English with ordinary politeness in
 // them. A judge that cannot leave those alone cannot measure anything.
 
-import { anthropic } from "../lib/anthropic";
+// The client is loaded inside main(), behind the LIVE gate, so loading
+// this file costs nothing.
 import { DIALECT_JUDGE_PROMPT, judgeDialect } from "../lib/dialect-judge";
 
 let bad = 0;
@@ -143,6 +150,13 @@ const SAMPLES: Sample[] = [
 ];
 
 async function main() {
+  if (process.env.LIVE !== "1") {
+    console.log(
+      `(skipped: this asks the model ${SAMPLES.length} questions — set LIVE=1 to run it, after stating the cost)`
+    );
+    process.exit(0);
+  }
+  const { anthropic } = await import("../lib/anthropic");
   console.log(`${SAMPLES.length} labelled samples\n`);
 
   const wrong: Sample[] = [];
