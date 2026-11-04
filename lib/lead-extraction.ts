@@ -27,6 +27,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { buildLeadExtractionPrompt } from "./lead-language";
+import { normaliseDigits } from "./phone-number";
 
 /**
  * Sonnet, not Haiku: writing the lead in the TEAM's language is what
@@ -100,6 +101,21 @@ export function transcriptText(turns: TranscriptTurn[]): string {
 }
 
 /**
+ * contact_info with its digits as ASCII, and nothing else changed.
+ *
+ * The prompt tells the model to copy contact details exactly as given,
+ * and it does: "٠٥٤٤٩٨٧٦٥٤٣" came back as "٠٥٤٤٩٨٧٦٥٤٣". That is right for
+ * the transcript and wrong for the field. wa.me links and many dialers
+ * take only ASCII digits, and any check written with \d sees no number
+ * at all. So the FIELD is normalised here, before anything saves it. The
+ * transcript is never touched: it stays the visitor's own words.
+ */
+export function normaliseContactDigits(extracted: Partial<ExtractedLead>): Partial<ExtractedLead> {
+  if (typeof extracted?.contact_info !== "string") return extracted;
+  return { ...extracted, contact_info: normaliseDigits(extracted.contact_info) };
+}
+
+/**
  * One extraction call. Never throws: a failure comes back as `error`.
  *
  * Kept apart from saving the result so the format can be measured on
@@ -133,7 +149,7 @@ export async function callLeadExtraction(
       .replace(/```\s*$/i, "")
       .trim();
     try {
-      return { extracted: JSON.parse(jsonText), rawText, usage: response.usage };
+      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, usage: response.usage };
     } catch {
       return { extracted: null, rawText, usage: response.usage, error: "unparseable JSON" };
     }

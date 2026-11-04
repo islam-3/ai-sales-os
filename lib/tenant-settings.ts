@@ -5,6 +5,7 @@ import type {
   StoredGreetings,
 } from "./chat-intro-i18n";
 import { resolveLanguageCode } from "./languages";
+import { normaliseDigits } from "./phone-number";
 
 // Shape of tenants.settings — the flexible, secondary business fields
 // that don't warrant their own typed columns.
@@ -105,6 +106,11 @@ function asString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** A phone field, with its digits as ASCII. See normaliseDigits. */
+function phoneField(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : normaliseDigits(value);
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -283,8 +289,13 @@ export function parseTenantSettings(raw: unknown): TenantSettings {
   // WhatsApp number now shares nothing, because nobody ever agreed that
   // number could be given out. Silence is recoverable; a number sent to
   // strangers is not.
-  const ownerPhone = asString(contact.owner_phone) ?? asString(contact.phone);
-  const whatsapp = asString(contact.whatsapp);
+  // Phone fields hold ASCII digits, whatever script they were typed in:
+  // wa.me links and many dialers accept nothing else, and every check
+  // written with \d reads past Arabic-Indic digits as if they were text.
+  // Normalised here because every save and every read goes through this
+  // parser.
+  const ownerPhone = phoneField(asString(contact.owner_phone) ?? asString(contact.phone));
+  const whatsapp = phoneField(asString(contact.whatsapp));
   const email = asString(contact.email);
   const website = asString(contact.website);
   if (ownerPhone || whatsapp || email || website) {
