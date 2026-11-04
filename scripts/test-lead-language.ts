@@ -164,13 +164,17 @@ check("no list of entry titles is pasted into the prompt", !/spelled exactly lik
 
 console.log("\n--- structural: the transcript itself is never translated ---");
 const routeSrc = readFileSync(join(process.cwd(), "app/api/chat/route.ts"), "utf8");
+// The request itself lives in lib/lead-extraction.ts since the transcript
+// became cached blocks; the route only passes the turns and the language.
+const extractionSrc = readFileSync(join(process.cwd(), "lib/lead-extraction.ts"), "utf8");
 check(
   "the extractor is handed the transcript unchanged",
-  /messages: \[\{ role: "user", content: transcript \}\]/.test(routeSrc)
+  /messages: \[\{ role: "user", content: transcriptBlocks\(turns\) \}\]/.test(extractionSrc) &&
+    /`\$\{turn\.role === "assistant" \? "Assistant" : "User"\}: \$\{turn\.content\}`/.test(extractionSrc)
 );
 check(
   "the prompt is built from the tenant's own setting",
-  /buildLeadExtractionPrompt\(language\)/.test(routeSrc) &&
+  /buildLeadExtractionPrompt\(language\)/.test(extractionSrc) &&
     /leadLanguage\(tenant\.settings\)/.test(routeSrc)
 );
 check("generated fields pass the number guard before being written", /dropUnsupportedNumbers\(/.test(routeSrc));
