@@ -1,0 +1,51 @@
+12 conversations, 7 distinct openers, language "English"
+
+e36788ad turn 1  old: — / — / 30   new: — / — / 42
+e36788ad final   old: Carlos / +34 612 345 678 / 62   new: Carlos / +34 612 345 678 / 62
+76bec7ce turn 1  old: — / — / 35   new: — / — / 40
+76bec7ce final   old: Carlos / +34 612 345 678 / 62   new: Carlos / +34 612 345 678 / 62
+38e9d7e0 turn 1  old: — / — / 20   new: — / — / 15
+38e9d7e0 final   old: خالد / +90 532 111 2233 / 62   new: خالد / +90 532 111 2233 / 52
+f327d28d turn 1  old: — / — / 30   new: — / — / 45
+f327d28d final   old: خالد / +90 532 111 2233 / 55   new: خالد / +90 532 111 2233 / 55
+21b0fa71 turn 1  old: — / — / 20   new: — / — / 15
+21b0fa71 final   old: Иван / +7 900 123 4567 / 62   new: Иван / +7 900 123 4567 / 60
+44c276bf turn 1  old: — / — / 40   new: — / — / 35
+44c276bf final   old: Иван / +7 900 123 4567 / 62   new: Иван / +7 900 123 4567 / 62
+3c26648d turn 1  old: — / — / 20   new: — / — / 20
+3c26648d final   old: David / +44 7700 900123 / 62   new: David / +44 7700 900123 / 62
+aee44d4d turn 1  old: — / — / 20   new: — / — / 15
+aee44d4d final   old: David / +44 7700 900123 / 62   new: David / +44 7700 900123 / 62
+5358642b turn 1  old: — / — / 40   new: — / — / 35
+5358642b final   old: 王伟 / +86 138 0013 8000 / 62   new: 王伟 / +86 138 0013 8000 / 62
+8ba31b65 turn 1  old: — / — / 35   new: — / — / 45
+8ba31b65 final   old: 王伟 / +86 138 0013 8000 / 62   new: 王伟 / +86 138 0013 8000 / 62
+2f707ccd turn 1  old: — / — / 15   new: — / — / 20
+2f707ccd final   old: Mehmet / +90 532 444 5566 / 62   new: Mehmet / +90 532 444 5566 / 62
+7fd4460c turn 1  old: — / — / 15   new: — / — / 15
+7fd4460c final   old: Mehmet / +90 532 444 5566 / 52   new: Mehmet / +90 532 444 5566 / 52
+
+constructed final turn: أحمد, 0532 111 22 33, ٠٥٣٢١١١٢٢٣٣
+  run 1: FAIL name=— contact_info="—" (digits —, want 05321112233)  cache_read=0
+  run 2: FAIL name=— contact_info="—" (digits —, want 05321112233)  cache_read=0
+
+field                            old vs old   new vs new   old vs new
+name                               100%         100%         100%
+contact_info (digits)              100%         100%         100%
+visitor_language                   100%         100%         100%
+age                                100%         100%         100%
+main_concern present               100%         100%         100%
+priority present                    87%         100%          94%
+duration_of_issue present          100%         100%         100%
+timeline present                   100%         100%         100%
+travel_country present              96%          87%          89%
+notes present                       87%          91%          85%
+ai_summary present                 100%         100%         100%
+qualification_score within 15      100%         100%         100%
+
+unparseable or failed calls: 2
+new format, repeated call: cache_read > 0 on 23 of 24
+cost: $0.6600
+constructed case: 0 of 2 runs read the name and the number correctly
+
+FAIL: 0 field(s) worse than noise, 2 failed call(s), constructed 0/2
