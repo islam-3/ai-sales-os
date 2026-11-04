@@ -4,7 +4,8 @@
 //     scripts/measure-lead-extraction-format.ts | tee docs/lead-extraction-format-<date>.txt
 //
 // PAID. 12 stored test-clinic conversations x 2 points (turn 1, final
-// turn) x 2 formats x 2 runs = 96 Sonnet calls, about $0.65. State that
+// turn) x 2 formats x 2 runs = 96 Sonnet calls, plus 2 for the
+// constructed case: 98, about $0.67. State that
 // and get a yes before setting LIVE=1.
 //
 // What changed between the formats, and nothing else:
@@ -91,7 +92,7 @@ const FIELDS: { name: string; same: (a: Partial<ExtractedLead>, b: Partial<Extra
 
 async function main() {
   if (process.env.LIVE !== "1") {
-    console.log(`(skipped: ${SESSIONS * 2 * 2 * RUNS} Sonnet calls, about $0.65 — set LIVE=1 to run it, after stating the cost)`);
+    console.log(`(skipped: ${SESSIONS * 2 * 2 * RUNS + RUNS} Sonnet calls, about $0.67 — set LIVE=1 to run it, after stating the cost)`);
     process.exit(0);
   }
   const { anthropic } = await import("../lib/anthropic");
@@ -173,6 +174,41 @@ async function main() {
     }
   }
 
+  // ── The case this change exists for ──────────────────────────────────
+  // Stored smoke transcripts give numbers as "+90 532 111 2233", which the
+  // old gate already caught. This one ends on a name, a grouped local
+  // number and the same number in Arabic-Indic digits: what the old gate
+  // missed. contact_info is saved exactly as the model returns it (the
+  // number guard covers only generated fields), so the assertion is on
+  // the model's value.
+  const GREETING = "مرحباً! كيف يمكننا مساعدتك اليوم؟";
+  const constructed = extractionTurns(
+    [
+      { role: "assistant", content: GREETING },
+      { role: "user", content: "مرحبا، أفكر في زراعة الأسنان" },
+      { role: "assistant", content: "أهلاً بك! كم سناً تحتاج تقريباً؟" },
+      { role: "user", content: "معظم أسناني العلوية" },
+      { role: "assistant", content: "تمام. هل تحب أن يتواصل معك فريقنا؟ ما اسمك ورقمك؟" },
+    ],
+    null,
+    "اسمي أحمد، رقمي 0532 111 22 33 أو ٠٥٣٢١١١٢٢٣٣",
+    "شكراً أحمد! سيتواصل معك فريقنا قريباً."
+  );
+  const EXPECTED_DIGITS = "05321112233";
+  let constructedOk = 0;
+  console.log("\nconstructed final turn: أحمد, 0532 111 22 33, ٠٥٣٢١١١٢٢٣٣");
+  for (let r = 0; r < RUNS; r++) {
+    const n = await callLeadExtraction(anthropic, language, constructed);
+    cost += price(n.usage);
+    const got = digits(n.extracted?.contact_info);
+    const ok = got.includes(EXPECTED_DIGITS) && norm(n.extracted?.name) === "أحمد";
+    if (ok) constructedOk++;
+    console.log(
+      `  run ${r + 1}: ${ok ? "ok  " : "FAIL"} name=${n.extracted?.name ?? "—"} contact_info="${n.extracted?.contact_info ?? "—"}" ` +
+        `(digits ${got || "—"}, want ${EXPECTED_DIGITS})  cache_read=${n.usage?.cache_read_input_tokens ?? 0}`
+    );
+  }
+
   console.log(`\n${"field".padEnd(32)} old vs old   new vs new   old vs new`);
   let worse = 0;
   for (const f of FIELDS) {
@@ -193,8 +229,14 @@ async function main() {
   console.log(`\nunparseable or failed calls: ${failures}`);
   console.log(`new format, repeated call: cache_read > 0 on ${cacheReadsOnRepeat.filter((t) => t > 0).length} of ${cacheReadsOnRepeat.length}`);
   console.log(`cost: $${cost.toFixed(4)}`);
-  console.log(worse === 0 ? "\nPASS: no field disagrees across formats more than within one" : `\nFAIL: ${worse} field(s) worse than noise`);
-  process.exit(worse === 0 && failures === 0 ? 0 : 1);
+  console.log(`constructed case: ${constructedOk} of ${RUNS} runs read the name and the number correctly`);
+  const pass = worse === 0 && failures === 0 && constructedOk === RUNS;
+  console.log(
+    pass
+      ? "\nPASS: no field worse than noise, and the constructed case read correctly every run"
+      : `\nFAIL: ${worse} field(s) worse than noise, ${failures} failed call(s), constructed ${constructedOk}/${RUNS}`
+  );
+  process.exit(pass ? 0 : 1);
 }
 
 main().catch((e) => {
