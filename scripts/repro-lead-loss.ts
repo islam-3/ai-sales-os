@@ -32,11 +32,9 @@ const TURNS = [
 const EXPECTED_NAME = "خالد";
 const EXPECTED_DIGITS = "506066666666666";
 
-// Mirrors CONTACT_HINT in app/api/chat/route.ts. Reproduced here rather
-// than imported so this script keeps describing the DEPLOYED behaviour
-// even after the local copy changes.
-const CONTACT_HINT =
-  /\d{6,}|\+\d[\d\s().-]{5,}|@[\w.-]+\.\w{2,}|\bwhats\s?app\b|\be-?mail\b|\bcall me\b|\breach me\b|\bmy number\b/i;
+// Extraction runs on every visitor turn since 2026-11-04. It used to fire
+// on turns 1, 2, every third turn and anything matching a contact regex;
+// that gate is gone, and with it the turn this script used to predict.
 
 const WAIT_SECONDS = 45;
 
@@ -47,7 +45,7 @@ async function main() {
 
   for (let i = 0; i < TURNS.length; i++) {
     const turn = i + 1;
-    const fires = turn <= 2 || CONTACT_HINT.test(TURNS[i]) || turn % 3 === 0;
+    const fires = true;
     const { reply } = await say(sessionId, TURNS[i]);
     console.log(
       `turn ${turn}  extract=${fires ? "YES" : "no "}  «${TURNS[i]}»\n` +
@@ -56,7 +54,7 @@ async function main() {
   }
 
   console.log(
-    `\nlast turn carries contact details, so extraction was triggered.` +
+    `\nextraction runs on every turn, the last one included.` +
       `\nwaiting ${WAIT_SECONDS}s for it to land...\n`
   );
 

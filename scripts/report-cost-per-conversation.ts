@@ -162,7 +162,7 @@ async function main() {
       perConv: extraction.perConv,
       each: extraction.each,
       provenance: "MEASURED",
-      note: `${extraction.avgIn.toLocaleString("en-US")} in / ${extraction.avgOut} out, every 3rd turn + contact hints`,
+      note: `${extraction.avgIn.toLocaleString("en-US")} in / ${extraction.avgOut} out, every visitor turn, transcript cached`,
     });
   }
 

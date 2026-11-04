@@ -13,7 +13,6 @@ import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import { buildConversationStateBlock, isNearingClose } from "@/lib/conversation-state";
 import {
   GENERATED_LEAD_FIELDS,
-  buildLeadExtractionPrompt,
   dropUnsupportedNumbers,
   leadLanguage,
 } from "@/lib/lead-language";
@@ -35,56 +34,20 @@ import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
 import { shouldSkipCapture, testOnlyResponseFields } from "@/lib/test-tenant";
+import {
+  LEAD_EXTRACTION_MODEL,
+  callLeadExtraction,
+  extractionTurns,
+  transcriptText,
+  type ExtractedLead,
+  type TranscriptTurn,
+} from "@/lib/lead-extraction";
 
 const CHAT_MODEL = "claude-sonnet-4-6";
 
-// Lead extraction ran on Haiku while it was only filling a fixed JSON
-// schema from a transcript — a constrained task with no requirement to
-// write well, so the cheaper model was the right call.
-//
-// Writing the lead in the TEAM's language changed that, and measurement
-// moved it back to Sonnet. Haiku followed the language instruction on 2
-// of 4 runs writing Turkish for an English conversation, and 3 of 4
-// writing English for a Turkish one; Sonnet was 4 of 4 on the harder
-// direction. Half the leads in the wrong language is not a feature, and
-// no amount of prompt wording fixed it — moving the rule to the top of
-// the prompt and repeating it at the end left Haiku at 2 of 4.
-//
-// The cost is bounded and known: extraction averages ~1.1k input and
-// ~250 output tokens, uncached, on roughly every third turn. Only the
-// per-token rate changes. Reverting is this one line if that trade stops
-// being worth it.
-const LEAD_EXTRACTION_MODEL = "claude-sonnet-4-6";
-
-// Extraction used to run on every single message, re-reading the whole
-// transcript each time — measured at ~41% of total conversation cost and
-// growing with every turn. It doesn't need to: lead_profile only has to
-// be current by the time an owner opens the dashboard, and upsert merges
-// non-null fields, so a skipped run loses nothing permanently — the next
-// run re-reads the full transcript and recovers it.
-//
-// The trigger below is a compromise between cost and never losing the
-// data that matters:
-//   • turns 1-2 always run, so a name and stated need appear on the
-//     dashboard almost immediately rather than after a delay;
-//   • any message that looks like it carries contact details always
-//     runs, so a phone number or email can never be stranded by a
-//     conversation that stops right after it is given;
-//   • otherwise every 3rd turn.
-//
-// Residual risk, stated plainly: if a conversation ends on a turn that
-// isn't extracted, non-contact detail from that final turn only (e.g. a
-// revised timeline) is missed. Everything earlier is still captured,
-// because each run re-reads the entire transcript.
-const LEAD_EXTRACTION_EVERY_N_TURNS = 3;
-const CONTACT_HINT =
-  /\d{6,}|\+\d[\d\s().-]{5,}|@[\w.-]+\.\w{2,}|\bwhats\s?app\b|\be-?mail\b|\bcall me\b|\breach me\b|\bmy number\b/i;
-
-function shouldExtractLead(userTurnNumber: number, userMessage: string): boolean {
-  if (userTurnNumber <= 2) return true;
-  if (CONTACT_HINT.test(userMessage)) return true;
-  return userTurnNumber % LEAD_EXTRACTION_EVERY_N_TURNS === 0;
-}
+// Lead extraction runs on EVERY visitor turn, with the transcript cached
+// turn by turn. The model, the request and why both look the way they do
+// are in lib/lead-extraction.ts.
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MATCH_COUNT = 3;
 
@@ -297,21 +260,6 @@ ${categoryBlocks}`;
 // business's own service and brand names, so it is built per tenant in
 // lib/lead-language.ts rather than being a constant here.
 
-type ExtractedLead = {
-  name: string | null;
-  contact_info: string | null;
-  age: number | null;
-  main_concern: string | null;
-  priority: string | null;
-  duration_of_issue: string | null;
-  timeline: string | null;
-  travel_country: string | null;
-  notes: string | null;
-  visitor_language: string | null;
-  ai_summary: string | null;
-  qualification_score: number | null;
-};
-
 type LeadProfileRow = {
   id: string;
   name: string | null;
@@ -384,16 +332,6 @@ async function upsertLeadProfile(
   if (error) console.error("Failed to update lead_profile:", error);
 }
 
-// Renders conversation turns as a plain-text transcript for the extraction
-// call — a single user turn describing the conversation, rather than
-// replaying it as actual multi-turn history (which would end on an
-// assistant message and risk being read as a continuation prompt).
-function formatTranscript(turns: { role: string; content: string }[]): string {
-  return turns
-    .map((t) => `${t.role === "assistant" ? "Assistant" : "User"}: ${t.content}`)
-    .join("\n\n");
-}
-
 // Runs a lightweight extraction pass over the full conversation so far and
 // upserts whatever structured lead info it finds. Deliberately not awaited
 // by the caller — it must never delay the reply shown to the user. Every
@@ -402,7 +340,8 @@ function formatTranscript(turns: { role: string; content: string }[]): string {
 async function extractAndSaveLead(
   sessionId: string,
   tenantId: string,
-  transcript: string,
+  /** The whole conversation so far, this turn included. See extractionTurns. */
+  turns: TranscriptTurn[],
   /** The language the team reads leads in. */
   language: string,
   /** The visitor's own messages, for deciding what language to route this lead in. */
@@ -418,49 +357,36 @@ async function extractAndSaveLead(
     // intended follow-up — a lead transcript view with an on-demand,
     // per-message translate action that never writes to storage — not a
     // gap left here by accident.
-    //
-    // No output_config: extraction is a short, schema-constrained task
-    // with nothing to tune down. (Haiku 4.5 rejected `effort` outright
-    // with a 400; Sonnet accepts it, but it buys nothing here.)
-    const response = await anthropic.messages.create({
-      model: LEAD_EXTRACTION_MODEL,
-      max_tokens: 512,
-      system: buildLeadExtractionPrompt(language),
-      messages: [{ role: "user", content: transcript }],
-    });
+    const result = await callLeadExtraction(anthropic, language, turns);
 
     // This whole function already runs after the HTTP response is sent,
     // so awaiting here costs the visitor nothing — and awaiting means the
     // row is written before the serverless invocation can be frozen.
-    await recordUsage({
-      tenantId,
-      sessionId,
-      callType: "lead_extraction",
-      provider: "anthropic",
-      model: LEAD_EXTRACTION_MODEL,
-      tokens: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
-        cacheWriteInputTokens: response.usage.cache_creation_input_tokens ?? 0,
-      },
-    });
+    // Cache reads and writes are recorded apart from plain input: they
+    // are billed at 0.1x and 1.25x, and they are how anyone can see the
+    // caching in lib/lead-extraction.ts is actually working.
+    if (result.usage) {
+      await recordUsage({
+        tenantId,
+        sessionId,
+        callType: "lead_extraction",
+        provider: "anthropic",
+        model: LEAD_EXTRACTION_MODEL,
+        tokens: {
+          inputTokens: result.usage.input_tokens,
+          outputTokens: result.usage.output_tokens,
+          cacheReadInputTokens: result.usage.cache_read_input_tokens ?? 0,
+          cacheWriteInputTokens: result.usage.cache_creation_input_tokens ?? 0,
+        },
+      });
+    }
 
-    const textBlock = response.content.find((block) => block.type === "text");
-    const rawText = textBlock?.type === "text" ? textBlock.text : "";
-    const jsonText = rawText
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-
-    let extracted: Partial<ExtractedLead>;
-    try {
-      extracted = JSON.parse(jsonText);
-    } catch (parseErr) {
-      console.error("Failed to parse lead extraction JSON:", parseErr, "raw response:", rawText);
+    if (!result.extracted) {
+      console.error("Lead extraction failed:", result.error, "raw response:", result.rawText);
       return;
     }
+    const extracted: Partial<ExtractedLead> = result.extracted;
+    const transcript = transcriptText(turns);
 
     // A number in a generated field that is nowhere in the transcript is
     // either invented or reformatted, and a wrong price is worse than a
@@ -967,6 +893,14 @@ async function handleChat(body: Record<string, unknown>) {
   // Written in order: the greeting (first turn only) precedes the
   // visitor's message so the stored transcript reads the way the
   // conversation actually happened.
+  //
+  // Each row gets its own timestamp, a millisecond apart. They used to
+  // share the insert's now(), so every row tied with the others from its
+  // turn, and history is read ORDER BY created_at: Postgres does not
+  // promise an order among ties. That was a latent risk to the chat
+  // history itself, and it would break lead extraction's cache, which
+  // needs the transcript to come back byte for byte the same every time.
+  const writtenAt = Date.now();
   const rowsToInsert = [
     ...((history ?? []).length === 0 && greeting
       ? [{ tenant_id: tenantId, session_id: sessionId, role: "assistant", content: greeting }]
@@ -978,7 +912,7 @@ async function handleChat(body: Record<string, unknown>) {
       role: "assistant",
       content: reply,
     },
-  ];
+  ].map((row, i) => ({ ...row, created_at: new Date(writtenAt + i).toISOString() }));
 
   const { error } = await supabaseServer.from("conversations").insert(rowsToInsert);
 
@@ -1003,19 +937,6 @@ async function handleChat(body: Record<string, unknown>) {
   if ((history ?? []).length === 0) {
     keepAlive(recordConversationStart(tenantId, sessionId), "recordConversationStart");
   }
-
-  // The lead-extraction pass runs after the reply has gone out, so it
-  // never delays it — but through keepAlive(), not dropped on the floor.
-  // The response returning is what used to kill it, and it killed the
-  // last turn of every conversation: the one carrying the name and the
-  // number. Built from the same history already fetched plus this turn's
-  // two new messages, so it doesn't need another DB round trip.
-  //
-  // Gated by shouldExtractLead (see the constants at the top) so it no
-  // longer runs on every message. A skipped turn is recovered by the next
-  // run, which re-reads the whole transcript from scratch.
-  const priorUserTurns = (history ?? []).filter((row) => row.role === "user").length;
-  const userTurnNumber = priorUserTurns + 1;
 
   // Did the business have an answer for what they just asked?
   //
@@ -1085,29 +1006,38 @@ async function handleChat(body: Record<string, unknown>) {
     );
   }
 
-  if (shouldExtractLead(userTurnNumber, userContent)) {
-    const transcript = formatTranscript([
-      ...(history ?? []),
-      { role: "user", content: userContent },
-      { role: "assistant", content: reply },
-    ]);
-    // The visitor's own messages, never the assistant's replies: the
-    // language to route on is the one they wrote in.
-    const visitorMessages = [
-      ...(history ?? []).filter((row) => row.role === "user").map((row) => row.content),
-      userContent,
-    ];
-    keepAlive(
-      extractAndSaveLead(
-        sessionId,
-        tenantId,
-        transcript,
-        leadLanguage(tenant.settings),
-        visitorMessages
-      ),
-      "extractAndSaveLead"
-    );
-  }
+  // The lead, read from the whole conversation, on EVERY visitor turn.
+  //
+  // It used to skip turns, to save money, and a conversation that ended on
+  // a skipped turn lost what that turn said: a name on its own, a local
+  // number written in groups, a number in Arabic-Indic digits. 4 of the
+  // last 10 real conversations ended that way. There is no gate here now,
+  // on purpose: scripts/test-lead-extraction.ts fails if one comes back.
+  // The cost is paid by caching the transcript turn by turn — see
+  // lib/lead-extraction.ts.
+  //
+  // After the reply has gone out, so it never delays it, but through
+  // keepAlive() rather than dropped on the floor: the response returning
+  // used to kill it on the last turn, the one carrying the name and the
+  // number. Built from the history already fetched plus this turn, so it
+  // needs no other database read.
+  //
+  // The visitor's own messages, never the assistant's replies: the
+  // language to route the lead on is the one they wrote in.
+  const visitorMessages = [
+    ...(history ?? []).filter((row) => row.role === "user").map((row) => row.content),
+    userContent,
+  ];
+  keepAlive(
+    extractAndSaveLead(
+      sessionId,
+      tenantId,
+      extractionTurns(history ?? [], greeting, userContent, reply),
+      leadLanguage(tenant.settings),
+      visitorMessages
+    ),
+    "extractAndSaveLead"
+  );
 
   // The classifier's verdict, for the smoke test, and only ever on a test
   // tenant. See testOnlyResponseFields: on a real tenant this adds
