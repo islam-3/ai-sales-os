@@ -60,3 +60,21 @@ constructed case: 2 of 2 correct, cost $0.0108
 
 Total spend for this check: $0.6600 + $0.0108 = $0.6708
 VERDICT: formats agree on every field, and the constructed case reads correctly 2 of 2. PASS.
+
+── Arabic-Indic ONLY, distinct digits, 2026-11-04
+The case above gave the same digits in both scripts, so it could not show the
+Arabic-Indic number itself was read. Final turn: "اسمي أحمد، رقمي ٠٥٤٤٩٨٧٦٥٤٣", the only
+number in the transcript. Checked on the returned values as code points, not
+the terminal: the route saves name and contact_info unchanged.
+expected name code points: U+0623 U+062D U+0645 U+062F
+run 1: ok   error=none
+  contact_info code points: U+0660 U+0665 U+0664 U+0664 U+0669 U+0668 U+0667 U+0666 U+0665 U+0664 U+0663  -> digits 05449876543 (want 05449876543)
+  name code points:         U+0623 U+062D U+0645 U+062F  = expected, logical order
+  cache write/read: 1145/0
+run 2: ok   error=none
+  contact_info code points: U+0660 U+0665 U+0664 U+0664 U+0669 U+0668 U+0667 U+0666 U+0665 U+0664 U+0663  -> digits 05449876543 (want 05449876543)
+  name code points:         U+0623 U+062D U+0645 U+062F  = expected, logical order
+  cache write/read: 0/1145
+Arabic-Indic-only case: 2 of 2 correct, cost $0.0102
+
+Total spend for this check including this case: $0.6708 + $0.0102 = $0.6810
