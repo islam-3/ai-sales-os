@@ -105,8 +105,9 @@ Before changing any detector that reads text, measure it across all six.
 
 ## Cost per conversation
 
-**7.59 cents**, test-clinic, 4,998 recorded calls across 405
-conversations. Regenerate with:
+**7.27 cents**, test-clinic. Reply and classifier: 4,998 recorded calls
+across 405 conversations. Lead extraction: 43 calls measured after it
+moved to every turn with caching on 2026-11-04 (below). Regenerate with:
 
 ```sh
 DOTENV_CONFIG_PATH=.env.local SLUG=test-clinic \
@@ -119,14 +120,46 @@ record of calls already made and paid for.
 | Call | Model | Per conv | Each | Subtotal | Source |
 |---|---|---|---|---|---|
 | reply | Sonnet | 6.28 | $0.00618 | **$0.03879** | measured |
-| lead extraction | Sonnet | 4.38 | $0.00784 | **$0.03435** | measured |
+| lead extraction | Sonnet | 6.28 (every turn) | $0.00497 | **$0.03121** | measured² |
 | classifier | Haiku | 6.28 | $0.00044 | **$0.00273** | derived |
 | coverage | Haiku | near a close only | — | — | not yet recorded |
 | answer-gap judge | Sonnet | 0–8 | $0.00195 warm / $0.01818 cold | **see below** | derived |
 | question rewrite + group match | Sonnet | only on a gap | $0.0022 | **see below** | measured¹ |
 | question embedding | OpenAI | only on a gap | $0.0000003 | negligible | derived |
 | candidate embedding | OpenAI | on a gap, only over 10 groups | $0.0000003 | negligible | derived |
-| | | | | **$0.07587** | |
+| | | | | **$0.07273** | |
+
+² Lead extraction runs after **every** visitor turn since 2026-11-04.
+Before that it ran on turns 1, 2, every third turn and anything matching
+a contact regex, 4.38 calls per conversation at $0.00784 each
+($0.03435). That gate lost the final turn when a conversation ended on
+a skipped one: 4 of the last 10 real conversations did. The regex also
+missed a name on its own, grouped local numbers and Arabic-Indic digits.
+
+It is paid for by caching the transcript turn by turn
+(`lib/lead-extraction.ts`). Each call reads everything before the
+newest exchange at 0.1×. Measured on the first 43 calls after deploy
+(six smoke conversations and one single turn):
+- every call after a conversation's first read the cache, 36 of 36;
+- per call: 1,242 tokens read from cache, 270 written, 26 uncached
+  input, 234 output;
+- **$0.00497 per call**, down from $0.00784 (−37%).
+
+Per conversation that is **$0.03121** at the table's 6.28 visitor
+turns, against $0.03435 before: about 9% cheaper, while reading every
+turn instead of 4.38 of them. About 70% of what is left is output
+tokens, which caching cannot touch.
+
+Two limits on that figure:
+- the smoke turns come seconds apart, so the cache was always warm;
+- real visitors on prof-clinic left 7% of gaps longer than the 5-minute
+  cache, and each of those calls pays a full write.
+
+The format change was checked before deploy on 96 calls over stored
+transcripts (`docs/lead-extraction-format-2026-11-04.txt`). No field
+disagreed between the old and new formats more than each disagrees with
+itself, and a constructed final turn with a name, `0532 111 22 33` and
+`٠٥٣٢١١١٢٢٣٣` was read correctly 2 of 2.
 
 ¹ The rewrite also picks the question's group. It is shown the tenant's
 existing groups, at most ten, the nearest by embedding. That raised it
@@ -149,8 +182,8 @@ run is the thing that varies most and no single figure is honest:
 | 4 questions, 2 gaps | $0.01220 | $0.02843 | $0.06300 |
 | **8 questions (judge cap), 4 gaps (row cap)** | **$0.02440** | **$0.04063** | **$0.12600** |
 
-Common case **+8%**, worst case **+54%**, worst case with caching off
-**+166%** — the caching work is what stands between those two. The
+Common case **+8%**, worst case **+56%**, worst case with caching off
+**+173%** (against the 7.27¢ total above) — the caching work is what stands between those two. The
 judge's cost scales with the *knowledge base*, not the conversation: 23
 entries is a 4,703-token prefix, and ten times the material is ten times
 the cost per call.

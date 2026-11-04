@@ -75,7 +75,7 @@ export const MAX_CAPTURED_ROWS_PER_CONVERSATION = 4;
  * a four-judge-call limit would have captured one of them instead of
  * four. Hence two bounds. Four rows keeps recall where it was; eight
  * judge calls puts a ceiling on the bill — $0.0368 added in the worst
- * case against a 7.59c conversation, which is the figure in README.md.
+ * case, against the per-conversation total in README.md.
  *
  * Both are enforced in Postgres, by reserve_capture_slot, because a cap
  * read in the application is a cap that two in-flight captures can both
