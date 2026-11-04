@@ -49,3 +49,14 @@ cost: $0.6600
 constructed case: 0 of 2 runs read the name and the number correctly
 
 FAIL: 0 field(s) worse than noise, 2 failed call(s), constructed 0/2
+
+── Rerun of the constructed case after the credit top-up, 2026-11-04
+(production confirmed recovered first: /api/chat on test-clinic replied without degraded)
+run 1: ok   name=أحمد contact_info="0532 111 22 33" digits=05321112233  error=none  cache write/read=1154/0
+  notes=Customer needs implants for most of his upper teeth. Provided two formats of the same number: 0532 111 22 33 and ٠٥٣٢١١١٢٢٣٣
+run 2: ok   name=أحمد contact_info="0532 111 22 33" digits=05321112233  error=none  cache write/read=0/1154
+  notes=Customer needs implants for most of his upper teeth. Provided two formats of the same number: 0532 111 22 33 and ٠٥٣٢١١١٢٢٣٣
+constructed case: 2 of 2 correct, cost $0.0108
+
+Total spend for this check: $0.6600 + $0.0108 = $0.6708
+VERDICT: formats agree on every field, and the constructed case reads correctly 2 of 2. PASS.
