@@ -115,3 +115,30 @@ export function testOnlyResponseFields(
   if (requested !== true || !isTestTenant(settings)) return {};
   return { signals: { ...signals, available } };
 }
+
+/**
+ * OpenAI models the reply may be routed to, for the provider experiment.
+ *
+ * An allowlist, not "any model id": a value from a request body chooses
+ * what we spend money on, so it may only name a model that is priced in
+ * lib/ai-pricing.ts and was chosen on purpose.
+ */
+export const TEST_REPLY_MODELS = ["gpt-6.1-terra", "gpt-6-luna"] as const;
+export type TestReplyModel = (typeof TEST_REPLY_MODELS)[number];
+
+/**
+ * Which model writes this turn's reply, if not the default.
+ *
+ * Gated exactly like shouldSkipCapture: an exact allowlisted value in the
+ * request AND a test tenant. On a real tenant this returns null whatever
+ * the request says. A visitor must not be able to choose which model
+ * answers on a business's behalf, and an experimental model must never
+ * reach a real customer. scripts/test-capture-skip.ts checks both.
+ */
+export function testReplyModel(
+  requested: unknown,
+  settings: { is_test?: boolean } | null | undefined
+): TestReplyModel | null {
+  if (!isTestTenant(settings)) return null;
+  return (TEST_REPLY_MODELS as readonly unknown[]).includes(requested) ? (requested as TestReplyModel) : null;
+}

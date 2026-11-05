@@ -46,6 +46,24 @@ export const PRICING: Record<string, ModelPricing> = {
     cacheWrite: 1.25,
   },
 
+  // OpenAI chat models, for the reply-provider experiment only (honoured
+  // on test tenants alone; see lib/test-tenant.ts). From
+  // developers.openai.com/api/docs/pricing and the prompt-caching guide,
+  // read 2026-11-05: GPT-5.6 and later bill cache writes at 1.25x input
+  // (30-minute default lifetime) and reads at the listed cached rate.
+  "gpt-6.1-terra": {
+    input: 1.0,
+    output: 5.0,
+    cacheRead: 0.05,
+    cacheWrite: 1.25,
+  },
+  "gpt-6-luna": {
+    input: 0.1,
+    output: 0.5,
+    cacheRead: 0.01,
+    cacheWrite: 0.125,
+  },
+
   // OpenAI embeddings — output tokens don't apply.
   "text-embedding-3-small": {
     input: 0.02,

@@ -33,7 +33,8 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
-import { shouldSkipCapture, testOnlyResponseFields } from "@/lib/test-tenant";
+import { shouldSkipCapture, testOnlyResponseFields, testReplyModel } from "@/lib/test-tenant";
+import { openAIReply, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import {
   LEAD_EXTRACTION_MODEL,
   callLeadExtraction,
@@ -554,7 +555,7 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals } =
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel } =
     body as {
       message?: unknown;
       photoPath?: unknown;
@@ -565,6 +566,8 @@ async function handleChat(body: Record<string, unknown>) {
       skipCapture?: unknown;
       /** Smoke-test only. Ignored unless the tenant is a test tenant. */
       includeSignals?: unknown;
+      /** Provider experiment only. Ignored unless the tenant is a test tenant. */
+      replyModel?: unknown;
     };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
@@ -786,39 +789,74 @@ async function handleChat(body: Record<string, unknown>) {
     });
   }
 
-  const response = await anthropic.messages.create({
-    model: CHAT_MODEL,
-    max_tokens: 1024,
-    output_config: { effort: "low" },
-    system: systemBlocks,
-    messages: [...priorMessages, { role: "user", content: userContent }],
-  });
+  const replyMessages: Anthropic.MessageParam[] = [...priorMessages, { role: "user", content: userContent }];
 
-  // Recorded before the refusal check below, because a refusal is still a
-  // billed call — excluding it would understate real spend.
-  void recordUsage({
-    tenantId,
-    sessionId,
-    callType: "chat_reply",
-    provider: "anthropic",
-    model: CHAT_MODEL,
-    tokens: {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
-      cacheWriteInputTokens: response.usage.cache_creation_input_tokens ?? 0,
-    },
-  });
-
-  if (response.stop_reason === "refusal") {
-    return NextResponse.json(
-      { error: "The assistant declined to respond to that message." },
-      { status: 422 }
+  // Which model writes the reply. Sonnet, always, except in the provider
+  // experiment, and that only on a test tenant: testReplyModel returns
+  // null for every real tenant whatever the request says. Everything
+  // after this point (the guard, storage, extraction) reads rawReply and
+  // is the same either way.
+  const experimentModel = testReplyModel(replyModel, tenant.settings);
+  let rawReply: string;
+  if (experimentModel) {
+    const reply = await openAIReply(
+      openai,
+      experimentModel,
+      toOpenAIReplyRequest(systemBlocks, replyMessages),
+      tenantId
     );
-  }
+    if (reply.tokens) {
+      void recordUsage({
+        tenantId,
+        sessionId,
+        callType: "chat_reply",
+        provider: "openai",
+        model: experimentModel,
+        tokens: reply.tokens,
+      });
+    }
+    if (reply.refused) {
+      return NextResponse.json(
+        { error: "The assistant declined to respond to that message." },
+        { status: 422 }
+      );
+    }
+    rawReply = reply.text;
+  } else {
+    const response = await anthropic.messages.create({
+      model: CHAT_MODEL,
+      max_tokens: 1024,
+      output_config: { effort: "low" },
+      system: systemBlocks,
+      messages: replyMessages,
+    });
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  const rawReply = textBlock?.type === "text" ? textBlock.text : "";
+    // Recorded before the refusal check below, because a refusal is still a
+    // billed call — excluding it would understate real spend.
+    void recordUsage({
+      tenantId,
+      sessionId,
+      callType: "chat_reply",
+      provider: "anthropic",
+      model: CHAT_MODEL,
+      tokens: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+        cacheWriteInputTokens: response.usage.cache_creation_input_tokens ?? 0,
+      },
+    });
+
+    if (response.stop_reason === "refusal") {
+      return NextResponse.json(
+        { error: "The assistant declined to respond to that message." },
+        { status: 422 }
+      );
+    }
+
+    const textBlock = response.content.find((block) => block.type === "text");
+    rawReply = textBlock?.type === "text" ? textBlock.text : "";
+  }
 
   // The single gate. Everything below — the HTTP response, the stored
   // transcript, the lead extractor — reads one value and nothing else, so
