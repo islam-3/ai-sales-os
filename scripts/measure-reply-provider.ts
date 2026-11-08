@@ -258,7 +258,7 @@ function writeReport(conversations: Conversation[]) {
   const kinds = new Map<string, Set<number>>();
   for (const c of conversations) {
     for (const h of c.hard) {
-      const key = `${c.arm} · ${c.case.label} · ${h.replace(/^turn d+: /, "")}`;
+      const key = `${c.arm} · ${c.case.label} · ${h.replace(/^turn \d+: /, "")}`;
       (kinds.get(key) ?? kinds.set(key, new Set()).get(key)!).add(c.run);
     }
   }
