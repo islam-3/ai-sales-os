@@ -32,9 +32,10 @@ import { replyDensity, isOverloaded } from "../lib/reply-density";
 import { shapeOf } from "../lib/conversation-state";
 import { TEST_REPLY_MODELS } from "../lib/test-tenant";
 
-const MODEL = process.env.REPLY_MODEL ?? "gpt-6.1-terra";
+/** OpenAI arms, comma-separated. Sonnet is always the first arm. */
+const MODELS = (process.env.REPLY_MODELS ?? process.env.REPLY_MODEL ?? "gpt-6.1-terra").split(",").map((m) => m.trim()).filter(Boolean);
 const RUNS = Number(process.env.RUNS ?? 2);
-const ARMS: { label: string; model?: string }[] = [{ label: "sonnet" }, { label: MODEL, model: MODEL }];
+const ARMS: { label: string; model?: string }[] = [{ label: "sonnet" }, ...MODELS.map((m) => ({ label: m, model: m }))];
 const HESITATION_MAX_RATIO = 0.6;
 const PAUSE_MS = 1500;
 
@@ -74,13 +75,13 @@ async function main() {
     );
     process.exit(0);
   }
-  if (!(TEST_REPLY_MODELS as readonly string[]).includes(MODEL)) throw new Error(`REPLY_MODEL ${MODEL} is not allowlisted`);
+  for (const m of MODELS) if (!(TEST_REPLY_MODELS as readonly string[]).includes(m)) throw new Error(`${m} is not allowlisted`);
   const { anthropic } = await import("../lib/anthropic");
   const { judgeDialect } = await import("../lib/dialect-judge");
   const { supabaseServer: s } = await import("../lib/supabase-server");
 
   const conversations: Conversation[] = [];
-  let switchVerified = false;
+  const switchVerified = new Set<string>();
 
   for (let run = 1; run <= RUNS; run++) {
     for (const c of CASES) {
@@ -109,14 +110,14 @@ async function main() {
           conv.turns.push({ visitor: c.turns[i], reply: result.reply, signals: result.signals });
 
           // Before spending anything more: did the server actually switch?
-          if (arm.model && !switchVerified) {
+          if (arm.model && !switchVerified.has(arm.model)) {
             await pause(2000);
             const { data } = await s.from("usage_events").select("model").eq("session_id", conv.sessionId).eq("call_type", "chat_reply");
             const models = (data ?? []).map((r) => r.model);
             if (!models.includes(arm.model)) {
               throw new Error(`the server did not honour replyModel: reply was written by ${models.join(", ") || "nothing recorded"}. Stopping.`);
             }
-            switchVerified = true;
+            switchVerified.add(arm.model);
             console.log(`   (switch verified: reply written by ${arm.model})`);
           }
 
@@ -195,6 +196,7 @@ function metrics(convs: Conversation[]) {
   return {
     conversations: convs.length,
     hardFailures: convs.reduce((a, c) => a + c.hard.length, 0),
+    scriptMismatches: convs.reduce((a, c) => a + c.hard.filter((h) => h.includes("replied in")).length, 0),
     conversationsWithHardFailure: convs.filter((c) => c.hard.length).length,
     leadsComplete: convs.filter((c) => c.lead.name && c.lead.number).length,
     dialectIntroduced: convs.reduce((a, c) => a + c.dialect.introduced, 0),
@@ -220,11 +222,12 @@ function writeReport(conversations: Conversation[]) {
   const byArm = (arm: string, run?: number) => conversations.filter((c) => c.arm === arm && (run === undefined || c.run === run));
   const pct = (n: number, d: number) => `${n}/${d}${d ? ` (${Math.round((100 * n) / d)}%)` : ""}`;
 
-  lines.push(`# Reply provider: Sonnet vs ${MODEL}, ${date}`, "");
+  lines.push(`# Reply provider: Sonnet vs ${MODELS.join(" vs ")}, ${date}`, "");
   lines.push(`Six smoke-test conversations × ${RUNS} runs per arm, on test-clinic. Only the reply model differs.`, "");
   const rows: [string, (m: ReturnType<typeof metrics>) => string][] = [
     ["Hard failures (smoke checks)", (m) => `${m.hardFailures} in ${m.conversationsWithHardFailure}/${m.conversations} conv.`],
     ["Leads with name and number", (m) => pct(m.leadsComplete, m.conversations)],
+    ["Replies in the wrong script", (m) => pct(m.scriptMismatches, m.replies)],
     ["Dialect introduced (judge)", (m) => `${pct(m.dialectIntroduced, m.dialectJudged)}${m.dialectFailed ? `, ${m.dialectFailed} unjudged` : ""}`],
     ["Overloaded replies (density)", (m) => pct(m.overloaded, m.replies)],
     ["Mean units per reply", (m) => m.meanUnits.toFixed(2)],
@@ -248,6 +251,22 @@ function writeReport(conversations: Conversation[]) {
   if (failures.length) {
     lines.push("## Hard failures", "");
     for (const c of failures) lines.push(`- ${c.arm} run ${c.run}, ${c.case.label}: ${c.hard.join("; ")}`);
+    lines.push("");
+  }
+  // A failure is SYSTEMATIC if the same check failed for the same arm and
+  // conversation in every run, and ONE-OFF if only in some runs.
+  const kinds = new Map<string, Set<number>>();
+  for (const c of conversations) {
+    for (const h of c.hard) {
+      const key = `${c.arm} · ${c.case.label} · ${h.replace(/^turn d+: /, "")}`;
+      (kinds.get(key) ?? kinds.set(key, new Set()).get(key)!).add(c.run);
+    }
+  }
+  if (kinds.size) {
+    lines.push("## Systematic or one-off", "");
+    for (const [key, runs] of Array.from(kinds)) {
+      lines.push(`- ${runs.size === RUNS ? "**systematic**" : "one-off"} (${runs.size}/${RUNS} runs): ${key}`);
+    }
     lines.push("");
   }
   const mismatched = conversations.filter((c) => c.replyModels.length !== 1 || c.replyModels[0] !== (ARMS.find((a) => a.label === c.arm)!.model ?? "claude-sonnet-4-6"));
