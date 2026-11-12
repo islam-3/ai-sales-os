@@ -1,0 +1,19 @@
+run 1: ............................................................................................................................................................
+run 2: ............................................................................................................................................................
+
+── capture gate, six-key classifier, 2 runs, against the asking_for_information label
+  figure of record, five-key gate (2026-10-11): precision 100%  recall 97.7%  (120 cases)
+  six-key gate, same 120 cases:                precision 100.0%  recall 100.0%  (tp=86 fp=0 fn=0)
+  six-key gate, all 156 cases:               precision 100.0%  recall 100.0%  (tp=146 fp=0 fn=0)
+  same run WITHOUT asks_about_price, 120:       precision 100.0%  recall 84.9%  (tp=73 fp=0 fn=13)
+  same run WITHOUT asks_about_price, 156:       precision 100.0%  recall 79.5%  (tp=116 fp=0 fn=30)
+
+  per class (six-key gate, all cases):
+    English   precision 100.0%  recall 100.0%  (tp=26 fp=0 fn=0)
+    Arabic    precision 100.0%  recall 100.0%  (tp=24 fp=0 fn=0)
+    Russian   precision 100.0%  recall 100.0%  (tp=24 fp=0 fn=0)
+    Chinese   precision 100.0%  recall 100.0%  (tp=24 fp=0 fn=0)
+    Turkish   precision 100.0%  recall 100.0%  (tp=24 fp=0 fn=0)
+    Spanish   precision 100.0%  recall 100.0%  (tp=24 fp=0 fn=0)
+
+call failures: 0   cost: $0.2365
