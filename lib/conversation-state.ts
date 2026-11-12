@@ -16,6 +16,7 @@
 // particular case.
 
 import { CONTAINS_QUESTION, ENDS_WITH_QUESTION, countWords, splitSentences } from "./punctuation";
+import { priceStepLines, type PriceStep } from "./price-next-step";
 import { replyDensity, isOverloaded } from "./reply-density";
 
 export type ChatTurn = { role: string; content: string };
@@ -949,7 +950,13 @@ export function buildConversationStateBlock(
   /** Coverage dimensions this business calls for; see assessCoverage. */
   relevantFor?: ReadonlySet<string>,
   /** What the visitor has already answered; see assessCoverage. */
-  answeredFor?: ReadonlySet<string>
+  answeredFor?: ReadonlySet<string>,
+  /**
+   * What a reply to a price question must offer, decided once by
+   * decidePriceStep (lib/price-next-step.ts) so this block and the check
+   * after the reply agree.
+   */
+  priceStep: PriceStep = { kind: "none" }
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = signals
@@ -1028,7 +1035,8 @@ export function buildConversationStateBlock(
     !readyToClose &&
     logisticsRun < 2 &&
     breakShape.length === 0 &&
-    !overloaded
+    !overloaded &&
+    priceStep.kind === "none"
   ) {
     return null;
   }
@@ -1149,6 +1157,12 @@ export function buildConversationStateBlock(
       "FORBIDDEN in this reply: introducing any new fact about the business, naming brands or warranties, mentioning another service, making any offer including showing a photo or video, or asking another question. There is nothing left to gather, so anything you add now is a pitch to someone who has already agreed — it reads as selling and it is the wrong note to end on."
     );
   }
+
+  // A price question gets a concrete next step. Decided in code from the
+  // classifier's asks_about_price and the transcript; see
+  // lib/price-next-step.ts for why, and for what follows if the reply
+  // leaves it out anyway.
+  lines.push(...priceStepLines(priceStep, impatience.impatient));
 
   if (gaps.length > 0) {
     const next = gaps[0];

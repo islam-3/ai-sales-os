@@ -110,10 +110,15 @@ export function testOnlyResponseFields(
   requested: unknown,
   settings: { is_test?: boolean } | null | undefined,
   signals: VisitorSignals,
-  available: boolean
-): { signals?: VisitorSignals & { available: boolean } } {
+  available: boolean,
+  /**
+   * What else the run needs to see about this turn, behind the same gate.
+   * priceStep: what ensurePriceStep did (lib/price-next-step.ts).
+   */
+  extras: { priceStep?: string } = {}
+): { signals?: VisitorSignals & { available: boolean }; priceStep?: string } {
   if (requested !== true || !isTestTenant(settings)) return {};
-  return { signals: { ...signals, available } };
+  return { signals: { ...signals, available }, ...extras };
 }
 
 /**

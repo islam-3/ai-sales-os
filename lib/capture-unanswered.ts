@@ -103,12 +103,22 @@ export type CaptureOutcome =
  * it is a dependency the question-mark gate did not have. A degraded
  * classifier now means a quietly empty dashboard as well as a quietly
  * blunted assistant.
+ *
+ * ── asks_about_price joins the OR, for the same reason ──────────────
+ * Adding the sixth key (docs/classifier-price-key-2026-11-12.log) took
+ * asking_for_information recall from 42% to 31% on the same 120 cases,
+ * with precision unchanged: the model partitions again, and a price
+ * question now sets asks_about_price instead. Price is the most-captured
+ * question on the dashboard, so without this the gate would quietly
+ * stop capturing it. asks_about_price scored 100% precision and recall
+ * in all six classes, so it adds no false-positive surface.
  */
 export function shouldJudge(signals: {
   asking_for_information: boolean;
   direct_request: boolean;
+  asks_about_price?: boolean;
 }): boolean {
-  return signals.asking_for_information || signals.direct_request;
+  return signals.asking_for_information || signals.direct_request || signals.asks_about_price === true;
 }
 
 /**

@@ -23,9 +23,12 @@ export type Reply = {
     hesitation: boolean;
     impatience: boolean;
     asking_for_information: boolean;
+    asks_about_price: boolean;
     /** False when the classifier timed out or failed, not when it said no. */
     available: boolean;
   };
+  /** What the price next step did this turn (lib/price-next-step.ts). Test tenants only. */
+  priceStep?: string;
 };
 
 // Checked once per process, then remembered: the guard protects against a

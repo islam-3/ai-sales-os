@@ -24,7 +24,7 @@ import { resolveLanguageCode } from "./languages";
  * at any point in any conversation — including after a close, or to
  * someone who has just said they need to think about it.
  */
-const FALLBACKS: Record<string, string> = {
+const FALLBACKS: Record<FallbackLanguage, string> = {
   en: "Sorry — could you say that once more? I want to make sure I answer you properly.",
   ar: "عذراً، هل يمكنك أن تعيد ما قلته مرة أخرى؟ أريد أن أتأكد من أنني أجيبك بشكل صحيح.",
   ru: "Извините, не могли бы вы повторить? Хочу убедиться, что отвечу вам правильно.",
@@ -82,11 +82,27 @@ export function safeFallbackFor(
   visitorMessages: string[],
   chatLanguage?: string | null
 ): string {
+  return FALLBACKS[fallbackLanguage(visitorMessages, chatLanguage) ?? "en"];
+}
+
+/**
+ * The language code safeFallbackFor answers in, or null when nothing
+ * decides it.
+ *
+ * Shared so every fixed sentence the route can add (this apology, the
+ * price next step in lib/price-next-step.ts) picks its language the same
+ * way. The apology then falls back to English; a caller that must not
+ * guess can stop at null instead.
+ */
+export function fallbackLanguage(
+  visitorMessages: string[],
+  chatLanguage?: string | null
+): FallbackLanguage | null {
   const script = detectScript(visitorMessages);
-  if (script === "cjk" && visitorMessages.some((m) => KANA.test(m))) return FALLBACKS.ja;
+  if (script === "cjk" && visitorMessages.some((m) => KANA.test(m))) return "ja";
 
   const fromScript = script ? SCRIPT_LANGUAGE[script] : undefined;
-  if (fromScript && FALLBACKS[fromScript]) return FALLBACKS[fromScript];
+  if (fromScript && isFallbackLanguage(fromScript)) return fromScript;
 
   // Latin script cannot tell English from Turkish from Spanish, so the
   // tenant's own setting decides — it is the language this chat greets
@@ -97,9 +113,16 @@ export function safeFallbackFor(
   // for anything typed by hand.
   const code =
     resolveLanguageCode(chatLanguage) ?? NAMED[(chatLanguage ?? "").trim().toLowerCase()];
-  if (code && FALLBACKS[code]) return FALLBACKS[code];
+  if (code && isFallbackLanguage(code)) return code;
 
-  return FALLBACKS.en;
+  return null;
+}
+
+/** The languages a fixed sentence exists in. */
+export type FallbackLanguage = "en" | "ar" | "ru" | "tr" | "es" | "zh" | "ja";
+export const FALLBACK_LANGUAGES: readonly FallbackLanguage[] = ["en", "ar", "ru", "tr", "es", "zh", "ja"];
+function isFallbackLanguage(code: string): code is FallbackLanguage {
+  return (FALLBACK_LANGUAGES as readonly string[]).includes(code);
 }
 
 /** Every fallback string, so callers can recognise one after the fact. */

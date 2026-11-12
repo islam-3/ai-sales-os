@@ -10,7 +10,8 @@ import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
-import { buildConversationStateBlock, isNearingClose } from "@/lib/conversation-state";
+import { buildConversationStateBlock, hasContactDetails, isNearingClose } from "@/lib/conversation-state";
+import { decidePriceStep, ensurePriceStep } from "@/lib/price-next-step";
 import {
   GENERATED_LEAD_FIELDS,
   dropUnsupportedNumbers,
@@ -766,12 +767,26 @@ async function handleChat(body: Record<string, unknown>) {
       )) ?? undefined
     : undefined;
 
+  // A price question gets a concrete next step: see lib/price-next-step.ts.
+  // Decided once, here, so the state block and the check after the reply
+  // cannot disagree. Whether the step asks to SEE the case comes from this
+  // business's own material (the "photos" coverage dimension), never from
+  // an industry.
+  const priceStep = decidePriceStep({
+    asksAboutPrice: signals.asks_about_price,
+    hesitating: signals.hesitation,
+    contactKnown: hasContactDetails(turnsWithLatest),
+    caseSeen: turnsWithLatest.some((t) => t.role === "user" && t.content.includes("[Photo attached:")),
+    seeingTheCaseApplies: relevantFor.has("photos"),
+  });
+
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
     entriesForState,
     signals,
     relevantFor,
-    answeredFor
+    answeredFor,
+    priceStep
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by
@@ -887,7 +902,29 @@ async function handleChat(body: Record<string, unknown>) {
   ];
   const fallback = safeFallbackFor(visitorSoFar, tenant.settings.chat_language);
 
-  const candidate = cleaned === null ? fallback : enforceSingleQuestion(stripMarkup(cleaned));
+  const shaped = cleaned === null ? null : enforceSingleQuestion(stripMarkup(cleaned));
+
+  // The price step, if the reply to a price question left it out. Our own
+  // fixed sentence, so it is added before the leak check below rather
+  // than after it: everything served still passes through that check.
+  const priced =
+    shaped === null
+      ? null
+      : ensurePriceStep(shaped, priceStep, {
+          impatient: signals.impatience,
+          visitorMessages: visitorSoFar,
+          chatLanguage: tenant.settings.chat_language,
+        });
+  if (priced && priced.outcome !== "not_needed" && priced.outcome !== "model_gave_step") {
+    console.warn("[price] reply to a price question had no next step", {
+      sessionId,
+      tenantId,
+      outcome: priced.outcome,
+      step: priceStep.kind,
+    });
+  }
+
+  const candidate = priced === null ? fallback : priced.reply;
 
   // Belt and braces: whatever happened above, nothing internal is served.
   //
@@ -1082,7 +1119,7 @@ async function handleChat(body: Record<string, unknown>) {
   // nothing whatever the request asks for.
   return NextResponse.json({
     reply,
-    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals)),
+    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed" }),
   });
 }
 

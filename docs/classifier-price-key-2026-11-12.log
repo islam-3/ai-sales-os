@@ -1,0 +1,24 @@
+model claude-haiku-4-5-20251001, 2 runs; before: five-key prompt on 120 existing cases; after: six-key prompt on 156 cases
+run 1: ........................................................................................................................++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+run 2: ........................................................................................................................++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+── existing five keys, same 120 cases, 2 runs: precision / recall
+key                      before (5-key)   after (6-key)
+accepts_offer             92% / 100%       92% / 100%
+direct_request           100% / 100%      100% / 100%
+hesitation                92% / 100%      100% / 100%
+impatience               100% / 100%      100% / 100%
+asking_for_information   100% /  42%      100% /  31%
+
+── asks_about_price, 156 cases (30 labelled true), 2 runs
+  English   precision 100%  recall 100%   tp=10 fp=0 fn=0
+  Arabic    precision 100%  recall 100%   tp=10 fp=0 fn=0
+  Russian   precision 100%  recall 100%   tp=10 fp=0 fn=0
+  Chinese   precision 100%  recall 100%   tp=10 fp=0 fn=0
+  Turkish   precision 100%  recall 100%   tp=10 fp=0 fn=0
+  Spanish   precision 100%  recall 100%   tp=10 fp=0 fn=0
+  ALL       precision 100%  recall 100%   tp=60 fp=0 fn=0
+
+call failures: 0   cost: $0.3960
+
+PASS: no false price positives, no precision drop on the existing keys
