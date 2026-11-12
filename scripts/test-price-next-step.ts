@@ -42,6 +42,16 @@ check("contact known, business never needs the case: quote follows", kind({ cont
 
 // ── 2. The fixed sentences ───────────────────────────────────────────
 console.log("\n--- the fixed sentences ---");
+/** The word for "photo" in each language. */
+const PHOTO_WORD: Record<(typeof FALLBACK_LANGUAGES)[number], RegExp> = {
+  en: /photo/i,
+  ar: /صورة/,
+  ru: /фото/i,
+  tr: /fotoğraf/i,
+  es: /foto/i,
+  zh: /照片/,
+  ja: /写真/,
+};
 check(
   "one pair of sentences for every language the apology exists in",
   JSON.stringify(Object.keys(PRICE_STEP_SENTENCES).sort()) === JSON.stringify([...FALLBACK_LANGUAGES].sort())
@@ -53,6 +63,10 @@ for (const lang of FALLBACK_LANGUAGES) {
     check(`${lang} ${variant}: asks for the WhatsApp number`, /WhatsApp|واتساب/.test(sentence));
   }
   check(`${lang}: the two variants differ`, PRICE_STEP_SENTENCES[lang].case !== PRICE_STEP_SENTENCES[lang].details);
+  // Checked on the source strings, not on how a table renders them:
+  // right-to-left text has already appeared swapped between columns once.
+  check(`${lang}: the photo variant asks for a photo`, PHOTO_WORD[lang].test(PRICE_STEP_SENTENCES[lang].case), PRICE_STEP_SENTENCES[lang].case);
+  check(`${lang}: the details variant does not`, !PHOTO_WORD[lang].test(PRICE_STEP_SENTENCES[lang].details), PRICE_STEP_SENTENCES[lang].details);
 }
 // Modern Standard Arabic: none of the colloquial forms the dialect judge
 // flagged in the reply experiment, nor the common ones beside them.
