@@ -44,9 +44,13 @@ async function main() {
     console.log(`(skipped: ${CASES.length * ARMS.length * RUNS} three-turn conversations, about 324 calls and $1.00 — set LIVE=1 to run it, after stating the cost)`);
     process.exit(0);
   }
+  // ONLY narrows to the cases whose label contains it: used to measure
+  // one real conversation per arm before quoting the total.
+  const only = (process.env.ONLY ?? "").toLowerCase();
+  const cases = only ? CASES.filter((c) => c.label.toLowerCase().includes(only)) : CASES;
   const rows: Row[] = [];
   for (let run = 1; run <= RUNS; run++) {
-    for (const c of CASES) {
+    for (const c of cases) {
       for (const arm of ARMS) {
         const row: Row = { arm: arm.label, run, case: c, turns: [] };
         const sessionId = crypto.randomUUID();
