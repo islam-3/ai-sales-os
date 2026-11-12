@@ -105,7 +105,7 @@ Before changing any detector that reads text, measure it across all six.
 
 ## Cost per conversation
 
-**7.27 cents**, test-clinic. Reply and classifier: 4,998 recorded calls
+**7.35 cents**, test-clinic. Reply and classifier: 4,998 recorded calls
 across 405 conversations. Lead extraction: 43 calls measured after it
 moved to every turn with caching on 2026-11-04 (below). Regenerate with:
 
@@ -121,13 +121,13 @@ record of calls already made and paid for.
 |---|---|---|---|---|---|
 | reply | Sonnet | 6.28 | $0.00618 | **$0.03879** | measured |
 | lead extraction | Sonnet | 6.28 (every turn) | $0.00497 | **$0.03121** | measured² |
-| classifier | Haiku | 6.28 | $0.00044 | **$0.00273** | derived |
+| classifier (six keys) | Haiku | 6.28 | $0.00056 | **$0.00352** | derived³ |
 | coverage | Haiku | near a close only | — | — | not yet recorded |
 | answer-gap judge | Sonnet | 0–8 | $0.00195 warm / $0.01818 cold | **see below** | derived |
 | question rewrite + group match | Sonnet | only on a gap | $0.0022 | **see below** | measured¹ |
 | question embedding | OpenAI | only on a gap | $0.0000003 | negligible | derived |
 | candidate embedding | OpenAI | on a gap, only over 10 groups | $0.0000003 | negligible | derived |
-| | | | | **$0.07273** | |
+| | | | | **$0.07352** | |
 
 ² Lead extraction runs after **every** visitor turn since 2026-11-04.
 Before that it ran on turns 1, 2, every third turn and anything matching
@@ -154,6 +154,20 @@ Two limits on that figure:
 - the smoke turns come seconds apart, so the cache was always warm;
 - real visitors on prof-clinic left 7% of gaps longer than the 5-minute
   cache, and each of those calls pays a full write.
+
+³ Since 2026-11-12 the classifier asks a sixth key, `asks_about_price`,
+which lib/price-next-step.ts uses to make every reply to a price
+question end with a concrete next step. Measured on test-clinic, five-key
+calls (the 2026-11-08 experiment, 248 calls) against six-key calls
+(Phase 1, 108 calls): +78 input and +9 output tokens per call, $0.000628
+to $0.000750. That is **+$0.00012 per call, +$0.00077 per conversation**
+at 6.28 turns. It was estimated beforehand at $0.0003; the measurement
+is about 2.5 times that. The row above is the old $0.00044 plus the
+measured +$0.00012. No model call was added: the key rides on the
+classifier call every turn already makes. The key itself measured 100%
+precision and recall in all six classes
+(docs/classifier-price-key-2026-11-12.log), and the capture gate that
+now includes it measured 100% / 100% (docs/capture-gate-2026-11-12.log).
 
 The format change was checked before deploy on 96 calls over stored
 transcripts (`docs/lead-extraction-format-2026-11-04.txt`). No field
@@ -182,8 +196,8 @@ run is the thing that varies most and no single figure is honest:
 | 4 questions, 2 gaps | $0.01220 | $0.02843 | $0.06300 |
 | **8 questions (judge cap), 4 gaps (row cap)** | **$0.02440** | **$0.04063** | **$0.12600** |
 
-Common case **+8%**, worst case **+56%**, worst case with caching off
-**+173%** (against the 7.27¢ total above) — the caching work is what stands between those two. The
+Common case **+8%**, worst case **+55%**, worst case with caching off
+**+171%** (against the 7.35¢ total above) — the caching work is what stands between those two. The
 judge's cost scales with the *knowledge base*, not the conversation: 23
 entries is a 4,703-token prefix, and ten times the material is ten times
 the cost per call.
@@ -787,6 +801,16 @@ today and is not survivable the day a clinic is paying for uptime.
   route dead-ends every new customer on their first interaction. These
   two belong together — a real signup is the first paying customer's
   first minute.
+- **Native review of the price next-step sentences.** `PRICE_STEP_SENTENCES`
+  in lib/price-next-step.ts is appended to a reply to a price question
+  when the model leaves the step out. That never happened in the
+  2026-11-12 run, where both models wrote the step themselves 36/36, but
+  it is customer-facing text the moment it does. English and Arabic are
+  reviewed. These 10 are not, two per language (with photo / with
+  details): Russian, Turkish, Spanish, Chinese, Japanese. Each needs a
+  native speaker to confirm it reads naturally and politely, with no
+  industry words (scripts/test-price-next-step.ts enforces that last
+  part).
 
 ---
 

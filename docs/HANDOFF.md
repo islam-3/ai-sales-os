@@ -334,7 +334,7 @@ conversations/day for a tenant.
 
 ### 6.6 Cost per conversation
 
-**7.27¢** on test-clinic, from `usage_events`. Reply and classifier:
+**7.35¢** on test-clinic, from `usage_events`. Reply and classifier:
 4,998 recorded calls across 405 conversations. Lead extraction: 43
 calls measured after it moved to every turn with caching on
 2026-11-04. Regenerate with `scripts/report-cost-per-conversation.ts`
@@ -344,14 +344,14 @@ calls measured after it moved to every turn with caching on
 |---|---|---|
 | reply (Sonnet) | 6.28 | $0.03879 |
 | lead extraction (Sonnet, every turn, cached) | 6.28 | $0.03121 |
-| classifier (Haiku) | 6.28 | $0.00273 |
-| **total** | | **$0.07273** |
+| classifier (Haiku, six keys since 2026-11-12) | 6.28 | $0.00352 |
+| **total** | | **$0.07352** |
 
 Extraction was 4.38 calls at $0.00784 ($0.03435) before it ran on every
 turn. Caching brought a call to $0.00497. The README has the
 measurement and its limits.
 
-Capture adds **+8%** in the common case and **+56%** in the worst case
+Capture adds **+8%** in the common case and **+55%** in the worst case
 (judge cap and row cap both hit, cold cache). Both figures include the
 grouping cost. **README.md "Cost per conversation" is the source** for
 these numbers and their scenario table; update it there first and copy
