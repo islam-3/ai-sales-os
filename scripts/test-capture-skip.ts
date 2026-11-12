@@ -38,7 +38,7 @@ check(
 // not as a falsy value — `signals: undefined` would still be a field a
 // later change could fill.
 {
-  const verdict = { direct_request: false, hesitation: true, impatience: false, asking_for_information: false };
+  const verdict = { direct_request: false, hesitation: true, impatience: false, asking_for_information: false, asks_about_price: false };
   const realTenants: unknown[] = [{}, null, undefined, { is_test: false }, { is_test: "true" }, { is_test: 1 }];
   const requests: unknown[] = [true, "true", 1, {}, undefined];
   let leaked = 0;

@@ -55,6 +55,13 @@ export type Signals = {
    * exclusive and the prompt says so.
    */
   asking_for_information: boolean;
+  /**
+   * Wanting to know what something costs: a price, a quote, a price list,
+   * a total. Labelled true ONLY for those; every other case is false,
+   * including other questions to the business and a visitor stating
+   * their own budget.
+   */
+  asks_about_price: boolean;
 };
 
 export type Case = Signals & {
@@ -72,10 +79,14 @@ const none = {
   hesitation: false,
   impatience: false,
   asking_for_information: false,
+  asks_about_price: false,
 };
 
 /** Shorthand for the many cases that are a request and nothing else. */
 const asking = { ...none, asking_for_information: true };
+
+/** A request for a price: asking for information, about what it costs. */
+const pricing = { ...asking, asks_about_price: true };
 
 const OFFER_EN = "Would you like to see some before-and-after photos of cases like yours?";
 const OFFER_AR = "هل تحب أن أريك صوراً قبل وبعد لحالات مشابهة لحالتك؟";
@@ -116,7 +127,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "English", ...none, text: "I already asked you that", impatience: true },
   { klass: "English", ...none, text: "you still haven't answered my question", impatience: true },
   { klass: "English", ...none, text: "I lost my upper teeth about five years ago" },
-  { klass: "English", ...asking, text: "how much does it cost?" },
+  { klass: "English", ...pricing, text: "how much does it cost?" },
   { klass: "English", ...none, text: "ok" },
   // A question ABOUT photos that is not a request to be shown one: the
   // visitor is the one who would send it. Still asking something the
@@ -136,7 +147,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "Arabic", ...none, text: "سألتك هذا السؤال من قبل", impatience: true },
   { klass: "Arabic", ...none, text: "أنت لم تجب على سؤالي", impatience: true },
   { klass: "Arabic", ...none, text: "فقدت معظم أسناني العلوية منذ خمس سنوات" },
-  { klass: "Arabic", ...asking, text: "كم التكلفة؟" },
+  { klass: "Arabic", ...pricing, text: "كم التكلفة؟" },
   { klass: "Arabic", ...none, prior: "ما اسمك الكريم؟", text: "نعم" },
 
   // ── Russian (Cyrillic) ──────────────────────────────────────────────
@@ -150,7 +161,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "Russian", ...none, text: "я уже об этом спрашивал", impatience: true },
   { klass: "Russian", ...none, text: "вы так и не ответили на мой вопрос", impatience: true },
   { klass: "Russian", ...none, text: "я потерял большинство верхних зубов пять лет назад" },
-  { klass: "Russian", ...asking, text: "сколько это стоит?" },
+  { klass: "Russian", ...pricing, text: "сколько это стоит?" },
 
   // ── Chinese (no spaces between words) ───────────────────────────────
   { klass: "Chinese", ...none, prior: OFFER_ZH, text: "好的，麻烦您", accepts_offer: true },
@@ -163,7 +174,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "Chinese", ...none, text: "这个问题我已经问过了", impatience: true },
   { klass: "Chinese", ...none, text: "你还没有回答我的问题", impatience: true },
   { klass: "Chinese", ...none, text: "我大约五年前失去了大部分上排牙齿" },
-  { klass: "Chinese", ...asking, text: "费用是多少？" },
+  { klass: "Chinese", ...pricing, text: "费用是多少？" },
 
   // ── Turkish (dotted/dotless i) ──────────────────────────────────────
   { klass: "Turkish", ...none, prior: OFFER_TR, text: "evet, lütfen", accepts_offer: true },
@@ -176,7 +187,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "Turkish", ...none, text: "bunu zaten sormuştum", impatience: true },
   { klass: "Turkish", ...none, text: "sorumu hâlâ cevaplamadınız", impatience: true },
   { klass: "Turkish", ...none, text: "beş yıl önce üst dişlerimin çoğunu kaybettim" },
-  { klass: "Turkish", ...asking, text: "fiyat ne kadar?" },
+  { klass: "Turkish", ...pricing, text: "fiyat ne kadar?" },
 
   // ── Spanish (inverted punctuation) ──────────────────────────────────
   { klass: "Spanish", ...none, prior: OFFER_ES, text: "sí, por favor", accepts_offer: true },
@@ -189,7 +200,7 @@ export const ORIGINAL_CASES: Case[] = [
   { klass: "Spanish", ...none, text: "ya te pregunté eso", impatience: true },
   { klass: "Spanish", ...none, text: "todavía no has respondido a mi pregunta", impatience: true },
   { klass: "Spanish", ...none, text: "perdí la mayoría de mis dientes superiores hace cinco años" },
-  { klass: "Spanish", ...asking, text: "¿cuánto cuesta?" },
+  { klass: "Spanish", ...pricing, text: "¿cuánto cuesta?" },
 ];
 
 // ════════════════════════════════════════════════════════════════════
@@ -213,12 +224,12 @@ export const NEW_CASES: Case[] = [
   // "customers asked — no answer yet".
 
   // ── Imperatives: a request with no question form at all ─────────────
-  { klass: "English", ...asking, text: "give me the price" },
-  { klass: "Arabic", ...asking, text: "اعطيني السعر" },
-  { klass: "Russian", ...asking, text: "назовите цену" },
-  { klass: "Chinese", ...asking, text: "告诉我价格" },
-  { klass: "Turkish", ...asking, text: "fiyatı söyleyin" },
-  { klass: "Spanish", ...asking, text: "dame el precio" },
+  { klass: "English", ...pricing, text: "give me the price" },
+  { klass: "Arabic", ...pricing, text: "اعطيني السعر" },
+  { klass: "Russian", ...pricing, text: "назовите цену" },
+  { klass: "Chinese", ...pricing, text: "告诉我价格" },
+  { klass: "Turkish", ...pricing, text: "fiyatı söyleyin" },
+  { klass: "Spanish", ...pricing, text: "dame el precio" },
 
   // ── Imperative asking to be shown — also direct_request ─────────────
   { klass: "English", ...asking, text: "send me before and after photos", direct_request: true },
@@ -287,7 +298,59 @@ export const NEW_CASES: Case[] = [
   { klass: "Chinese", ...none, text: "好的" },
 ];
 
-export const CASES: Case[] = [...ORIGINAL_CASES, ...NEW_CASES];
+/**
+ * For asks_about_price, labelled before the first run. Three price
+ * questions and three that are not, per failure class. The negatives are
+ * chosen to be near: a "how long" question that in Russian and Turkish
+ * uses the same "how much" word (сколько, ne kadar), a location
+ * question, and a visitor stating their own budget, which mentions money
+ * without asking for a price.
+ */
+export const PRICE_CASES: Case[] = [
+  { klass: "English", ...pricing, text: "price?" },
+  { klass: "English", ...pricing, text: "send me your price list" },
+  { klass: "English", ...pricing, text: "can I get a quote for this?" },
+  { klass: "English", ...asking, text: "how long does the treatment take?" },
+  { klass: "English", ...asking, text: "where exactly are you located?" },
+  { klass: "English", ...none, text: "my budget is about 3000 euros" },
+
+  { klass: "Arabic", ...pricing, text: "السعر؟" },
+  { klass: "Arabic", ...pricing, text: "أرسل لي قائمة الأسعار" },
+  { klass: "Arabic", ...pricing, text: "كم ستكون التكلفة الإجمالية؟" },
+  { klass: "Arabic", ...asking, text: "كم تستغرق مدة العلاج؟" },
+  { klass: "Arabic", ...asking, text: "أين يقع مكانكم بالضبط؟" },
+  { klass: "Arabic", ...none, text: "ميزانيتي حوالي ٣٠٠٠ يورو" },
+
+  { klass: "Russian", ...pricing, text: "цена?" },
+  { klass: "Russian", ...pricing, text: "пришлите прайс-лист" },
+  { klass: "Russian", ...pricing, text: "сколько всё это будет стоить в итоге?" },
+  { klass: "Russian", ...asking, text: "сколько длится лечение?" },
+  { klass: "Russian", ...asking, text: "где вы находитесь?" },
+  { klass: "Russian", ...none, text: "мой бюджет около 3000 евро" },
+
+  { klass: "Chinese", ...pricing, text: "多少钱" },
+  { klass: "Chinese", ...pricing, text: "发一下价目表" },
+  { klass: "Chinese", ...pricing, text: "总共大概要花多少？" },
+  { klass: "Chinese", ...asking, text: "治疗需要多长时间？" },
+  { klass: "Chinese", ...asking, text: "你们具体在哪里？" },
+  { klass: "Chinese", ...none, text: "我的预算大概三千欧元" },
+
+  { klass: "Turkish", ...pricing, text: "fiyat?" },
+  { klass: "Turkish", ...pricing, text: "fiyat listenizi gönderir misiniz" },
+  { klass: "Turkish", ...pricing, text: "toplamda ne kadar tutar?" },
+  { klass: "Turkish", ...asking, text: "tedavi ne kadar sürüyor?" },
+  { klass: "Turkish", ...asking, text: "tam olarak neredesiniz?" },
+  { klass: "Turkish", ...none, text: "bütçem yaklaşık 3000 euro" },
+
+  { klass: "Spanish", ...pricing, text: "¿precio?" },
+  { klass: "Spanish", ...pricing, text: "mándame la lista de precios" },
+  { klass: "Spanish", ...pricing, text: "¿cuánto me costaría en total?" },
+  { klass: "Spanish", ...asking, text: "¿cuánto dura el tratamiento?" },
+  { klass: "Spanish", ...asking, text: "¿dónde estáis exactamente?" },
+  { klass: "Spanish", ...none, text: "mi presupuesto es de unos 3000 euros" },
+];
+
+export const CASES: Case[] = [...ORIGINAL_CASES, ...NEW_CASES, ...PRICE_CASES];
 
 export const SIGNAL_KEYS = [
   "accepts_offer",

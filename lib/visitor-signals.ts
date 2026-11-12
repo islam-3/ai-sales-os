@@ -71,6 +71,15 @@ export type VisitorSignals = {
    * row reading "yes" under "customers asked — no answer yet".
    */
   asking_for_information: boolean;
+  /**
+   * The visitor wants to know what something costs: a price, a quote, a
+   * price list, a total.
+   *
+   * Read so the reply to a price question always gives a concrete next
+   * step (lib/price-next-step.ts). Measured on the six-class set before it
+   * was wired: docs/classifier-price-key-*.log.
+   */
+  asks_about_price: boolean;
 };
 
 /**
@@ -85,6 +94,7 @@ export const NO_SIGNALS: VisitorSignals = Object.freeze({
   hesitation: false,
   impatience: false,
   asking_for_information: false,
+  asks_about_price: false,
 });
 
 /**
@@ -130,7 +140,7 @@ export const SIGNAL_BUDGET_MS = Number(process.env.SIGNAL_BUDGET_MS ?? 2000);
 export const SIGNAL_PROMPT_LONG = `You read ONE message from a visitor to a business's chat and report what it does.
 
 Reply with ONLY this JSON object, no other text:
-{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool}
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool, "asks_about_price": bool}
 
 accepts_offer — the visitor is taking up something the assistant JUST offered to show them. "Yes" answering "what is your name?" is not this.
 direct_request — the visitor is asking to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
@@ -139,6 +149,8 @@ impatience — the visitor is frustrated: repeating a question, or saying they w
 asking_for_information — the visitor wants something FROM the business: a price, a detail, what is included, how long it takes, what happens if something goes wrong, or to be shown examples.
   It counts however they phrase it — as a question ("how much is it?"), as an instruction ("send me the price"), or as a bare topic typed into the chat ("dental implants", "full mouth"). Punctuation is irrelevant; most visitors use none.
   It does NOT count when the visitor is answering something the assistant asked, giving their name, their number, their age or a date, saying yes or no, accepting an offer, or describing their own situation. "I lost my teeth five years ago" is telling, not asking.
+
+asks_about_price — the visitor wants to know what something costs: a price, a quote, a price list, a total, how much they would pay. A bare "price?" counts, in any phrasing. Telling you their own budget, asking about payment methods, or asking what is included is not this.
 
 The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
 
@@ -150,15 +162,37 @@ The message may be in any language. Judge what it does, not what words it uses. 
  * see photos?" as hesitation.
  */
 export const SIGNAL_PROMPT_SHORT = `Report what this visitor message does. Reply with JSON only:
-{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool}
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool, "asks_about_price": bool}
 
 accepts_offer: agreeing to something just offered ("yes please", "go on").
 direct_request: asking to be SHOWN something (photos, results, examples). Offering to send their own photo is not.
 hesitation: stepping back - needs to think, wants to consult someone, not ready.
 impatience: frustrated - repeating a question, or saying they were not answered.
 asking_for_information: wants something from the business - a price, a detail, what is included, examples. Counts as a question, an instruction ("send me the price") or a bare topic ("dental implants"); punctuation is irrelevant. NOT when answering the assistant, giving a name/number/date, saying yes or no, or describing their own situation.
+asks_about_price: wants to know what something costs - a price, a quote, a price list, a total. A bare "price?" counts. NOT their own budget, payment methods, or what is included.
 
 Any language. Judge intent, not wording. Usually all false.`;
+
+/**
+ * The five-key prompt, verbatim as it was before asks_about_price, kept
+ * so the sixth key's effect on the other five can be MEASURED. The same
+ * reason as the four-key prompt below: changing which keys are asked for
+ * has moved the others before.
+ */
+export const SIGNAL_PROMPT_FIVE_KEY = `You read ONE message from a visitor to a business's chat and report what it does.
+
+Reply with ONLY this JSON object, no other text:
+{"accepts_offer": bool, "direct_request": bool, "hesitation": bool, "impatience": bool, "asking_for_information": bool}
+
+accepts_offer — the visitor is taking up something the assistant JUST offered to show them. "Yes" answering "what is your name?" is not this.
+direct_request — the visitor is asking to be shown something: photos, results, examples. A visitor offering to send THEIR OWN photo is not this; they are sending, not asking to see.
+hesitation — the visitor is stepping back: needs to think, wants to consult someone, is not ready to decide.
+impatience — the visitor is frustrated: repeating a question, or saying they were not answered.
+asking_for_information — the visitor wants something FROM the business: a price, a detail, what is included, how long it takes, what happens if something goes wrong, or to be shown examples.
+  It counts however they phrase it — as a question ("how much is it?"), as an instruction ("send me the price"), or as a bare topic typed into the chat ("dental implants", "full mouth"). Punctuation is irrelevant; most visitors use none.
+  It does NOT count when the visitor is answering something the assistant asked, giving their name, their number, their age or a date, saying yes or no, accepting an offer, or describing their own situation. "I lost my teeth five years ago" is telling, not asking.
+
+The message may be in any language. Judge what it does, not what words it uses. Several can be true; usually none are.`;
 
 /**
  * The four-key prompt, kept so the fifth key's effect can be MEASURED.
@@ -238,6 +272,7 @@ export const SIGNAL_PROMPT_KEYS: readonly string[] = [
   "hesitation",
   "impatience",
   "asking_for_information",
+  "asks_about_price",
 ];
 
 // There was a second, much shorter budget here, for turns where
@@ -344,6 +379,7 @@ export async function readVisitorSignals(
       hesitation: parsed.hesitation === true,
       impatience: parsed.impatience === true,
       asking_for_information: parsed.asking_for_information === true,
+      asks_about_price: parsed.asks_about_price === true,
     };
   } catch (error) {
     // Once per instance. A degraded classifier looks exactly like a

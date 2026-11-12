@@ -107,6 +107,7 @@ async function classify(c: Case, prompt: string = PROMPT): Promise<Prediction> {
       hesitation: parsed.hesitation === true,
       impatience: parsed.impatience === true,
       asking_for_information: parsed.asking_for_information === true,
+      asks_about_price: parsed.asks_about_price === true,
     };
   } catch (error) {
     FAILURE_REASONS.push(String((error as Error).message).slice(0, 120));
@@ -118,6 +119,7 @@ async function classify(c: Case, prompt: string = PROMPT): Promise<Prediction> {
       hesitation: false,
       impatience: false,
       asking_for_information: false,
+      asks_about_price: false,
       failed: true,
     };
   }
@@ -148,6 +150,9 @@ function regexBaseline(c: Case): Signals {
     // detector this project already measured at zero recall in five of
     // six scripts.
     asking_for_information: false,
+    // No regex arm either: a word list is the detector this project
+    // measured at zero recall outside English.
+    asks_about_price: false,
   };
 }
 
