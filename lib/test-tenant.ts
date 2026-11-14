@@ -147,3 +147,19 @@ export function testReplyModel(
   if (!isTestTenant(settings)) return null;
   return (TEST_REPLY_MODELS as readonly unknown[]).includes(requested) ? (requested as TestReplyModel) : null;
 }
+
+/**
+ * Which model extracts the lead this turn, if not the default.
+ *
+ * The same gate and allowlist as testReplyModel, for the extraction
+ * experiment: an exact allowlisted value AND a test tenant, or null. On a
+ * real tenant it changes nothing, whatever the request says. A lead is
+ * what the business acts on; an experimental model must never write one
+ * for a real customer. scripts/test-reply-provider.ts checks it.
+ */
+export function testExtractionModel(
+  requested: unknown,
+  settings: { is_test?: boolean } | null | undefined
+): TestReplyModel | null {
+  return testReplyModel(requested, settings);
+}

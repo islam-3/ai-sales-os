@@ -34,11 +34,12 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
-import { shouldSkipCapture, testOnlyResponseFields, testReplyModel } from "@/lib/test-tenant";
+import { shouldSkipCapture, testExtractionModel, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
 import { openAIReply, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import {
   LEAD_EXTRACTION_MODEL,
   callLeadExtraction,
+  callLeadExtractionOpenAI,
   extractionTurns,
   transcriptText,
   type ExtractedLead,
@@ -347,7 +348,12 @@ async function extractAndSaveLead(
   /** The language the team reads leads in. */
   language: string,
   /** The visitor's own messages, for deciding what language to route this lead in. */
-  visitorMessages: string[]
+  visitorMessages: string[],
+  /**
+   * An OpenAI model to extract with instead, for the extraction experiment.
+   * Only ever non-null on a test tenant: see testExtractionModel.
+   */
+  experimentModel: TestReplyModel | null = null
 ) {
   try {
     // The transcript handed in here is the visitor's words as they typed
@@ -359,27 +365,37 @@ async function extractAndSaveLead(
     // intended follow-up — a lead transcript view with an on-demand,
     // per-message translate action that never writes to storage — not a
     // gap left here by accident.
-    const result = await callLeadExtraction(anthropic, language, turns);
+    // Sonnet, always, except in the extraction experiment on a test
+    // tenant. Both return the same shape; everything below is the same.
+    const result = experimentModel
+      ? await callLeadExtractionOpenAI(openai, experimentModel, language, turns, sessionId)
+      : await callLeadExtraction(anthropic, language, turns);
 
     // This whole function already runs after the HTTP response is sent,
     // so awaiting here costs the visitor nothing — and awaiting means the
     // row is written before the serverless invocation can be frozen.
     // Cache reads and writes are recorded apart from plain input: they
-    // are billed at 0.1x and 1.25x, and they are how anyone can see the
+    // are billed differently from it, and they are how anyone can see the
     // caching in lib/lead-extraction.ts is actually working.
-    if (result.usage) {
+    const tokens =
+      "tokens" in result
+        ? result.tokens
+        : result.usage
+          ? {
+              inputTokens: result.usage.input_tokens,
+              outputTokens: result.usage.output_tokens,
+              cacheReadInputTokens: result.usage.cache_read_input_tokens ?? 0,
+              cacheWriteInputTokens: result.usage.cache_creation_input_tokens ?? 0,
+            }
+          : null;
+    if (tokens) {
       await recordUsage({
         tenantId,
         sessionId,
         callType: "lead_extraction",
-        provider: "anthropic",
-        model: LEAD_EXTRACTION_MODEL,
-        tokens: {
-          inputTokens: result.usage.input_tokens,
-          outputTokens: result.usage.output_tokens,
-          cacheReadInputTokens: result.usage.cache_read_input_tokens ?? 0,
-          cacheWriteInputTokens: result.usage.cache_creation_input_tokens ?? 0,
-        },
+        provider: experimentModel ? "openai" : "anthropic",
+        model: experimentModel ?? LEAD_EXTRACTION_MODEL,
+        tokens,
       });
     }
 
@@ -556,7 +572,7 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel } =
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel, extractionModel } =
     body as {
       message?: unknown;
       photoPath?: unknown;
@@ -569,6 +585,8 @@ async function handleChat(body: Record<string, unknown>) {
       includeSignals?: unknown;
       /** Provider experiment only. Ignored unless the tenant is a test tenant. */
       replyModel?: unknown;
+      /** Extraction experiment only. Ignored unless the tenant is a test tenant. */
+      extractionModel?: unknown;
     };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
@@ -1109,7 +1127,9 @@ async function handleChat(body: Record<string, unknown>) {
       tenantId,
       extractionTurns(history ?? [], greeting, userContent, reply),
       leadLanguage(tenant.settings),
-      visitorMessages
+      visitorMessages,
+      // null on every real tenant: see testExtractionModel.
+      testExtractionModel(extractionModel, tenant.settings)
     ),
     "extractAndSaveLead"
   );

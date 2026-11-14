@@ -11,7 +11,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { testReplyModel, TEST_REPLY_MODELS } from "../lib/test-tenant";
+import { testExtractionModel, testReplyModel, TEST_REPLY_MODELS } from "../lib/test-tenant";
+import { toOpenAIExtractionRequest, transcriptBlocks } from "../lib/lead-extraction";
+import { buildLeadExtractionPrompt } from "../lib/lead-language";
 import { openAIUsageToTokens, toOpenAIReplyRequest } from "../lib/reply-openai";
 import { PRICING } from "../lib/ai-pricing";
 
@@ -102,6 +104,48 @@ check(
 check(
   "no cache details means it is all plain input",
   openAIUsageToTokens({ input_tokens: 500, output_tokens: 10 }).inputTokens === 500
+);
+
+// ── 4. Lead extraction on OpenAI ─────────────────────────────────────
+console.log("\n--- extraction: a real tenant never gets an experimental model ---");
+let extractionLeaked = 0;
+for (const settings of realTenants) {
+  for (const requested of requests) {
+    if (testExtractionModel(requested, settings as { is_test?: boolean }) !== null) extractionLeaked++;
+  }
+}
+check(`no combination on a non-test tenant selects an extraction model (${realTenants.length * requests.length} tried)`, extractionLeaked === 0);
+check("a test tenant that asks for gpt-6-luna gets it", testExtractionModel("gpt-6-luna", { is_test: true }) === "gpt-6-luna");
+check("a test tenant asking for an unlisted model gets the default", testExtractionModel("gpt-4o", { is_test: true }) === null);
+check(
+  "the route passes extraction a model only through the gate",
+  /testExtractionModel\(extractionModel, tenant\.settings\)/.test(route) && (route.match(/callLeadExtractionOpenAI\(/g) ?? []).length === 1
+);
+check(
+  "and records the provider that actually ran",
+  /provider: experimentModel \? "openai" : "anthropic",/.test(route) && /model: experimentModel \?\? LEAD_EXTRACTION_MODEL,/.test(route)
+);
+
+console.log("\n--- extraction: OpenAI reads exactly what Sonnet reads ---");
+const turns = [
+  { role: "assistant", content: "مرحباً!" },
+  { role: "user", content: "اسمي أحمد، رقمي ٠٥٤٤٩٨٧٦٥٤٣" },
+  { role: "assistant", content: "شكراً أحمد" },
+];
+const ex = toOpenAIExtractionRequest("Turkish", turns);
+check("instructions are the same extraction prompt", ex.instructions === buildLeadExtractionPrompt("Turkish"));
+check(
+  "one input part per turn, with the same text as the Anthropic blocks",
+  JSON.stringify(ex.parts.map((p) => p.text)) === JSON.stringify(transcriptBlocks(turns).map((b) => b.text))
+);
+check(
+  "the cache breakpoint is on the last part only, like cache_control",
+  ex.parts.filter((p) => p.prompt_cache_breakpoint).length === 1 && ex.parts[ex.parts.length - 1].prompt_cache_breakpoint?.mode === "explicit"
+);
+const extractionSrc = readFileSync(join(__dirname, "..", "lib", "lead-extraction.ts"), "utf8");
+check(
+  "OpenAI's contact digits are normalised exactly like Sonnet's",
+  (extractionSrc.match(/extracted: normaliseContactDigits\(JSON\.parse\(jsonText\)\)/g) ?? []).length === 2
 );
 
 if (bad > 0) {

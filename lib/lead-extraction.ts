@@ -26,8 +26,11 @@
 //     every read.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
+import type { TokenCounts } from "./ai-pricing";
 import { buildLeadExtractionPrompt } from "./lead-language";
 import { normaliseDigits } from "./phone-number";
+import { openAIUsageToTokens } from "./reply-openai";
 
 /**
  * Sonnet, not Haiku: writing the lead in the TEAM's language is what
@@ -155,5 +158,77 @@ export async function callLeadExtraction(
     }
   } catch (error) {
     return { extracted: null, rawText: "", usage: null, error: String((error as Error).message).slice(0, 200) };
+  }
+}
+
+// ── The same extraction on OpenAI ────────────────────────────────────
+// EXPERIMENT ONLY. Reached through testExtractionModel (lib/test-tenant.ts),
+// which returns null on every tenant that is not a test tenant.
+//
+// What maps to what, so the two providers read the same thing:
+//   system prompt          -> instructions, the same buildLeadExtractionPrompt
+//   one block per turn     -> one input_text part per turn, the same text
+//   cache_control on last  -> prompt_cache_breakpoint "explicit" on the last
+//                             part: OpenAI's own marker for the end of a
+//                             reusable prefix (GPT-5.6 and later)
+//   "respond ONLY JSON"    -> text.format json_object, which guarantees
+//                             parseable JSON; the prompt already asks for it
+//   max_tokens 512         -> max_output_tokens 512
+//   no thinking            -> reasoning effort "none"
+//   contact digits         -> normaliseContactDigits, exactly as above
+
+export type OpenAIExtractionRequest = {
+  instructions: string;
+  parts: { type: "input_text"; text: string; prompt_cache_breakpoint?: { mode: "explicit" } }[];
+};
+
+/** The extraction request, as the Responses API takes it. Pure. */
+export function toOpenAIExtractionRequest(language: string, turns: TranscriptTurn[]): OpenAIExtractionRequest {
+  const blocks = transcriptBlocks(turns);
+  return {
+    instructions: buildLeadExtractionPrompt(language),
+    parts: blocks.map((b, i) =>
+      i === blocks.length - 1
+        ? { type: "input_text" as const, text: b.text, prompt_cache_breakpoint: { mode: "explicit" as const } }
+        : { type: "input_text" as const, text: b.text }
+    ),
+  };
+}
+
+/**
+ * One extraction call on OpenAI. Never throws.
+ *
+ * Returns our own token columns rather than OpenAI's usage object, so the
+ * caller records it exactly like the Anthropic call.
+ */
+export async function callLeadExtractionOpenAI(
+  client: OpenAI,
+  model: string,
+  language: string,
+  turns: TranscriptTurn[],
+  cacheKey: string
+): Promise<{ extracted: Partial<ExtractedLead> | null; rawText: string; tokens: TokenCounts | null; error?: string }> {
+  try {
+    const request = toOpenAIExtractionRequest(language, turns);
+    const response = await client.responses.create({
+      model,
+      instructions: request.instructions,
+      input: [{ role: "user", content: request.parts }],
+      max_output_tokens: 512,
+      reasoning: { effort: "none" },
+      text: { format: { type: "json_object" } },
+      prompt_cache_key: cacheKey,
+      store: false,
+    });
+    const rawText = response.output_text ?? "";
+    const tokens = response.usage ? openAIUsageToTokens(response.usage) : null;
+    const jsonText = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    try {
+      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, tokens };
+    } catch {
+      return { extracted: null, rawText, tokens, error: "unparseable JSON" };
+    }
+  } catch (error) {
+    return { extracted: null, rawText: "", tokens: null, error: String((error as Error).message).slice(0, 200) };
   }
 }

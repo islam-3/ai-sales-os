@@ -95,7 +95,7 @@ export async function say(
    * replyModel: an OpenAI model to write the reply, for the provider
    * experiment. Same gate — see testReplyModel.
    */
-  options: { skipCapture?: boolean; includeSignals?: boolean; replyModel?: string } = {}
+  options: { skipCapture?: boolean; includeSignals?: boolean; replyModel?: string; extractionModel?: string } = {}
 ): Promise<Reply> {
   await ensureTestTenant(slug);
 
@@ -112,6 +112,7 @@ export async function say(
           ...(options.skipCapture === true && { skipCapture: true }),
           ...(options.includeSignals === true && { includeSignals: true }),
           ...(options.replyModel && { replyModel: options.replyModel }),
+          ...(options.extractionModel && { extractionModel: options.extractionModel }),
         }),
       });
       if (res.ok) return (await res.json()) as Reply;
