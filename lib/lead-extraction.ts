@@ -171,8 +171,12 @@ export async function callLeadExtraction(
 //   cache_control on last  -> prompt_cache_breakpoint "explicit" on the last
 //                             part: OpenAI's own marker for the end of a
 //                             reusable prefix (GPT-5.6 and later)
-//   "respond ONLY JSON"    -> text.format json_object, which guarantees
-//                             parseable JSON; the prompt already asks for it
+//   "respond ONLY JSON"    -> the same instruction and nothing more, like
+//                             Sonnet. NOT json_object: OpenAI rejects it
+//                             unless the word "json" is in the INPUT, and
+//                             adding it there would change what this model
+//                             reads compared with Sonnet. The parser below
+//                             handles both the same way.
 //   max_tokens 512         -> max_output_tokens 512
 //   no thinking            -> reasoning effort "none"
 //   contact digits         -> normaliseContactDigits, exactly as above
@@ -216,7 +220,6 @@ export async function callLeadExtractionOpenAI(
       input: [{ role: "user", content: request.parts }],
       max_output_tokens: 512,
       reasoning: { effort: "none" },
-      text: { format: { type: "json_object" } },
       prompt_cache_key: cacheKey,
       store: false,
     });
