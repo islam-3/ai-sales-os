@@ -125,9 +125,18 @@ async function main() {
 
   const { data: tenant } = await s.from("tenants").select("id, settings").eq("slug", TEST_TENANT_SLUG).single();
   if (!tenant || !isTestTenant(tenant.settings as { is_test?: boolean })) throw new Error("test-clinic only");
-  const { data: rows } = await s.from("conversations").select("session_id, role, content, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: false }).limit(6000);
+  // Paged: Supabase returns at most 1,000 rows per query whatever .limit()
+  // says, and the conversations stored with a greeting are older than the
+  // newest 1,000 (the smoke test sends none).
+  const rows: { session_id: string; role: string; content: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await s.from("conversations").select("session_id, role, content, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: true }).range(from, from + 999);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
   const bySession = new Map<string, TranscriptTurn[]>();
-  for (const r of [...(rows ?? [])].reverse()) (bySession.get(r.session_id) ?? bySession.set(r.session_id, []).get(r.session_id)!).push({ role: r.role, content: r.content });
+  for (const r of rows) (bySession.get(r.session_id) ?? bySession.set(r.session_id, []).get(r.session_id)!).push({ role: r.role, content: r.content });
 
   // Stored smoke conversations: complete, with a greeting, matched to the case they ran.
   const items: Item[] = [];
