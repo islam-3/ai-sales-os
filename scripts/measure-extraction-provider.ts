@@ -53,7 +53,40 @@ const TEAM_LANGUAGES = ["English", "Turkish"] as const;
 const RUNS = 2;
 const PER_OPENER = 2;
 
-type Result = { extracted: Partial<ExtractedLead> | null; tokens: TokenCounts | null; cost: number; error?: string };
+type Result = { extracted: Partial<ExtractedLead> | null; tokens: TokenCounts | null; cost: number; rawText: string; error?: string };
+
+/**
+ * Every key the extraction prompt asks for. With no JSON mode on either
+ * provider, a response missing one, or with no usable JSON at all, is a
+ * HARD failure: the route saves nothing from it, and that turn's lead is
+ * lost.
+ */
+const REQUIRED_KEYS = [
+  "name", "contact_info", "age", "main_concern", "priority", "duration_of_issue",
+  "timeline", "travel_country", "notes", "visitor_language", "ai_summary", "qualification_score",
+] as const;
+
+/** Why a response is unusable, or null if it is usable. API errors are reported separately. */
+function parseFailure(r: Result): string | null {
+  if (r.error && !r.rawText) return null; // the call itself failed: not a parse failure
+  if (!r.extracted) return `no usable JSON: ${JSON.stringify(r.rawText.slice(0, 160))}`;
+  const missing = REQUIRED_KEYS.filter((k) => !(k in r.extracted!));
+  return missing.length ? `missing ${missing.join(", ")}: ${JSON.stringify(r.rawText.slice(0, 160))}` : null;
+}
+const parseFailures: string[] = [];
+const apiErrors: string[] = [];
+const parseCount = new Map<string, number>();
+const callCount = new Map<string, number>();
+function noteParse(model: string, where: string, r: Result) {
+  callCount.set(model, (callCount.get(model) ?? 0) + 1);
+  const why = parseFailure(r);
+  if (why) {
+    parseCount.set(model, (parseCount.get(model) ?? 0) + 1);
+    parseFailures.push(`${model} · ${where} · ${why}`);
+  } else if (r.error && !r.rawText) {
+    apiErrors.push(`${model} · ${where} · ${r.error}`);
+  }
+}
 
 async function extract(
   model: Model,
@@ -72,10 +105,10 @@ async function extract(
           cacheWriteInputTokens: r.usage.cache_creation_input_tokens ?? 0,
         }
       : null;
-    return { extracted: r.extracted, tokens, cost: tokens ? calculateCostUsd(LEAD_EXTRACTION_MODEL, tokens) : 0, error: r.error };
+    return { extracted: r.extracted, tokens, cost: tokens ? calculateCostUsd(LEAD_EXTRACTION_MODEL, tokens) : 0, rawText: r.rawText, error: r.error };
   }
   const r = await callLeadExtractionOpenAI(clients.openai, model, language, turns, cacheKey);
-  return { extracted: r.extracted, tokens: r.tokens, cost: r.tokens ? calculateCostUsd(model, r.tokens) : 0, error: r.error };
+  return { extracted: r.extracted, tokens: r.tokens, cost: r.tokens ? calculateCostUsd(model, r.tokens) : 0, rawText: r.rawText, error: r.error };
 }
 
 // ── Checks ─────────────────────────────────────────────────────────────
@@ -187,7 +220,9 @@ async function main() {
     for (const item of [...items, constructed]) {
       for (const team of TEAM_LANGUAGES) {
         for (const m of MODELS) {
-          results.set(`${m}|${item.key}|${team}|${run}`, await extract(m, clients, team, item.turns, `${item.key}-${team}`));
+          const r = await extract(m, clients, team, item.turns, `${item.key}-${team}`);
+          noteParse(m, `${item.lang} ${item.key} ${team} r${run}`, r);
+          results.set(`${m}|${item.key}|${team}|${run}`, r);
         }
       }
       process.stdout.write(".");
@@ -260,6 +295,7 @@ async function main() {
       for (const ui of userIdx) {
         const prefix = item.turns.slice(0, ui + 2); // through this turn's reply
         const r = await extract(m, clients, "English", prefix, `replay-${item.key}-${m}`);
+        noteParse(m, `replay ${lang} ${item.key} turn ${perTurn.length + 1}`, r);
         total += r.cost;
         const t = r.tokens ?? {};
         read += t.cacheReadInputTokens ?? 0;
@@ -295,6 +331,13 @@ async function main() {
   }
   out.push("", "## Per conversation: every turn replayed, as production extracts", "",
     "| Model | Conversation | Turns | Cost | Per call | Input read from cache | Per turn |", "|---|---|---|---|---|---|---|", ...replay, "");
+  out.push("## Parse failures (hard: a lost lead)", "", "| Model | Calls | No usable JSON or a missing field | API errors |", "|---|---|---|---|");
+  for (const m of MODELS) {
+    out.push(`| ${m} | ${callCount.get(m) ?? 0} | **${parseCount.get(m) ?? 0}** | ${apiErrors.filter((e) => e.startsWith(m + " ")).length} |`);
+  }
+  out.push("");
+  if (parseFailures.length) out.push(...parseFailures.map((f) => `- ${f}`), "");
+  if (apiErrors.length) out.push("API errors (the call failed; not counted as parse failures):", "", ...apiErrors.map((f) => `- ${f}`), "");
   if (failures.length) out.push("## Every miss, for reading", "", ...failures.map((f) => `- ${f}`), "");
   const path = join(__dirname, "..", "docs", `extraction-provider-${date}.md`);
   writeFileSync(path, out.join("\n"));
