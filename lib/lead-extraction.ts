@@ -133,6 +133,8 @@ export async function callLeadExtraction(
   extracted: Partial<ExtractedLead> | null;
   rawText: string;
   usage: Anthropic.Usage | null;
+  /** Why the model stopped: "max_tokens" means the JSON was cut off. */
+  stopReason?: string | null;
   error?: string;
 }> {
   try {
@@ -152,9 +154,9 @@ export async function callLeadExtraction(
       .replace(/```\s*$/i, "")
       .trim();
     try {
-      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, usage: response.usage };
+      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, usage: response.usage, stopReason: response.stop_reason };
     } catch {
-      return { extracted: null, rawText, usage: response.usage, error: "unparseable JSON" };
+      return { extracted: null, rawText, usage: response.usage, stopReason: response.stop_reason, error: "unparseable JSON" };
     }
   } catch (error) {
     return { extracted: null, rawText: "", usage: null, error: String((error as Error).message).slice(0, 200) };
@@ -211,7 +213,14 @@ export async function callLeadExtractionOpenAI(
   language: string,
   turns: TranscriptTurn[],
   cacheKey: string
-): Promise<{ extracted: Partial<ExtractedLead> | null; rawText: string; tokens: TokenCounts | null; error?: string }> {
+): Promise<{
+  extracted: Partial<ExtractedLead> | null;
+  rawText: string;
+  tokens: TokenCounts | null;
+  /** "max_output_tokens" means the JSON was cut off; otherwise the response status. */
+  stopReason?: string | null;
+  error?: string;
+}> {
   try {
     const request = toOpenAIExtractionRequest(language, turns);
     const response = await client.responses.create({
@@ -225,11 +234,12 @@ export async function callLeadExtractionOpenAI(
     });
     const rawText = response.output_text ?? "";
     const tokens = response.usage ? openAIUsageToTokens(response.usage) : null;
+    const stopReason = response.incomplete_details?.reason ?? response.status ?? null;
     const jsonText = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
     try {
-      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, tokens };
+      return { extracted: normaliseContactDigits(JSON.parse(jsonText)), rawText, tokens, stopReason };
     } catch {
-      return { extracted: null, rawText, tokens, error: "unparseable JSON" };
+      return { extracted: null, rawText, tokens, stopReason, error: "unparseable JSON" };
     }
   } catch (error) {
     return { extracted: null, rawText: "", tokens: null, error: String((error as Error).message).slice(0, 200) };

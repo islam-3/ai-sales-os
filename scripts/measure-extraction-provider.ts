@@ -28,7 +28,7 @@
 //   - qualification score within 15 of Sonnet's;
 //   - cost per call, per conversation (from C), and cache reads.
 
-import { writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type OpenAI from "openai";
@@ -53,7 +53,7 @@ const TEAM_LANGUAGES = ["English", "Turkish"] as const;
 const RUNS = 2;
 const PER_OPENER = 2;
 
-type Result = { extracted: Partial<ExtractedLead> | null; tokens: TokenCounts | null; cost: number; rawText: string; error?: string };
+type Result = { extracted: Partial<ExtractedLead> | null; tokens: TokenCounts | null; cost: number; rawText: string; stopReason?: string | null; error?: string };
 
 /**
  * Every key the extraction prompt asks for. With no JSON mode on either
@@ -88,6 +88,66 @@ function noteParse(model: string, where: string, r: Result) {
   }
 }
 
+// ── Checkpoint and resume ─────────────────────────────────────────────
+// CHECKPOINT: every response is appended to this file the moment it
+// arrives, so an interruption loses nothing, and a rerun reuses what is
+// there instead of paying for it again. A call that failed to connect is
+// written too but not reused, so a rerun retries it.
+//
+// RESUME_FROM: a report from an interrupted run. Only the calls listed
+// there as connection errors are made; every other call is skipped.
+const CHECKPOINT = process.env.CHECKPOINT ?? "";
+const RESUME_FROM = process.env.RESUME_FROM ?? "";
+const done = new Map<string, Result>();
+const failedToConnect = (r: Result) => Boolean(r.error) && !r.rawText;
+
+function loadCheckpoint() {
+  if (!CHECKPOINT || !existsSync(CHECKPOINT)) return;
+  for (const line of readFileSync(CHECKPOINT, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const { key, result } = JSON.parse(line) as { key: string; result: Result };
+    if (!failedToConnect(result)) done.set(key, result);
+  }
+}
+
+/** The calls an interrupted run never made, read from its report. */
+function resumeKeys(reportPath: string): Set<string> {
+  const keys = new Set<string>();
+  for (const line of readFileSync(reportPath, "utf8").split("\n")) {
+    if (!line.includes("Connection error")) continue;
+    const ab = line.match(/^- (\S+) · \S+ (\S+) (English|Turkish) r(\d) · /);
+    if (ab) { keys.add(`${ab[1]}|${ab[2]}|${ab[3]}|${ab[4]}`); continue; }
+    const rp = line.match(/^- (\S+) · replay \S+ (\S+) turn (\d+) · /);
+    if (rp) keys.add(`replay|${rp[1]}|${rp[2]}|${rp[3]}`);
+  }
+  return keys;
+}
+const wanted: Set<string> | null = RESUME_FROM ? resumeKeys(RESUME_FROM) : null;
+
+/** A result from the checkpoint, a new call, or null when this run must not make it. */
+async function obtain(key: string, call: () => Promise<Result>): Promise<Result | null> {
+  const saved = done.get(key);
+  if (saved) return saved;
+  if (wanted && !wanted.has(key)) return null;
+  const r = await call();
+  if (CHECKPOINT) appendFileSync(CHECKPOINT, JSON.stringify({ key, at: new Date().toISOString(), result: r }) + "\n");
+  if (!failedToConnect(r)) done.set(key, r);
+  return r;
+}
+
+// Why each response stopped, to confirm or rule out truncation.
+const stopReasons = new Map<string, Map<string, number>>();
+const atLimit: string[] = [];
+function noteStop(model: string, where: string, r: Result) {
+  if (failedToConnect(r)) return;
+  const reason = r.stopReason ?? "unknown";
+  const m = stopReasons.get(model) ?? stopReasons.set(model, new Map()).get(model)!;
+  m.set(reason, (m.get(reason) ?? 0) + 1);
+  if (reason === "max_tokens" || reason === "max_output_tokens") {
+    atLimit.push(`${model} · ${where} · stopped at the output limit, ${r.tokens?.outputTokens ?? "?"} tokens, parsed: ${r.extracted ? "yes" : "NO"}`);
+  }
+}
+
 async function extract(
   model: Model,
   clients: { anthropic: Anthropic; openai: OpenAI },
@@ -105,10 +165,10 @@ async function extract(
           cacheWriteInputTokens: r.usage.cache_creation_input_tokens ?? 0,
         }
       : null;
-    return { extracted: r.extracted, tokens, cost: tokens ? calculateCostUsd(LEAD_EXTRACTION_MODEL, tokens) : 0, rawText: r.rawText, error: r.error };
+    return { extracted: r.extracted, tokens, cost: tokens ? calculateCostUsd(LEAD_EXTRACTION_MODEL, tokens) : 0, rawText: r.rawText, stopReason: r.stopReason, error: r.error };
   }
   const r = await callLeadExtractionOpenAI(clients.openai, model, language, turns, cacheKey);
-  return { extracted: r.extracted, tokens: r.tokens, cost: r.tokens ? calculateCostUsd(model, r.tokens) : 0, rawText: r.rawText, error: r.error };
+  return { extracted: r.extracted, tokens: r.tokens, cost: r.tokens ? calculateCostUsd(model, r.tokens) : 0, rawText: r.rawText, stopReason: r.stopReason, error: r.error };
 }
 
 // ── Checks ─────────────────────────────────────────────────────────────
@@ -214,15 +274,33 @@ async function main() {
     process.exit(0);
   }
 
+  loadCheckpoint();
+  if (wanted) {
+    // Every call to resume has to map onto a conversation this run found.
+    // Checked before anything is spent.
+    const known = new Set([...items, constructed].map((i) => i.key));
+    const orphan = Array.from(wanted).filter((k) => !known.has(k.startsWith("replay|") ? k.split("|")[2] : k.split("|")[1]));
+    if (orphan.length) throw new Error(`calls to resume that match no conversation: ${orphan.join(", ")}`);
+    console.log(`resuming ${wanted.size} calls from ${RESUME_FROM}; ${done.size} already in the checkpoint`);
+    if (process.env.DRY_RUN === "1") {
+      const byModel = new Map<string, number>();
+      for (const k of Array.from(wanted)) { const m = k.startsWith("replay|") ? k.split("|")[1] : k.split("|")[0]; byModel.set(m, (byModel.get(m) ?? 0) + 1); }
+      console.log(`dry run, no calls: ${JSON.stringify(Object.fromEntries(byModel))}`);
+      process.exit(0);
+    }
+  }
   console.log(`${items.length} stored conversations + 1 constructed, ${MODELS.length} models, ${TEAM_LANGUAGES.length} team languages, ${RUNS} runs`);
   const results = new Map<string, Result>(); // `${model}|${item}|${team}|${run}`
   for (let run = 1; run <= RUNS; run++) {
     for (const item of [...items, constructed]) {
       for (const team of TEAM_LANGUAGES) {
         for (const m of MODELS) {
-          const r = await extract(m, clients, team, item.turns, `${item.key}-${team}`);
+          const key = `${m}|${item.key}|${team}|${run}`;
+          const r = await obtain(key, () => extract(m, clients, team, item.turns, `${item.key}-${team}`));
+          if (!r) continue;
           noteParse(m, `${item.lang} ${item.key} ${team} r${run}`, r);
-          results.set(`${m}|${item.key}|${team}|${run}`, r);
+          noteStop(m, `${item.lang} ${item.key} ${team} r${run}`, r);
+          results.set(key, r);
         }
       }
       process.stdout.write(".");
@@ -237,9 +315,12 @@ async function main() {
     for (const item of [...items, constructed]) {
       for (const team of TEAM_LANGUAGES) {
         const sonnetScores = [1, 2].map((r) => results.get(`sonnet|${item.key}|${team}|${r}`)?.extracted?.qualification_score).filter((x): x is number => typeof x === "number");
-        const sonnetRef = results.get(`sonnet|${item.key}|${team}|1`)?.extracted;
+        const refRun = results.get(`sonnet|${item.key}|${team}|1`)?.extracted ? 1 : 2;
+        const sonnetRef = results.get(`sonnet|${item.key}|${team}|${refRun}`)?.extracted;
         for (let run = 1; run <= RUNS; run++) {
-          const r = results.get(`${m}|${item.key}|${team}|${run}`)!;
+          const r = results.get(`${m}|${item.key}|${team}|${run}`);
+          // A call that never connected is listed under API errors, not scored.
+          if (!r || failedToConnect(r)) continue;
           const key = `${m}|${item.key === "constructed" ? "Arabic-Indic" : item.lang}`;
           const sc = byModelLang.get(key) ?? byModelLang.set(key, blank()).get(key)!;
           sc.calls++;
@@ -273,7 +354,7 @@ async function main() {
             const mean = sonnetScores.reduce((a, b) => a + b, 0) / sonnetScores.length;
             if (Math.abs(e.qualification_score - mean) <= 15) sc.scoreWithin++;
           }
-          if (sonnetRef && !(m === "sonnet" && run === 1)) {
+          if (sonnetRef && !(m === "sonnet" && run === refRun)) {
             for (const f of TEXT_FIELDS) {
               sc.fieldCompared++;
               if (present(e[f]) === present(sonnetRef[f])) sc.fieldAgree++;
@@ -294,8 +375,11 @@ async function main() {
       const perTurn: string[] = [];
       for (const ui of userIdx) {
         const prefix = item.turns.slice(0, ui + 2); // through this turn's reply
-        const r = await extract(m, clients, "English", prefix, `replay-${item.key}-${m}`);
-        noteParse(m, `replay ${lang} ${item.key} turn ${perTurn.length + 1}`, r);
+        const turnNo = perTurn.length + 1;
+        const r = await obtain(`replay|${m}|${item.key}|${turnNo}`, () => extract(m, clients, "English", prefix, `replay-${item.key}-${m}`));
+        if (!r) { perTurn.push("not run"); continue; }
+        noteParse(m, `replay ${lang} ${item.key} turn ${turnNo}`, r);
+        noteStop(m, `replay ${lang} ${item.key} turn ${turnNo}`, r);
         total += r.cost;
         const t = r.tokens ?? {};
         read += t.cacheReadInputTokens ?? 0;
@@ -338,11 +422,64 @@ async function main() {
   out.push("");
   if (parseFailures.length) out.push(...parseFailures.map((f) => `- ${f}`), "");
   if (apiErrors.length) out.push("API errors (the call failed; not counted as parse failures):", "", ...apiErrors.map((f) => `- ${f}`), "");
+  out.push("## Why each response stopped", "", "| Model | Stop reasons |", "|---|---|");
+  for (const m of MODELS) {
+    const reasons = Array.from(stopReasons.get(m) ?? new Map()).map(([k, v]) => `${k}: ${v}`).join(", ");
+    out.push(`| ${m} | ${reasons || "—"} |`);
+  }
+  out.push("");
+  if (atLimit.length) out.push("Responses that stopped at the output limit:", "", ...atLimit.map((x) => `- ${x}`), "");
+  if (RESUME_FROM) out.push(...mergedTable(RESUME_FROM, byModelLang, order), "");
   if (failures.length) out.push("## Every miss, for reading", "", ...failures.map((f) => `- ${f}`), "");
-  const path = join(__dirname, "..", "docs", `extraction-provider-${date}.md`);
+  const path = join(__dirname, "..", "docs", process.env.REPORT ?? `extraction-provider-${date}.md`);
   writeFileSync(path, out.join("\n"));
   console.log(out.join("\n"));
   console.log(`\nwrote ${path}`);
+}
+
+/**
+ * The interrupted run's table plus this run's, cell by cell.
+ *
+ * Every cell is a count (n/d), so the sum is exact. The interrupted run
+ * counted its connection errors as calls that "failed", and this run
+ * makes exactly those calls again, so they are taken back out of its
+ * call and failure counts before adding.
+ */
+function mergedTable(oldReport: string, fresh: Map<string, Score>, order: string[]): string[] {
+  const text = readFileSync(oldReport, "utf8");
+  const oldErrors = new Map<string, number>();
+  for (const line of text.split("\n")) {
+    const ab = line.match(/^- (\S+) · (\S+) (\S+) (English|Turkish) r\d · Connection error/);
+    if (ab) {
+      const lang = ab[3] === "constructed" ? "Arabic-Indic" : ab[2];
+      oldErrors.set(`${ab[1]}|${lang}`, (oldErrors.get(`${ab[1]}|${lang}`) ?? 0) + 1);
+    }
+  }
+  const nd = (cell: string) => (cell === "—" ? [0, 0] : cell.split("/").map(Number));
+  const lines = ["## Combined: the interrupted run plus the resumed calls", "",
+    "| Model | Visitor language | Calls returned | Parse failures | Name | Contact digits | ASCII digits | Visitor language | Age null | Summary in team language | Fields in team language | Invented figures | Score within 15 of Sonnet | Fields filled as Sonnet | Cost per returned call |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"];
+  const row = /^\| (sonnet|gpt-6\.1-terra|gpt-6-luna) \| ([A-Za-z-]+) \| (\d+)(?: \((\d+) failed\))? \| (.+) \| \$([\d.]+) \|$/;
+  for (const line of text.split("\n")) {
+    const m = line.match(row);
+    if (!m) continue;
+    const [, model, lang, callsStr, failedStr, middle, costStr] = m;
+    const cells = middle.split(" | ");
+    const errs = oldErrors.get(`${model}|${lang}`) ?? 0;
+    const oldCalls = Number(callsStr), oldFailed = Number(failedStr ?? 0);
+    const returned = oldCalls - errs, parseFailed = oldFailed - errs;
+    const oldCost = Number(costStr) * oldCalls;
+    const f = fresh.get(`${model}|${lang}`) ?? blank();
+    // Fresh connection failures are never scored, so every fresh call here
+    // returned a response; the ones with no usable JSON are its failures.
+    const fReturned = f.calls;
+    const freshParse = f.failed;
+    const add = (i: number, n: number, d: number) => { const [a, b] = nd(cells[i]); return a + n + b + d === 0 ? "—" : `${a + n}/${b + d}`; };
+    const ok = f.calls - f.failed;
+    lines.push(`| ${model} | ${lang} | ${returned + fReturned} | ${parseFailed + freshParse} | ${add(0, f.name, ok)} | ${add(1, f.digitsOk, ok)} | ${add(2, f.asciiOnly, ok)} | ${add(3, f.visitorLang, ok)} | ${add(4, f.ageNull, ok)} | ${add(5, f.summaryTeam, f.summaries)} | ${add(6, f.fieldsTeam, f.fieldsWritten)} | ${Number(cells[7]) + f.invented} | ${model === "sonnet" ? "—" : add(8, f.scoreWithin, f.scoreCompared)} | ${add(9, f.fieldAgree, f.fieldCompared)} | ${((oldCost + f.cost) / Math.max(1, returned + fReturned)).toFixed(5)} |`);
+  }
+  void order;
+  return lines;
 }
 
 main().catch((e) => {
