@@ -20,6 +20,7 @@ import {
   extractionTurns,
   transcriptBlocks,
   transcriptText,
+  LEAD_EXTRACTION_MAX_TOKENS,
   type TranscriptTurn,
 } from "../lib/lead-extraction";
 
@@ -123,6 +124,19 @@ check(
 check(
   "stored rows get distinct timestamps, in insert order",
   /\.map\(\(row, i\) => \(\{ \.\.\.row, created_at: new Date\(writtenAt \+ i\)\.toISOString\(\) \}\)\)/.test(route)
+);
+
+// ── 4. Room to finish ────────────────────────────────────────────────
+// A Turkish-team extraction was cut off at exactly 512 tokens, mid-key
+// (docs/extraction-truncation-2026-11-17.md).
+console.log("\n--- room to finish, on every provider ---");
+const extractionSrc = readFileSync(join(__dirname, "..", "lib", "lead-extraction.ts"), "utf8");
+check("both providers use the one shared limit", /max_tokens: LEAD_EXTRACTION_MAX_TOKENS,/.test(extractionSrc) && /max_output_tokens: LEAD_EXTRACTION_MAX_TOKENS,/.test(extractionSrc));
+check("no extraction call carries its own number", !/max_(?:output_)?tokens: \d+/.test(extractionSrc));
+check("the limit leaves room above the 512 that cut a lead off", LEAD_EXTRACTION_MAX_TOKENS >= 1024, String(LEAD_EXTRACTION_MAX_TOKENS));
+check(
+  "a cut-off is logged as itself, on either provider's stop reason",
+  /\[lead\] extraction cut off at the output limit/.test(route) && /"max_tokens"/.test(route) && /"max_output_tokens"/.test(route)
 );
 
 if (bad > 0) {

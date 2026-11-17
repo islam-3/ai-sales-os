@@ -37,6 +37,7 @@ import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
 import { shouldSkipCapture, testExtractionModel, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
 import { openAIReply, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import {
+  LEAD_EXTRACTION_MAX_TOKENS,
   LEAD_EXTRACTION_MODEL,
   callLeadExtraction,
   callLeadExtractionOpenAI,
@@ -396,6 +397,19 @@ async function extractAndSaveLead(
         provider: experimentModel ? "openai" : "anthropic",
         model: experimentModel ?? LEAD_EXTRACTION_MODEL,
         tokens,
+      });
+    }
+
+    // A response that ran out of room is a lost lead with a known cause.
+    // Said so, apart from ordinary parse failures, because that is how the
+    // 512-token cut-off went unnoticed (docs/extraction-truncation-2026-11-17.md).
+    if (result.stopReason === "max_tokens" || result.stopReason === "max_output_tokens") {
+      console.error("[lead] extraction cut off at the output limit", {
+        sessionId,
+        tenantId,
+        language,
+        limit: LEAD_EXTRACTION_MAX_TOKENS,
+        parsed: Boolean(result.extracted),
       });
     }
 

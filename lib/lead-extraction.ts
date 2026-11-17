@@ -40,6 +40,19 @@ import { openAIUsageToTokens } from "./reply-openai";
  */
 export const LEAD_EXTRACTION_MODEL = "claude-sonnet-4-6";
 
+/**
+ * The output limit for one extraction, on every provider.
+ *
+ * Was 512, and a lead for a Turkish-reading team was cut off at exactly
+ * 512 tokens, mid-key, so the JSON did not parse and the route saved
+ * nothing (docs/extraction-truncation-2026-11-17.md). An English team
+ * took 288-321 tokens; a Turkish one 399 and 512+. 1024 is about twice
+ * the largest seen. Billed per token generated, so the room costs nothing
+ * unless it is used. A response that still reaches it is logged as a
+ * cut-off in the route, not as an ordinary parse failure.
+ */
+export const LEAD_EXTRACTION_MAX_TOKENS = 1024;
+
 export type ExtractedLead = {
   name: string | null;
   contact_info: string | null;
@@ -142,7 +155,7 @@ export async function callLeadExtraction(
     // tune down.
     const response = await client.messages.create({
       model: LEAD_EXTRACTION_MODEL,
-      max_tokens: 512,
+      max_tokens: LEAD_EXTRACTION_MAX_TOKENS,
       system: buildLeadExtractionPrompt(language),
       messages: [{ role: "user", content: transcriptBlocks(turns) }],
     });
@@ -179,7 +192,7 @@ export async function callLeadExtraction(
 //                             adding it there would change what this model
 //                             reads compared with Sonnet. The parser below
 //                             handles both the same way.
-//   max_tokens 512         -> max_output_tokens 512
+//   max_tokens             -> max_output_tokens, the same LEAD_EXTRACTION_MAX_TOKENS
 //   no thinking            -> reasoning effort "none"
 //   contact digits         -> normaliseContactDigits, exactly as above
 
@@ -227,7 +240,7 @@ export async function callLeadExtractionOpenAI(
       model,
       instructions: request.instructions,
       input: [{ role: "user", content: request.parts }],
-      max_output_tokens: 512,
+      max_output_tokens: LEAD_EXTRACTION_MAX_TOKENS,
       reasoning: { effort: "none" },
       prompt_cache_key: cacheKey,
       store: false,
