@@ -32,13 +32,14 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type OpenAI from "openai";
-import { CASES } from "./_smoke-cases";
+import { tieFreeSmokeConversations } from "./_tie-free-sessions";
 import { dropUnsupportedNumbers, GENERATED_LEAD_FIELDS } from "../lib/lead-language";
 import {
   callLeadExtraction,
   callLeadExtractionOpenAI,
   extractionTurns,
   transcriptText,
+  LEAD_EXTRACTION_MAX_TOKENS,
   LEAD_EXTRACTION_MODEL,
   type ExtractedLead,
   type TranscriptTurn,
@@ -193,7 +194,7 @@ function inTeamLanguage(text: string, team: string, keep: string[]): boolean {
 const TEXT_FIELDS = ["main_concern", "priority", "duration_of_issue", "timeline", "travel_country", "notes", "ai_summary"] as const;
 const present = (v: unknown) => v !== null && v !== undefined && v !== "";
 
-type Item = { key: string; lang: string; name: string; digits: string; visitorCode: string; turns: TranscriptTurn[] };
+type Item = { key: string; sessionId?: string; lang: string; name: string; digits: string; visitorCode: string; turns: TranscriptTurn[] };
 type Score = {
   calls: number; failed: number;
   name: number; digitsOk: number; asciiOnly: number; visitorLang: number; ageNull: number;
@@ -218,36 +219,21 @@ async function main() {
 
   const { data: tenant } = await s.from("tenants").select("id, settings").eq("slug", TEST_TENANT_SLUG).single();
   if (!tenant || !isTestTenant(tenant.settings as { is_test?: boolean })) throw new Error("test-clinic only");
-  // Paged: Supabase returns at most 1,000 rows per query whatever .limit()
-  // says, and the conversations stored with a greeting are older than the
-  // newest 1,000 (the smoke test sends none).
-  const rows: { session_id: string; role: string; content: string }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await s.from("conversations").select("session_id, role, content, created_at").eq("tenant_id", tenant.id).order("created_at", { ascending: true }).range(from, from + 999);
-    if (error) throw error;
-    rows.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
-  const bySession = new Map<string, TranscriptTurn[]>();
-  for (const r of rows) (bySession.get(r.session_id) ?? bySession.set(r.session_id, []).get(r.session_id)!).push({ role: r.role, content: r.content });
-
-  // Stored smoke conversations: complete, with a greeting, matched to the case they ran.
-  const items: Item[] = [];
-  for (const c of CASES) {
-    const lang = c.label.split(" ")[0];
-    let taken = 0;
-    for (const [sid, turns] of Array.from(bySession).reverse()) {
-      if (taken >= PER_OPENER) break;
-      const users = turns.filter((t) => t.role === "user");
-      if (turns[0]?.role !== "assistant" || users.length < c.turns.length || users[0].content !== c.turns[0]) continue;
-      const lastUser = turns.map((t) => t.role).lastIndexOf("user");
-      items.push({
-        key: sid.slice(0, 8), lang, name: c.name, digits: c.digits, visitorCode: VISITOR_CODE[lang],
-        turns: extractionTurns(turns.slice(0, lastUser), null, turns[lastUser].content, turns[lastUser + 1]?.content ?? ""),
-      });
-      taken++;
-    }
-  }
+  // Only conversations whose turn order is certain: stored after the
+  // 2026-11-04 timestamp fix, no two rows sharing a timestamp. Before that
+  // a turn's rows tied and read back in no fixed order, which is why the
+  // 2026-11-17 run gave every model partly reversed transcripts. The
+  // session ids are written into the report, so a rerun uses the same
+  // input.
+  const stored = await tieFreeSmokeConversations(s, tenant.id, PER_OPENER);
+  const items: Item[] = stored.map((c) => {
+    const lang = c.case.label.split(" ")[0];
+    const last = c.turns.length - 2; // the final visitor message; the reply follows it
+    return {
+      key: c.sessionId.slice(0, 8), sessionId: c.sessionId, lang, name: c.case.name, digits: c.case.digits, visitorCode: VISITOR_CODE[lang],
+      turns: extractionTurns(c.turns.slice(0, last), null, c.turns[last].content, c.turns[last + 1].content),
+    };
+  });
   const constructed: Item = {
     key: "constructed", lang: "Arabic", name: "أحمد", digits: "05449876543", visitorCode: "ar",
     turns: extractionTurns(
@@ -395,7 +381,8 @@ async function main() {
   const order = ["English", "Arabic", "Russian", "Chinese", "Turkish", "Spanish", "Arabic-Indic"];
   const date = new Date().toISOString().slice(0, 10);
   const out: string[] = [`# Lead extraction: Sonnet vs gpt-6.1-terra vs gpt-6-luna, ${date}`, "",
-    `Offline, stored test-clinic transcripts: ${items.length} conversations (final turn) + the constructed Arabic-Indic turn, team languages English and Turkish, ${RUNS} runs.`, ""];
+    `Offline, stored test-clinic transcripts: ${items.length} conversations (final turn) + the constructed Arabic-Indic turn, team languages English and Turkish, ${RUNS} runs. Output limit ${LEAD_EXTRACTION_MAX_TOKENS} tokens on every model.`, "",
+    `Conversations (stored after the 2026-11-04 timestamp fix, no tied rows): ${items.map((i) => `${i.lang} \`${i.sessionId}\``).join(", ")}.`, ""];
   out.push("| Model | Visitor language | Calls | Name | Contact digits | ASCII digits | Visitor language | Age null | Summary in team language | Fields in team language | Invented figures | Score within 15 of Sonnet | Fields filled as Sonnet | Cost per call |");
   out.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
   const totals = new Map<Model, Score>();
