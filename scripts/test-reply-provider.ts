@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { testExtractionModel, testReplyModel, TEST_REPLY_MODELS } from "../lib/test-tenant";
-import { toOpenAIExtractionRequest, transcriptBlocks } from "../lib/lead-extraction";
+import { toOpenAIExtractionInput, toOpenAIExtractionRequest, transcriptBlocks } from "../lib/lead-extraction";
 import { buildLeadExtractionPrompt } from "../lib/lead-language";
 import { openAIUsageToTokens, toOpenAIReplyRequest } from "../lib/reply-openai";
 import { PRICING } from "../lib/ai-pricing";
@@ -141,6 +141,11 @@ check(
 // No explicit breakpoint: OpenAI caches the prefix automatically. The
 // explicit marker on the last part read the cache 0% of the time.
 check("no part carries an explicit cache breakpoint", ex.parts.every((p) => !("prompt_cache_breakpoint" in p)));
+const input = toOpenAIExtractionInput(ex);
+check(
+  "one input message per turn, all from the user, each holding exactly that turn’s text",
+  input.length === ex.parts.length && input.every((m, i) => m.role === "user" && m.content.length === 1 && m.content[0].text === ex.parts[i].text)
+);
 const extractionSrc = readFileSync(join(__dirname, "..", "lib", "lead-extraction.ts"), "utf8");
 check(
   "OpenAI's contact digits are normalised exactly like Sonnet's",

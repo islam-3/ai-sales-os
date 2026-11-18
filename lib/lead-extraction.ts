@@ -213,6 +213,21 @@ export function toOpenAIExtractionRequest(language: string, turns: TranscriptTur
 }
 
 /**
+ * The transcript as input messages: ONE MESSAGE PER TURN, each still the
+ * "User: ..." / "Assistant: ..." line and each sent as input from the user,
+ * so the model reads a transcript to extract from, not a chat to continue.
+ *
+ * One message per turn, not one message with a part per turn, because
+ * OpenAI never read its cache for the single-message form: every call
+ * from turn 3 wrote its whole prompt and read nothing, even seconds
+ * apart with the same key (docs/extraction-cache-2026-11-18.md). The reply,
+ * whose history is separate messages, did read it. Pure.
+ */
+export function toOpenAIExtractionInput(request: OpenAIExtractionRequest): { role: "user"; content: OpenAIExtractionRequest["parts"] }[] {
+  return request.parts.map((part) => ({ role: "user" as const, content: [part] }));
+}
+
+/**
  * One extraction call on OpenAI. Never throws.
  *
  * Returns our own token columns rather than OpenAI's usage object, so the
@@ -237,7 +252,7 @@ export async function callLeadExtractionOpenAI(
     const response = await client.responses.create({
       model,
       instructions: request.instructions,
-      input: [{ role: "user", content: request.parts }],
+      input: toOpenAIExtractionInput(request),
       max_output_tokens: LEAD_EXTRACTION_MAX_TOKENS,
       reasoning: { effort: "none" },
       prompt_cache_key: cacheKey,
