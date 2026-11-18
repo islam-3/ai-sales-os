@@ -16,7 +16,8 @@
 // reported here is a question the assistant would ask twice.
 
 import { assessCoverage } from "../lib/conversation-state";
-import { readAnsweredDimensions } from "../lib/coverage-answered";
+// COVERAGE_PROVIDER=openai measures the OpenAI reader; see _coverage-provider.
+import { readAnswered, reportCoverageArm } from "./_coverage-provider";
 import { coverageProbes, relevantDimensions } from "../lib/coverage-relevance";
 import { generateEmbedding } from "../lib/embeddings";
 import { parseEmbedding } from "../lib/vectors";
@@ -120,7 +121,7 @@ async function main() {
   for (const conv of CONVERSATIONS) {
     // Exactly what the route does.
     const answeredFor =
-      (await readAnsweredDimensions(
+      (await readAnswered(
         conv.turns.filter((x) => x.role === "user").map((x) => x.content),
         conv.turns.filter((x) => x.role === "assistant").map((x) => x.content)
       )) ?? undefined;
@@ -136,6 +137,8 @@ async function main() {
   }
 
   console.log(`\n  ${clean}/${CONVERSATIONS.length} classes do not repeat a question already answered`);
+  if (clean !== CONVERSATIONS.length) process.exitCode = 1;
+  reportCoverageArm();
 }
 
 main().catch((e) => {

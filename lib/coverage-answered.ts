@@ -27,6 +27,9 @@
 
 import { anthropic } from "./anthropic";
 import { recordUsage } from "./usage";
+import type OpenAI from "openai";
+import type { TokenCounts } from "./ai-pricing";
+import { openAIUsageToTokens } from "./reply-openai";
 
 export type AnsweredDimensions = Set<string>;
 
@@ -63,6 +66,48 @@ function firstJsonObject(text: string): string {
   throw new Error("unbalanced JSON object in response");
 }
 
+/**
+ * The conversation as the model reads it, or null when the visitor has
+ * said nothing. Labelled by speaker, because one key is judged from each
+ * side and a flat join would make "I'll send a photo" indistinguishable
+ * from the assistant asking for one.
+ */
+function answeredInput(visitorMessages: string[], assistantMessages: string[]): string | null {
+  const visitor = visitorMessages.filter((m) => m.trim());
+  if (visitor.length === 0) return null;
+  return [
+    ...visitor.map((m) => `VISITOR: ${m}`),
+    ...assistantMessages.filter((m) => m.trim()).map((m) => `ASSISTANT: ${m}`),
+  ].join("\n");
+}
+
+/** The model's answer read into dimensions. Shared by both providers. Throws on no JSON. */
+function answeredFrom(text: string): AnsweredDimensions {
+  const parsed = JSON.parse(
+    firstJsonObject(text)
+  ) as Record<string, unknown>;
+
+  const answered = new Set<string>();
+  for (const id of ["dates", "duration", "origin", "health"]) {
+    if (parsed[id] === true) answered.add(id);
+  }
+
+  // Photos is the one dimension that is satisfied by ASKING, not only
+  // by answering. The others are facts the team needs and will keep
+  // needing, so a visitor who dodges the question should be asked
+  // again. A request to see someone's case is different: asked twice
+  // it reads as pressure, and a visitor who does not want to send a
+  // picture has given their answer by not sending one.
+  //
+  // So "already asked" and "already answered" collapse to the same
+  // thing here - not a gap - and the close is never held up by it.
+  if (parsed.photos === true || parsed.photos_requested === true) {
+    answered.add("photos");
+  }
+
+  return answered;
+}
+
 let warned = false;
 
 /**
@@ -79,16 +124,8 @@ export async function readAnsweredDimensions(
   /** Who to bill this to. Omitted only by harnesses with no tenant. */
   meter?: { tenantId: string; sessionId: string }
 ): Promise<AnsweredDimensions | null> {
-  const visitor = visitorMessages.filter((m) => m.trim());
-  if (visitor.length === 0) return null;
-
-  // Labelled by speaker, because one key is judged from each side and a
-  // flat join would make "I'll send a photo" indistinguishable from the
-  // assistant asking for one.
-  const text = [
-    ...visitor.map((m) => `VISITOR: ${m}`),
-    ...assistantMessages.filter((m) => m.trim()).map((m) => `ASSISTANT: ${m}`),
-  ].join("\n");
+  const text = answeredInput(visitorMessages, assistantMessages);
+  if (text === null) return null;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ANSWERED_BUDGET_MS);
@@ -122,29 +159,7 @@ export async function readAnsweredDimensions(
     }
 
     const block = res.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(
-      firstJsonObject(block?.type === "text" ? block.text : "")
-    ) as Record<string, unknown>;
-
-    const answered = new Set<string>();
-    for (const id of ["dates", "duration", "origin", "health"]) {
-      if (parsed[id] === true) answered.add(id);
-    }
-
-    // Photos is the one dimension that is satisfied by ASKING, not only
-    // by answering. The others are facts the team needs and will keep
-    // needing, so a visitor who dodges the question should be asked
-    // again. A request to see someone's case is different: asked twice
-    // it reads as pressure, and a visitor who does not want to send a
-    // picture has given their answer by not sending one.
-    //
-    // So "already asked" and "already answered" collapse to the same
-    // thing here - not a gap - and the close is never held up by it.
-    if (parsed.photos === true || parsed.photos_requested === true) {
-      answered.add("photos");
-    }
-
-    return answered;
+    return answeredFrom(block?.type === "text" ? block.text : "");
   } catch (error) {
     if (!warned) {
       warned = true;
@@ -156,5 +171,39 @@ export async function readAnsweredDimensions(
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// ── The same call on OpenAI ──────────────────────────────────────────
+// MEASUREMENT ONLY for now: nothing on the reply path calls this. Same
+// PROMPT, same input (answeredInput), same reading (answeredFrom).
+// Returns null on any failure, like the Haiku call, so a caller must
+// count nulls: the route's fallback to word matching would otherwise
+// hide a failing model.
+export async function readAnsweredDimensionsOpenAI(
+  client: OpenAI,
+  model: string,
+  visitorMessages: string[],
+  assistantMessages: string[] = [],
+  onTokens?: (tokens: TokenCounts) => void
+): Promise<AnsweredDimensions | null> {
+  const text = answeredInput(visitorMessages, assistantMessages);
+  if (text === null) return null;
+  try {
+    const res = await client.responses.create(
+      {
+        model,
+        instructions: PROMPT,
+        input: [{ role: "user", content: text }],
+        max_output_tokens: 150,
+        reasoning: { effort: "none" },
+        store: false,
+      },
+      { signal: AbortSignal.timeout(ANSWERED_BUDGET_MS) }
+    );
+    if (res.usage && onTokens) onTokens(openAIUsageToTokens(res.usage));
+    return answeredFrom(res.output_text ?? "");
+  } catch {
+    return null;
   }
 }

@@ -24,7 +24,8 @@
 // lib/conversation-state.ts.
 
 import { assessCoverage, isNearingClose } from "../lib/conversation-state";
-import { readAnsweredDimensions } from "../lib/coverage-answered";
+// COVERAGE_PROVIDER=openai measures the OpenAI reader; see _coverage-provider.
+import { readAnswered, reportCoverageArm } from "./_coverage-provider";
 import { coverageProbes, relevantDimensions } from "../lib/coverage-relevance";
 import { generateEmbedding } from "../lib/embeddings";
 import { parseEmbedding } from "../lib/vectors";
@@ -134,7 +135,7 @@ async function gapsFor(
   relevantFor: ReadonlySet<string>
 ) {
   const answeredFor =
-    (await readAnsweredDimensions(
+    (await readAnswered(
       turns.filter((x) => x.role === "user").map((x) => x.content),
       turns.filter((x) => x.role === "assistant").map((x) => x.content)
     )) ?? undefined;
@@ -235,6 +236,8 @@ async function main() {
   const allGood =
     fires === SETTLED.length && once === SETTLED.length && declines === SETTLED.length && quiet;
   console.log(allGood ? "\nall four properties hold" : "\nSOMETHING IS WRONG — see above");
+  if (!allGood) process.exitCode = 1;
+  reportCoverageArm();
 }
 
 main().catch((e) => {
