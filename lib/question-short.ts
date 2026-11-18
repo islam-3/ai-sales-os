@@ -25,6 +25,8 @@
 // flagged fallback. See shortenAndMatch below.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
+import { openAIUsageToTokens } from "./reply-openai";
 
 /** Same model as the judge, for the same reason: this text is shown to owners. */
 export const SHORTEN_MODEL = process.env.SHORTEN_MODEL ?? "claude-sonnet-4-6";
@@ -133,6 +135,37 @@ export type MatchedQuestion = ShortQuestion & {
   matchRaw?: string;
 };
 
+/** The dashboard's existing lines as the model reads them. Shared by both providers. */
+function groupList(groups: { id: string; title: string }[]): string {
+  return groups.length === 0 ? "(none yet)" : groups.map((g, i) => `g${i + 1}: ${g.title}`).join("\n");
+}
+
+/**
+ * The model's answer read into a line and a group. Shared by both
+ * providers, so the code checks on the line (checkShortQuestion) and the
+ * id mapping apply to both alike.
+ */
+function matchedFrom(raw: string, groups: { id: string; title: string }[], usage: { input: number; output: number }): MatchedQuestion {
+  const questionLine = raw.match(/^QUESTION:\s*(.+)$/m)?.[1] ?? "";
+  const matchRaw = raw.match(/^MATCH:\s*(\S+)/m)?.[1]?.toLowerCase() ?? "";
+  const index = /^g(\d+)$/.exec(matchRaw)?.[1];
+  const group = index ? groups[Number(index) - 1] : undefined;
+
+  const text = questionLine.replace(/^["'«“]|["'»”]$/g, "").trim();
+  const check = checkShortQuestion(text);
+  if (!check.ok) {
+    return {
+      text: "A question we could not summarise — open the conversation",
+      rejected: true,
+      reason: check.reason,
+      usage,
+      groupId: null,
+      matchRaw,
+    };
+  }
+  return { text, usage, groupId: group?.id ?? null, matchRaw };
+}
+
 /**
  * Shortens a question and picks its group in the same call.
  *
@@ -149,10 +182,7 @@ export async function shortenAndMatch(
   groups: { id: string; title: string }[],
   model = SHORTEN_MODEL
 ): Promise<MatchedQuestion> {
-  const list =
-    groups.length === 0
-      ? "(none yet)"
-      : groups.map((g, i) => `g${i + 1}: ${g.title}`).join("\n");
+  const list = groupList(groups);
 
   try {
     const res = await client.messages.create({
@@ -168,27 +198,39 @@ export async function shortenAndMatch(
     });
 
     const block = res.content.find((b) => b.type === "text");
-    const raw = block?.type === "text" ? block.text.trim() : "";
-    const usage = { input: res.usage.input_tokens, output: res.usage.output_tokens };
+    return matchedFrom(block?.type === "text" ? block.text.trim() : "", groups, { input: res.usage.input_tokens, output: res.usage.output_tokens });
+  } catch (error) {
+    return {
+      text: "A question we could not summarise — open the conversation",
+      rejected: true,
+      reason: String((error as Error).message).slice(0, 120),
+      groupId: null,
+    };
+  }
+}
 
-    const questionLine = raw.match(/^QUESTION:\s*(.+)$/m)?.[1] ?? "";
-    const matchRaw = raw.match(/^MATCH:\s*(\S+)/m)?.[1]?.toLowerCase() ?? "";
-    const index = /^g(\d+)$/.exec(matchRaw)?.[1];
-    const group = index ? groups[Number(index) - 1] : undefined;
-
-    const text = questionLine.replace(/^["'«“]|["'»”]$/g, "").trim();
-    const check = checkShortQuestion(text);
-    if (!check.ok) {
-      return {
-        text: "A question we could not summarise — open the conversation",
-        rejected: true,
-        reason: check.reason,
-        usage,
-        groupId: null,
-        matchRaw,
-      };
-    }
-    return { text, usage, groupId: group?.id ?? null, matchRaw };
+// ── The same call on OpenAI ──────────────────────────────────────────
+// MEASUREMENT ONLY for now: nothing on the capture path calls this. Same
+// prompt and input, same reading and code checks (matchedFrom). Fails the
+// same way: the flagged fallback line, never a merge.
+export async function shortenAndMatchOpenAI(
+  client: OpenAI,
+  question: string,
+  teamLanguage: string,
+  groups: { id: string; title: string }[],
+  model: string
+): Promise<MatchedQuestion> {
+  try {
+    const res = await client.responses.create({
+      model,
+      instructions: `${MATCH_PROMPT}\n\nWrite it in: ${teamLanguage}`,
+      input: [{ role: "user", content: `Questions already on the dashboard:\n${groupList(groups)}\n\nCustomer's question:\n${question}` }],
+      max_output_tokens: 200,
+      reasoning: { effort: "none" },
+      store: false,
+    });
+    const t = res.usage ? openAIUsageToTokens(res.usage) : null;
+    return matchedFrom((res.output_text ?? "").trim(), groups, { input: t?.inputTokens ?? 0, output: t?.outputTokens ?? 0 });
   } catch (error) {
     return {
       text: "A question we could not summarise — open the conversation",

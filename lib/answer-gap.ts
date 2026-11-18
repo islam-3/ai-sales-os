@@ -28,6 +28,8 @@
 // uncertain is treated as answered.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
+import { openAIUsageToTokens } from "./reply-openai";
 
 // Sonnet, chosen by measurement rather than by cost.
 //
@@ -140,6 +142,30 @@ function firstJsonObject(text: string): string {
 }
 
 /**
+ * The judge's answer turned into a verdict. Shared by both providers.
+ *
+ * The verdict is DERIVED: a claim counts only when it points at an item
+ * that exists. A number outside the list is treated as no answer named
+ * rather than as a pass, because a judge inventing an index is a judge
+ * that was guessing. Throws on no JSON.
+ */
+function verdictFromAnswer(text: string, usable: KnowledgeForJudge[]): AnswerGapVerdict {
+  const parsed = JSON.parse(firstJsonObject(text)) as { entry?: unknown; note?: unknown };
+  const index = typeof parsed.entry === "number" ? Math.trunc(parsed.entry) : null;
+  const valid = index !== null && index >= 1 && index <= usable.length;
+  return {
+    answered: valid,
+    entryTitle: valid ? usable[index - 1].title : null,
+    note: typeof parsed.note === "string" ? parsed.note : "",
+  };
+}
+
+/** The business's material as the judge reads it. Shared by both providers. */
+function knowledgeListing(usable: KnowledgeForJudge[]): string {
+  return usable.map((k, i) => `${i + 1}. ${k.title.trim() || "(untitled)"}\n${k.content.trim()}`).join("\n\n");
+}
+
+/**
  * Judges one question against everything the business has written.
  *
  * The whole knowledge base, deliberately, rather than whatever the reply
@@ -162,9 +188,7 @@ export async function judgeAnswerGap(
     return { answered: false, entryTitle: null, note: "the business has written nothing yet" };
   }
 
-  const listing = usable
-    .map((k, i) => `${i + 1}. ${k.title.trim() || "(untitled)"}\n${k.content.trim()}`)
-    .join("\n\n");
+  const listing = knowledgeListing(usable);
 
   try {
     const res = await client.messages.create({
@@ -191,22 +215,8 @@ export async function judgeAnswerGap(
       messages: [{ role: "user", content: `CUSTOMER'S QUESTION:\n${question}` }],
     });
     const block = res.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(firstJsonObject(block?.type === "text" ? block.text : "")) as {
-      entry?: unknown;
-      note?: unknown;
-    };
-
-    // The verdict is DERIVED: a claim counts only when it points at an
-    // item that exists. A number outside the list is treated as no
-    // answer named rather than as a pass, because a judge inventing an
-    // index is a judge that was guessing.
-    const index = typeof parsed.entry === "number" ? Math.trunc(parsed.entry) : null;
-    const valid = index !== null && index >= 1 && index <= usable.length;
-
     return {
-      answered: valid,
-      entryTitle: valid ? usable[index - 1].title : null,
-      note: typeof parsed.note === "string" ? parsed.note : "",
+      ...verdictFromAnswer(block?.type === "text" ? block.text : "", usable),
       usage: {
         input: res.usage.input_tokens,
         output: res.usage.output_tokens,
@@ -223,5 +233,43 @@ export async function judgeAnswerGap(
       note: String((error as Error).message).slice(0, 120),
       failed: true,
     };
+  }
+}
+
+// ── The same judge on OpenAI ─────────────────────────────────────────
+// MEASUREMENT ONLY for now: nothing on the capture path calls this. Same
+// prompt, same listing, same question, same derived verdict. The
+// instructions carry the prompt and the listing, which are identical on
+// every call for a tenant, and the question is the only input, so
+// OpenAI's automatic prefix cache can reuse the listing (cacheKey per
+// tenant). Fails the same way: unreachable is "answered", never a gap.
+export async function judgeAnswerGapOpenAI(
+  client: OpenAI,
+  question: string,
+  knowledge: KnowledgeForJudge[],
+  model: string,
+  cacheKey: string
+): Promise<AnswerGapVerdict> {
+  const usable = knowledge.filter((k) => k.content.trim());
+  if (usable.length === 0) {
+    return { answered: false, entryTitle: null, note: "the business has written nothing yet" };
+  }
+  try {
+    const res = await client.responses.create({
+      model,
+      instructions: `${ANSWER_GAP_PROMPT}\n\nWHAT THE BUSINESS HAS WRITTEN:\n${knowledgeListing(usable)}`,
+      input: [{ role: "user", content: `CUSTOMER'S QUESTION:\n${question}` }],
+      max_output_tokens: 300,
+      reasoning: { effort: "none" },
+      prompt_cache_key: cacheKey,
+      store: false,
+    });
+    const t = res.usage ? openAIUsageToTokens(res.usage) : null;
+    return {
+      ...verdictFromAnswer(res.output_text ?? "", usable),
+      usage: t ? { input: t.inputTokens ?? 0, output: t.outputTokens ?? 0, cacheWrite: t.cacheWriteInputTokens ?? 0, cacheRead: t.cacheReadInputTokens ?? 0 } : undefined,
+    };
+  } catch (error) {
+    return { answered: true, entryTitle: null, note: String((error as Error).message).slice(0, 120), failed: true };
   }
 }

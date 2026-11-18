@@ -22,7 +22,25 @@
 import { supabaseServer } from "../lib/supabase-server";
 import { isTestTenant, refusalMessage, TEST_TENANT_SLUG } from "../lib/test-tenant";
 import { anthropic } from "../lib/anthropic";
-import { judgeAnswerGap, type KnowledgeForJudge } from "../lib/answer-gap";
+import { judgeAnswerGap, judgeAnswerGapOpenAI, type AnswerGapVerdict, type KnowledgeForJudge } from "../lib/answer-gap";
+import { calculateCostUsd } from "../lib/ai-pricing";
+
+// JUDGE_PROVIDER=openai runs judgeAnswerGapOpenAI (JUDGE_MODEL, default
+// gpt-6.1-terra) on the same cases and knowledge; default is Sonnet.
+const OPENAI_JUDGE = process.env.JUDGE_PROVIDER === "openai";
+const OPENAI_MODEL = process.env.JUDGE_MODEL ?? "gpt-6.1-terra";
+let judgeCost = 0;
+async function judge(question: string, knowledge: KnowledgeForJudge[]): Promise<AnswerGapVerdict> {
+  const v = OPENAI_JUDGE
+    ? await judgeAnswerGapOpenAI((await import("../lib/openai")).openai, question, knowledge, OPENAI_MODEL, "answer-gap-test-clinic")
+    : await judgeAnswerGap(anthropic, question, knowledge);
+  if (v.usage) {
+    judgeCost += calculateCostUsd(OPENAI_JUDGE ? OPENAI_MODEL : "claude-sonnet-4-6", {
+      inputTokens: v.usage.input, outputTokens: v.usage.output, cacheReadInputTokens: v.usage.cacheRead, cacheWriteInputTokens: v.usage.cacheWrite,
+    });
+  }
+  return v;
+}
 import { ANSWER_GAP_CASES, LANGUAGES, type CaseLanguage } from "./answer-gap-cases";
 
 const SLUG = process.env.SLUG ?? TEST_TENANT_SLUG;
@@ -85,7 +103,7 @@ async function main() {
     byLang[lang] = empty();
     console.log(`── ${lang} ──`);
     for (const c of cases) {
-      const verdict = await judgeAnswerGap(anthropic, c[lang as CaseLanguage], knowledge);
+      const verdict = await judge(c[lang as CaseLanguage], knowledge);
       if (verdict.failed) {
         byLang[lang].failed++;
         console.log(`  ${c.id.padEnd(15)} JUDGE UNREACHABLE: ${verdict.note.slice(0, 50)}`);
@@ -165,6 +183,8 @@ async function main() {
     `\n  ${total.fp === 0 ? "ZERO false gaps" : `${total.fp} FALSE GAPS — not shippable`}` +
       `, recall ${pct(s.recall)} against a floor of 50%`
   );
+  console.log(`  judge: ${OPENAI_JUDGE ? `${OPENAI_MODEL} (OpenAI)` : "Sonnet (Anthropic)"}   cost ${judgeCost.toFixed(4)}`);
+  if (total.fp > 0 || (s.recall ?? 0) < 0.5) process.exitCode = 1;
 }
 
 main().catch((e) => {

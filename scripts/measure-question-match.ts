@@ -13,7 +13,13 @@
 // embedding threshold already produces.
 
 import { anthropic } from "../lib/anthropic";
-import { shortenAndMatch } from "../lib/question-short";
+import { shortenAndMatch, shortenAndMatchOpenAI } from "../lib/question-short";
+import { calculateCostUsd } from "../lib/ai-pricing";
+
+// SHORTEN_PROVIDER=openai runs shortenAndMatchOpenAI (SHORTEN_MODEL,
+// default gpt-6.1-terra) on the same cases; default is Sonnet.
+const OPENAI_SHORTEN = process.env.SHORTEN_PROVIDER === "openai";
+const OPENAI_MODEL = process.env.SHORTEN_MODEL ?? "gpt-6.1-terra";
 import { CASES, GROUPS } from "./question-match-cases";
 
 const RUNS = Number(process.env.RUNS ?? 3);
@@ -38,8 +44,10 @@ async function runOnce(run: number): Promise<{ results: Result[]; cost: number }
   async function worker() {
     while (next < CASES.length) {
       const index = next++;
-      const r = await shortenAndMatch(anthropic, CASES[index].question, "English", GROUPS);
-      if (r.usage) cost += r.usage.input * INPUT_PRICE + r.usage.output * OUTPUT_PRICE;
+      const r = OPENAI_SHORTEN
+        ? await shortenAndMatchOpenAI((await import("../lib/openai")).openai, CASES[index].question, "English", GROUPS, OPENAI_MODEL)
+        : await shortenAndMatch(anthropic, CASES[index].question, "English", GROUPS);
+      if (r.usage) cost += OPENAI_SHORTEN ? calculateCostUsd(OPENAI_MODEL, { inputTokens: r.usage.input, outputTokens: r.usage.output }) : r.usage.input * INPUT_PRICE + r.usage.output * OUTPUT_PRICE;
       results.push({ run, index, got: r.groupId, text: r.text, rejected: r.reason, matchRaw: r.matchRaw });
     }
   }
@@ -49,7 +57,7 @@ async function runOnce(run: number): Promise<{ results: Result[]; cost: number }
 }
 
 async function main() {
-  console.log(`shortenAndMatch — ${CASES.length} cases x ${RUNS} runs, ${GROUPS.length} existing groups`);
+  console.log(`shortenAndMatch${OPENAI_SHORTEN ? ` on ${OPENAI_MODEL} (OpenAI)` : " on Sonnet"} — ${CASES.length} cases x ${RUNS} runs, ${GROUPS.length} existing groups`);
   console.log(`same: ${CASES.filter((c) => c.expected).length}, near-miss: ${CASES.filter((c) => !c.expected).length}\n`);
 
   let wrongMerges = 0;
@@ -103,7 +111,7 @@ async function main() {
   );
   console.log(`cost: $${totalCost.toFixed(4)}`);
   console.log(wrongMerges === 0 ? "\nPASS: no wrong merge on any run" : "\nFAIL: at least one wrong merge");
-  process.exit(wrongMerges === 0 ? 0 : 1);
+  process.exitCode = wrongMerges === 0 ? 0 : 1;
 }
 
 main();
