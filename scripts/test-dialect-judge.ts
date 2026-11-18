@@ -26,9 +26,18 @@
 // plain European Spanish and British English with ordinary politeness in
 // them. A judge that cannot leave those alone cannot measure anything.
 
+// ── Which judge ──────────────────────────────────────────────────────
+// JUDGE_PROVIDER=openai runs judgeDialectOpenAI (JUDGE_MODEL, default
+// gpt-6.1-terra) on the same samples; default is the Sonnet judge.
+// RUNS=n repeats the whole set (one pass has hidden flakiness here
+// before); every run must be 16/16. MEASURE_ONE=1 makes one call and
+// prints its cost, to quote a total from.
+//
 // The client is loaded inside main(), behind the LIVE gate, so loading
 // this file costs nothing.
-import { DIALECT_JUDGE_PROMPT, judgeDialect } from "../lib/dialect-judge";
+import { DIALECT_JUDGE_PROMPT, judgeDialect, judgeDialectOpenAI, type DialectVerdict } from "../lib/dialect-judge";
+import { calculateCostUsd } from "../lib/ai-pricing";
+import { openAIUsageToTokens } from "../lib/reply-openai";
 
 let bad = 0;
 const check = (name: string, pass: boolean, detail?: string) => {
@@ -156,27 +165,63 @@ async function main() {
     );
     process.exit(0);
   }
-  const { anthropic } = await import("../lib/anthropic");
-  console.log(`${SAMPLES.length} labelled samples\n`);
+  const OPENAI = process.env.JUDGE_PROVIDER === "openai";
+  const RUNS = Number(process.env.RUNS ?? 1);
+  let cost = 0;
+  let judge: (variety: string, reply: string) => Promise<DialectVerdict>;
+  if (OPENAI) {
+    const { openai } = await import("../lib/openai");
+    const model = process.env.JUDGE_MODEL ?? "gpt-6.1-terra";
+    // Count what each call costs, without touching the judge itself.
+    const counting = {
+      responses: {
+        create: async (body: any) => {
+          const res = await openai.responses.create(body);
+          if ((res as any).usage) cost += calculateCostUsd(model, openAIUsageToTokens((res as any).usage));
+          return res;
+        },
+      },
+    } as unknown as typeof openai;
+    judge = (variety, reply) => judgeDialectOpenAI(counting, variety, reply, model);
+    console.log(`judge: ${model} (OpenAI)`);
+  } else {
+    const { anthropic } = await import("../lib/anthropic");
+    judge = (variety, reply) => judgeDialect(anthropic, variety, reply);
+    console.log("judge: Sonnet (Anthropic)");
+  }
+  if (process.env.MEASURE_ONE === "1") {
+    const v = await judge(SAMPLES[6].variety, SAMPLES[6].reply);
+    console.log(`one call: $${cost.toFixed(5)}  introduced=${v.introduced}${v.failed ? `  JUDGE ERROR ${v.note}` : ""}`);
+    process.exit(0);
+  }
+  console.log(`${SAMPLES.length} labelled samples x ${RUNS} run(s)\n`);
 
   const wrong: Sample[] = [];
-  for (const s of SAMPLES) {
-    const verdict = await judgeDialect(anthropic, s.variety, s.reply);
-    if (verdict.failed) {
-      bad++;
-      console.log(`FAIL  ${s.label.padEnd(46)} JUDGE ERROR: ${verdict.note.slice(0, 60)}`);
-      continue;
+  const perRun: string[] = [];
+  for (let run = 1; run <= RUNS; run++) {
+    if (RUNS > 1) console.log(`run ${run}`);
+    let right = 0;
+    for (const s of SAMPLES) {
+      const verdict = await judge(s.variety, s.reply);
+      if (verdict.failed) {
+        bad++;
+        console.log(`FAIL  ${s.label.padEnd(46)} JUDGE ERROR: ${verdict.note.slice(0, 60)}`);
+        continue;
+      }
+      const ok = verdict.introduced === s.expect;
+      if (ok) right++; else wrong.push(s);
+      check(
+        `${s.expect ? "fires" : "quiet"}  ${s.label.padEnd(46)}`,
+        ok,
+        ok
+          ? undefined
+          : `got introduced=${verdict.introduced}  markers=[${verdict.markers.join(", ")}]  ${verdict.note}`
+      );
     }
-    const ok = verdict.introduced === s.expect;
-    if (!ok) wrong.push(s);
-    check(
-      `${s.expect ? "fires" : "quiet"}  ${s.label.padEnd(46)}`,
-      ok,
-      ok
-        ? undefined
-        : `got introduced=${verdict.introduced}  markers=[${verdict.markers.join(", ")}]  ${verdict.note}`
-    );
+    perRun.push(`${right}/${SAMPLES.length}`);
   }
+  if (RUNS > 1) console.log(`\n  per run                 ${perRun.join(", ")}`);
+  if (OPENAI) console.log(`  cost                    $${cost.toFixed(4)}`);
 
   // Precision on the negatives is reported separately, because that is
   // the half that actually broke and the half a single aggregate hides.
@@ -185,8 +230,8 @@ async function main() {
   const positives = SAMPLES.filter((s) => s.expect);
   const misses = wrong.filter((s) => s.expect).length;
   console.log(
-    `\n  fires when it should    ${positives.length - misses}/${positives.length}` +
-      `\n  quiet when it should    ${negatives.length - falsePositives}/${negatives.length}`
+    `\n  fires when it should    ${RUNS * positives.length - misses}/${RUNS * positives.length}` +
+      `\n  quiet when it should    ${RUNS * negatives.length - falsePositives}/${RUNS * negatives.length}`
   );
 
   if (bad > 0) {

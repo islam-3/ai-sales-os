@@ -21,6 +21,7 @@
 // the vagueness arrives as a number.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 
 export const DIALECT_JUDGE_PROMPT = `You are checking whether a business's chat assistant wrote in the same regional variety of a language as its visitor.
 
@@ -67,6 +68,35 @@ function firstJsonObject(text: string): string {
   throw new Error("unbalanced JSON object in response");
 }
 
+/** The judge's answer turned into a verdict. Shared by both providers, so they cannot drift. Throws on no JSON. */
+function verdictFrom(text: string): DialectVerdict {
+  const parsed = JSON.parse(firstJsonObject(text)) as {
+    other_variety?: string;
+    markers?: string[];
+    note?: string;
+  };
+
+  // The VERDICT is derived here, not asked for.
+  //
+  // Asking for a boolean as well as the evidence produced answers where
+  // the two disagreed: on a Latin American Spanish reply the judge
+  // listed "agendar" and "acá", explained in its note that both are
+  // Latin American and that peninsular Spanish would use "concertar"
+  // and "aquí" — and still set its own boolean to false. Evidence plus
+  // a named variety IS the finding, so the boolean is computed from
+  // them and cannot contradict them.
+  const named = (parsed.other_variety ?? "").trim();
+  const markers = (parsed.markers ?? []).filter((m) => typeof m === "string" && m.trim());
+  const introduced = markers.length > 0 && named.length > 0;
+
+  return {
+    introduced,
+    otherVariety: named,
+    markers,
+    note: parsed.note ?? "",
+  };
+}
+
 /**
  * Judges one reply.
  *
@@ -88,31 +118,7 @@ export async function judgeDialect(
       messages: [{ role: "user", content: `VISITOR'S VARIETY: ${variety}\n\nREPLY:\n${reply}` }],
     });
     const block = res.content.find((b) => b.type === "text");
-    const parsed = JSON.parse(firstJsonObject(block?.type === "text" ? block.text : "")) as {
-      other_variety?: string;
-      markers?: string[];
-      note?: string;
-    };
-
-    // The VERDICT is derived here, not asked for.
-    //
-    // Asking for a boolean as well as the evidence produced answers where
-    // the two disagreed: on a Latin American Spanish reply the judge
-    // listed "agendar" and "acá", explained in its note that both are
-    // Latin American and that peninsular Spanish would use "concertar"
-    // and "aquí" — and still set its own boolean to false. Evidence plus
-    // a named variety IS the finding, so the boolean is computed from
-    // them and cannot contradict them.
-    const named = (parsed.other_variety ?? "").trim();
-    const markers = (parsed.markers ?? []).filter((m) => typeof m === "string" && m.trim());
-    const introduced = markers.length > 0 && named.length > 0;
-
-    return {
-      introduced,
-      otherVariety: named,
-      markers,
-      note: parsed.note ?? "",
-    };
+    return verdictFrom(block?.type === "text" ? block.text : "");
   } catch (error) {
     return {
       introduced: false,
@@ -121,5 +127,32 @@ export async function judgeDialect(
       note: String((error as Error).message).slice(0, 120),
       failed: true,
     };
+  }
+}
+
+/**
+ * The same judge on OpenAI: the same prompt, the same input, the verdict
+ * derived the same way (verdictFrom). Reasoning effort "none", like the
+ * Sonnet judge, which runs without thinking. Fails the same way: a judge
+ * that cannot be reached returns failed, never a pass.
+ */
+export async function judgeDialectOpenAI(
+  client: OpenAI,
+  variety: string,
+  reply: string,
+  model = process.env.JUDGE_MODEL ?? "gpt-6.1-terra"
+): Promise<DialectVerdict> {
+  try {
+    const res = await client.responses.create({
+      model,
+      instructions: DIALECT_JUDGE_PROMPT,
+      input: [{ role: "user", content: `VISITOR'S VARIETY: ${variety}\n\nREPLY:\n${reply}` }],
+      max_output_tokens: 500,
+      reasoning: { effort: "none" },
+      store: false,
+    });
+    return verdictFrom(res.output_text ?? "");
+  } catch (error) {
+    return { introduced: false, otherVariety: "", markers: [], note: String((error as Error).message).slice(0, 120), failed: true };
   }
 }
