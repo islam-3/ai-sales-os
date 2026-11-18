@@ -819,6 +819,27 @@ today and is not survivable the day a clinic is paying for uptime.
   industry words (scripts/test-price-next-step.ts enforces that last
   part).
 
+### Lead card improvements (not built)
+
+Both replace something the extraction model writes with a fact code
+already has. Neither is a launch blocker.
+
+- **Travel country from the phone prefix.** Parse `contact_info` with
+  libphonenumber-js, which tells `+7 7xx` (Kazakhstan) from `+7 9xx`
+  (Russia). Only for numbers written internationally (`+` or `00`); a
+  local number gets nothing, never a guess. Stored as its own value
+  (`qualification_data.phone_country`), never over `travel_country`,
+  and shown as "Kazakhstan (from phone prefix)" only when the visitor
+  did not say a country. Why: Sonnet fills `travel_country` from the
+  visitor's language or prefix when nobody said it (27 of 58 in
+  docs/extraction-schema-2026-11-18.md), and a stated country must win:
+  the +7 visitor who said Kazakhstan was right, her prefix alone was
+  not.
+- **"Photo sent / no photo yet" badge** counted from
+  `qualification_data.attachments`, which the upload path already
+  records in code. Plus a prompt line telling extraction not to note
+  photo status, which goes stale ("No photo sent yet" in Sonnet's notes).
+
 ---
 
 ## Where the receipts are
