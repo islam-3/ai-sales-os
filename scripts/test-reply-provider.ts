@@ -138,10 +138,9 @@ check(
   "one input part per turn, with the same text as the Anthropic blocks",
   JSON.stringify(ex.parts.map((p) => p.text)) === JSON.stringify(transcriptBlocks(turns).map((b) => b.text))
 );
-check(
-  "the cache breakpoint is on the last part only, like cache_control",
-  ex.parts.filter((p) => p.prompt_cache_breakpoint).length === 1 && ex.parts[ex.parts.length - 1].prompt_cache_breakpoint?.mode === "explicit"
-);
+// No explicit breakpoint: OpenAI caches the prefix automatically. The
+// explicit marker on the last part read the cache 0% of the time.
+check("no part carries an explicit cache breakpoint", ex.parts.every((p) => !("prompt_cache_breakpoint" in p)));
 const extractionSrc = readFileSync(join(__dirname, "..", "lib", "lead-extraction.ts"), "utf8");
 check(
   "OpenAI's contact digits are normalised exactly like Sonnet's",

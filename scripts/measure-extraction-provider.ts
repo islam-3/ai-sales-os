@@ -48,8 +48,14 @@ import { calculateCostUsd, type TokenCounts } from "../lib/ai-pricing";
 import { resolveLanguageCode } from "../lib/languages";
 import { isTestTenant, TEST_TENANT_SLUG } from "../lib/test-tenant";
 
-const MODELS = ["sonnet", "gpt-6.1-terra", "gpt-6-luna"] as const;
-type Model = (typeof MODELS)[number];
+const ALL_MODELS = ["sonnet", "gpt-6.1-terra", "gpt-6-luna"] as const;
+type Model = (typeof ALL_MODELS)[number];
+// ONLY_MODELS narrows the run (comma-separated); REPLAY_ONLY=1 skips parts
+// A and B and runs only the turn-by-turn replay, e.g. to measure caching.
+const MODELS: readonly Model[] = process.env.ONLY_MODELS
+  ? ALL_MODELS.filter((m) => process.env.ONLY_MODELS!.split(",").includes(m))
+  : ALL_MODELS;
+const REPLAY_ONLY = process.env.REPLAY_ONLY === "1";
 const TEAM_LANGUAGES = ["English", "Turkish"] as const;
 const RUNS = 2;
 const PER_OPENER = 2;
@@ -277,7 +283,7 @@ async function main() {
   }
   console.log(`${items.length} stored conversations + 1 constructed, ${MODELS.length} models, ${TEAM_LANGUAGES.length} team languages, ${RUNS} runs`);
   const results = new Map<string, Result>(); // `${model}|${item}|${team}|${run}`
-  for (let run = 1; run <= RUNS; run++) {
+  for (let run = 1; run <= (REPLAY_ONLY ? 0 : RUNS); run++) {
     for (const item of [...items, constructed]) {
       for (const team of TEAM_LANGUAGES) {
         for (const m of MODELS) {

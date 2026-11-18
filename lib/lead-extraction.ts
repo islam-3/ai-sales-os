@@ -183,9 +183,12 @@ export async function callLeadExtraction(
 // What maps to what, so the two providers read the same thing:
 //   system prompt          -> instructions, the same buildLeadExtractionPrompt
 //   one block per turn     -> one input_text part per turn, the same text
-//   cache_control on last  -> prompt_cache_breakpoint "explicit" on the last
-//                             part: OpenAI's own marker for the end of a
-//                             reusable prefix (GPT-5.6 and later)
+//   cache_control on last  -> nothing: OpenAI's automatic prefix caching.
+//                             An explicit prompt_cache_breakpoint on the last
+//                             part read the cache 0% of the time in the
+//                             2026-11-17 replay (the marker moves every
+//                             turn), where the reply, with no marker, read it
+//                             on 70/84 calls.
 //   "respond ONLY JSON"    -> the same instruction and nothing more, like
 //                             Sonnet. NOT json_object: OpenAI rejects it
 //                             unless the word "json" is in the INPUT, and
@@ -198,19 +201,14 @@ export async function callLeadExtraction(
 
 export type OpenAIExtractionRequest = {
   instructions: string;
-  parts: { type: "input_text"; text: string; prompt_cache_breakpoint?: { mode: "explicit" } }[];
+  parts: { type: "input_text"; text: string }[];
 };
 
 /** The extraction request, as the Responses API takes it. Pure. */
 export function toOpenAIExtractionRequest(language: string, turns: TranscriptTurn[]): OpenAIExtractionRequest {
-  const blocks = transcriptBlocks(turns);
   return {
     instructions: buildLeadExtractionPrompt(language),
-    parts: blocks.map((b, i) =>
-      i === blocks.length - 1
-        ? { type: "input_text" as const, text: b.text, prompt_cache_breakpoint: { mode: "explicit" as const } }
-        : { type: "input_text" as const, text: b.text }
-    ),
+    parts: transcriptBlocks(turns).map((b) => ({ type: "input_text" as const, text: b.text })),
   };
 }
 
