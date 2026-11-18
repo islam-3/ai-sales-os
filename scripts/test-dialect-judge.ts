@@ -191,8 +191,8 @@ async function main() {
   }
   if (process.env.MEASURE_ONE === "1") {
     const v = await judge(SAMPLES[6].variety, SAMPLES[6].reply);
-    console.log(`one call: $${cost.toFixed(5)}  introduced=${v.introduced}${v.failed ? `  JUDGE ERROR ${v.note}` : ""}`);
-    process.exit(0);
+    console.log(`one call: ${cost.toFixed(5)}  introduced=${v.introduced}${v.failed ? `  JUDGE ERROR ${v.note}` : ""}`);
+    return;
   }
   console.log(`${SAMPLES.length} labelled samples x ${RUNS} run(s)\n`);
 
@@ -243,7 +243,7 @@ async function main() {
     console.log("\nthe judge can tell a dialect from a register");
   }
   void DIALECT_JUDGE_PROMPT;
-  process.exit(bad ? 1 : 0);
+  process.exitCode = bad ? 1 : 0;
 }
 
 main().catch((e) => {

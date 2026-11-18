@@ -28,12 +28,14 @@
 // first is the actual requirement.
 
 import { say } from "./_chat-client";
-import { anthropic } from "../lib/anthropic";
-import { judgeDialect } from "../lib/dialect-judge";
+import { openai } from "../lib/openai";
+// The judge runs on OpenAI: validated 48/48 (16 samples x 3) on
+// gpt-6.1-terra on 2026-11-18, docs/dialect-judge-openai-2026-11-18.txt.
+import { judgeDialectOpenAI } from "../lib/dialect-judge";
 import { replyDensity, isOverloaded, DENSITY_MAX_UNITS, DENSITY_MAX_BLOCKS } from "../lib/reply-density";
 
 const LABEL = process.env.LABEL ?? "run";
-const JUDGE = process.env.JUDGE_MODEL ?? "claude-sonnet-4-6";
+const JUDGE = process.env.JUDGE_MODEL ?? "gpt-6.1-terra";
 
 type Case = {
   klass: string;
@@ -173,7 +175,7 @@ async function main() {
       let dialect = "";
       if (i >= 2) {
         judged++;
-        const verdict = await judgeDialect(anthropic, c.variety, reply, JUDGE);
+        const verdict = await judgeDialectOpenAI(openai, c.variety, reply, JUDGE);
         if (verdict.failed) {
           judgeFailures++;
           dialect = `  judge unreachable: ${verdict.note.slice(0, 50)}`;

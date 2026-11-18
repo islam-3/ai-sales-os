@@ -1,0 +1,62 @@
+judge: gpt-6.1-terra (OpenAI)
+16 labelled samples x 3 run(s)
+
+run 1
+  ok  fires  blatant Levantine to an MSA visitor           
+  ok  fires  Levantine negation and future to an MSA visitor
+  ok  fires  Gulf to an MSA visitor                        
+  ok  fires  Egyptian to an MSA visitor                    
+  ok  fires  Latin American Spanish to a European visitor  
+  ok  fires  American English to a British visitor         
+  ok  quiet  plain MSA                                     
+  ok  quiet  MSA with بإمكانك — standard, not regional     
+  ok  quiet  MSA containing the ordinary word سنة (year)   
+  ok  quiet  MSA with لما and تأخذ — ordinary verbs        
+  ok  quiet  warm, conversational MSA                      
+  ok  quiet  MSA naming a brand and a city in Latin script 
+  ok  quiet  European Spanish with vosotros                
+  ok  quiet  European Spanish, warm and informal           
+  ok  quiet  British English, warm and informal            
+  ok  quiet  Mainland Chinese with a Latin brand           
+run 2
+  ok  fires  blatant Levantine to an MSA visitor           
+  ok  fires  Levantine negation and future to an MSA visitor
+  ok  fires  Gulf to an MSA visitor                        
+  ok  fires  Egyptian to an MSA visitor                    
+  ok  fires  Latin American Spanish to a European visitor  
+  ok  fires  American English to a British visitor         
+  ok  quiet  plain MSA                                     
+  ok  quiet  MSA with بإمكانك — standard, not regional     
+  ok  quiet  MSA containing the ordinary word سنة (year)   
+  ok  quiet  MSA with لما and تأخذ — ordinary verbs        
+  ok  quiet  warm, conversational MSA                      
+  ok  quiet  MSA naming a brand and a city in Latin script 
+  ok  quiet  European Spanish with vosotros                
+  ok  quiet  European Spanish, warm and informal           
+  ok  quiet  British English, warm and informal            
+  ok  quiet  Mainland Chinese with a Latin brand           
+run 3
+  ok  fires  blatant Levantine to an MSA visitor           
+  ok  fires  Levantine negation and future to an MSA visitor
+  ok  fires  Gulf to an MSA visitor                        
+  ok  fires  Egyptian to an MSA visitor                    
+  ok  fires  Latin American Spanish to a European visitor  
+  ok  fires  American English to a British visitor         
+  ok  quiet  plain MSA                                     
+  ok  quiet  MSA with بإمكانك — standard, not regional     
+  ok  quiet  MSA containing the ordinary word سنة (year)   
+  ok  quiet  MSA with لما and تأخذ — ordinary verbs        
+  ok  quiet  warm, conversational MSA                      
+  ok  quiet  MSA naming a brand and a city in Latin script 
+  ok  quiet  European Spanish with vosotros                
+  ok  quiet  European Spanish, warm and informal           
+  ok  quiet  British English, warm and informal            
+  ok  quiet  Mainland Chinese with a Latin brand           
+
+  per run                 16/16, 16/16, 16/16
+  cost                    $0.0315
+
+  fires when it should    18/18
+  quiet when it should    30/30
+
+the judge can tell a dialect from a register

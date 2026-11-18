@@ -76,8 +76,9 @@ async function main() {
     process.exit(0);
   }
   for (const m of MODELS) if (!(TEST_REPLY_MODELS as readonly string[]).includes(m)) throw new Error(`${m} is not allowlisted`);
-  const { anthropic } = await import("../lib/anthropic");
-  const { judgeDialect } = await import("../lib/dialect-judge");
+  const { openai } = await import("../lib/openai");
+  // The judge runs on OpenAI (gpt-6.1-terra), validated 48/48 on 2026-11-18.
+  const { judgeDialectOpenAI } = await import("../lib/dialect-judge");
   const { supabaseServer: s } = await import("../lib/supabase-server");
 
   const conversations: Conversation[] = [];
@@ -145,7 +146,7 @@ async function main() {
         // Dialect: every reply, against the variety the visitor wrote in.
         for (const t of conv.turns) {
           if (!t.reply) continue;
-          const v = await judgeDialect(anthropic, varietyOf(c), t.reply);
+          const v = await judgeDialectOpenAI(openai, varietyOf(c), t.reply);
           if (v.failed) conv.dialect.failed++;
           else {
             conv.dialect.judged++;
