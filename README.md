@@ -758,7 +758,14 @@ has already shipped one truncated reply.
   to it. **Open:** for a tenant that does not share photos, a reply like
   this is a commitment it cannot keep, and the fix is probably a fact
   the business states rather than a prompt rule. Not built — no tenant
-  is in that position today.
+  is in that position today. A read-only check on 2026-11-18 found it
+  systematic where it can happen: both visitors who asked to see
+  before-and-afters since 2026-10-15 (both Arabic, test-clinic) were
+  promised the team would send them. **Planned, after the migration:**
+  a business setting, "shares example photos on request: yes / no / not
+  set". The classifier already reads "asking to be shown something", so
+  code states that fact for the turn. On "no" or "not set" the assistant
+  may not promise photos and passes the question to the team.
 - **CI holds a service-role key** that can read every tenant's leads.
   Acceptable while there is no real customer data. **Launch blocker:**
   replace it with a narrow read-only endpoint scoped to `is_test` tenants
