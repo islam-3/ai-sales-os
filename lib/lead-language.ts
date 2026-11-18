@@ -152,7 +152,9 @@ Only give a field a real value if it was actually mentioned somewhere in the tra
 
 "name" and "contact_info" are the visitor's own record and are NOT translated, transliterated or reformatted: copy them exactly as given, in their original script.
 
-CARRY THESE THROUGH UNCHANGED, inside otherwise-${language} text: every number, price, amount, measurement, date and duration exactly as written in the transcript, with the same digits and the same separators — do not convert 5,000 to 5.000, do not convert currencies, do not reformat dates. The same goes for the names of services and brands: write them exactly as they appear, never translated.
+CARRY THESE THROUGH UNCHANGED, inside otherwise-${language} text: every figure written in digits — numbers, prices, amounts, measurements, dates and durations — exactly as in the transcript, with the same digits and the same separators. Do not convert 5,000 to 5.000, do not convert currencies, do not reformat dates. The same goes for the names of services and brands: write them exactly as they appear, never translated.
+
+Everything else is written in ${language}, and that includes a duration or amount the customer wrote out in WORDS: "خمس سنوات" or "пять лет" is written as the ${language} words for five years, never left in the customer's script. Keep it in words, not digits: the customer gave no digits.
 
 - "contact_info" is whatever they gave to be reached — a phone number, WhatsApp number, or email, whichever applies.
 - "main_concern" is what they need or want help with — the reason they got in touch.

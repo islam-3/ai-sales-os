@@ -21,8 +21,10 @@ import {
   transcriptBlocks,
   transcriptText,
   LEAD_EXTRACTION_MAX_TOKENS,
+  LEAD_EXTRACTION_SCHEMA,
   type TranscriptTurn,
 } from "../lib/lead-extraction";
+import { buildLeadExtractionPrompt } from "../lib/lead-language";
 
 let bad = 0;
 const check = (name: string, pass: boolean, detail?: string) => {
@@ -138,6 +140,21 @@ check(
   "a cut-off is logged as itself, on either provider's stop reason",
   /\[lead\] extraction cut off at the output limit/.test(route) && /"max_tokens"/.test(route) && /"max_output_tokens"/.test(route)
 );
+
+// The output format is enforced on both providers, with one schema that
+// matches the fields the prompt asks for.
+const promptKeys = Array.from(buildLeadExtractionPrompt("English").match(/\{"name"[^\n]*\}/)![0].matchAll(/"([a-z_]+)":/g)).map((m) => m[1]);
+const schemaKeys = Object.keys(LEAD_EXTRACTION_SCHEMA.properties);
+check("the schema has exactly the prompt's fields", promptKeys.join() === schemaKeys.join(), promptKeys + " vs " + schemaKeys);
+check("every field is required, and none other allowed", (LEAD_EXTRACTION_SCHEMA.required as readonly string[]).join() === schemaKeys.join() && LEAD_EXTRACTION_SCHEMA.additionalProperties === false);
+check("every field may be null", Object.values(LEAD_EXTRACTION_SCHEMA.properties).every((v) => (v.type as readonly string[]).includes("null")));
+check(
+  "both providers enforce it",
+  /output_config: \{ format: \{ type: "json_schema", schema: LEAD_EXTRACTION_SCHEMA \} \}/.test(extractionSrc) &&
+    /text: \{ format: \{ type: "json_schema", name: "lead", schema: LEAD_EXTRACTION_SCHEMA, strict: true \} \}/.test(extractionSrc)
+);
+const turkish = buildLeadExtractionPrompt("Turkish");
+check("a duration written in words is translated, digits are kept", /wrote out in WORDS/.test(turkish) && /exactly as in the transcript, with the same digits/.test(turkish));
 
 if (bad > 0) {
   console.log(`\n${bad} failed`);

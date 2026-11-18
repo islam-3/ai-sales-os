@@ -132,6 +132,39 @@ export function normaliseContactDigits(extracted: Partial<ExtractedLead>): Parti
 }
 
 /**
+ * The extraction's output, enforced by the provider rather than asked for.
+ *
+ * Without it Sonnet twice answered as the chat assistant ("Can you share a
+ * little more about your situation?") instead of extracting: no JSON, and
+ * that turn saved nothing (docs/extraction-provider-2026-11-17-rerun.md).
+ * Every key is required and may be null, and no other key is allowed: the
+ * subset both Anthropic structured outputs and OpenAI strict mode accept.
+ */
+const nullable = (type: "string" | "integer" | "number") => ({ type: [type, "null"] });
+export const LEAD_EXTRACTION_SCHEMA = {
+  type: "object",
+  properties: {
+    name: nullable("string"),
+    contact_info: nullable("string"),
+    age: nullable("number"),
+    main_concern: nullable("string"),
+    priority: nullable("string"),
+    duration_of_issue: nullable("string"),
+    timeline: nullable("string"),
+    travel_country: nullable("string"),
+    notes: nullable("string"),
+    visitor_language: nullable("string"),
+    ai_summary: nullable("string"),
+    qualification_score: nullable("integer"),
+  },
+  required: [
+    "name", "contact_info", "age", "main_concern", "priority", "duration_of_issue",
+    "timeline", "travel_country", "notes", "visitor_language", "ai_summary", "qualification_score",
+  ],
+  additionalProperties: false,
+} as const;
+
+/**
  * One extraction call. Never throws: a failure comes back as `error`.
  *
  * Kept apart from saving the result so the format can be measured on
@@ -151,11 +184,12 @@ export async function callLeadExtraction(
   error?: string;
 }> {
   try {
-    // No output_config: a short, schema-constrained task with nothing to
-    // tune down.
+    // No effort setting: a short task with nothing to tune down. The
+    // format is enforced (LEAD_EXTRACTION_SCHEMA).
     const response = await client.messages.create({
       model: LEAD_EXTRACTION_MODEL,
       max_tokens: LEAD_EXTRACTION_MAX_TOKENS,
+      output_config: { format: { type: "json_schema", schema: LEAD_EXTRACTION_SCHEMA } },
       system: buildLeadExtractionPrompt(language),
       messages: [{ role: "user", content: transcriptBlocks(turns) }],
     });
@@ -189,12 +223,11 @@ export async function callLeadExtraction(
 //                             2026-11-17 replay (the marker moves every
 //                             turn), where the reply, with no marker, read it
 //                             on 70/84 calls.
-//   "respond ONLY JSON"    -> the same instruction and nothing more, like
-//                             Sonnet. NOT json_object: OpenAI rejects it
-//                             unless the word "json" is in the INPUT, and
-//                             adding it there would change what this model
-//                             reads compared with Sonnet. The parser below
-//                             handles both the same way.
+//   output_config format   -> text.format json_schema, strict, the same
+//                             LEAD_EXTRACTION_SCHEMA. (Not json_object:
+//                             OpenAI rejects it unless the word "json" is
+//                             in the INPUT.) The parser below handles both
+//                             the same way.
 //   max_tokens             -> max_output_tokens, the same LEAD_EXTRACTION_MAX_TOKENS
 //   no thinking            -> reasoning effort "none"
 //   contact digits         -> normaliseContactDigits, exactly as above
@@ -255,6 +288,7 @@ export async function callLeadExtractionOpenAI(
       input: toOpenAIExtractionInput(request),
       max_output_tokens: LEAD_EXTRACTION_MAX_TOKENS,
       reasoning: { effort: "none" },
+      text: { format: { type: "json_schema", name: "lead", schema: LEAD_EXTRACTION_SCHEMA, strict: true } },
       prompt_cache_key: cacheKey,
       store: false,
     });

@@ -147,7 +147,7 @@ check("repeats it in the closing line", /written in Türkçe except "name" and "
 check("asks for the generated fields in it", /Everything you write about the customer goes in Türkçe/.test(prompt));
 check("says there is nothing to convert when it already matches", /already in Türkçe there is nothing to convert/.test(prompt));
 check("keeps the visitor's own record verbatim", /are NOT translated, transliterated or reformatted/.test(prompt));
-check("carries figures through unchanged", /do not convert 5,000 to 5\.000/.test(prompt));
+check("carries figures through unchanged", /do not convert 5,000 to 5\.000/i.test(prompt));
 check(
   "asks for service and brand names exactly as written",
   /names of services and brands: write them exactly as they appear, never translated/.test(prompt)

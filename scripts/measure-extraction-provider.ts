@@ -200,7 +200,62 @@ function inTeamLanguage(text: string, team: string, keep: string[]): boolean {
 const TEXT_FIELDS = ["main_concern", "priority", "duration_of_issue", "timeline", "travel_country", "notes", "ai_summary"] as const;
 const present = (v: unknown) => v !== null && v !== undefined && v !== "";
 
-type Item = { key: string; sessionId?: string; lang: string; name: string; digits: string; visitorCode: string; turns: TranscriptTurn[] };
+type Item = {
+  key: string; sessionId?: string; lang: string; name: string; digits: string; visitorCode: string; turns: TranscriptTurn[];
+  /** Constructed: the visitor states a country and a priority, which must come through. Run once. */
+  stated?: { country: Record<string, string[]>; priority: RegExp };
+};
+
+/**
+ * The smoke visitors never say where they live or what matters most, so the
+ * stored transcripts cannot show whether a model captures those when they
+ * ARE said. These three do, plainly. Ольга's +7 number would read as Russia
+ * from its prefix; she says Kazakhstan.
+ */
+const STATED: Item[] = [
+  {
+    key: "stated-en", lang: "English", name: "Sarah", digits: "4915123456789", visitorCode: "en",
+    stated: { country: { English: ["Germany"], Turkish: ["Almanya"] }, priority: /quality|kalite/i },
+    turns: extractionTurns(
+      [
+        { role: "assistant", content: "Hi! How can we help you today?" },
+        { role: "user", content: "Hi, I'm looking into dental implants. I live in Germany and would fly in from there." },
+        { role: "assistant", content: "Thanks! How many teeth are you looking to replace?" },
+        { role: "user", content: "Four at the front. Honestly what matters most to me is the quality of the result, I'm not after the cheapest option." },
+        { role: "assistant", content: "That makes sense. Can I get your name and a number for the team?" },
+      ],
+      null, "Sarah, +49 151 2345 6789", "Thank you, Sarah! Our team will be in touch soon."
+    ),
+  },
+  {
+    key: "stated-ar", lang: "Arabic", name: "فهد", digits: "966501234567", visitorCode: "ar",
+    stated: { country: { English: ["Saudi Arabia"], Turkish: ["Suudi Arabistan"] }, priority: /natural|doğal/i },
+    turns: extractionTurns(
+      [
+        { role: "assistant", content: "مرحباً! كيف يمكننا مساعدتك اليوم؟" },
+        { role: "user", content: "السلام عليكم، أبي أسوي زراعة أسنان. أنا من السعودية وراح أسافر من الرياض" },
+        { role: "assistant", content: "وعليكم السلام! كم سن تحتاج تقريباً؟" },
+        { role: "user", content: "ثلاث أسنان. أهم شي عندي إن الشكل يطلع طبيعي، ما أبي أحد يلاحظ" },
+        { role: "assistant", content: "مفهوم تماماً. ممكن اسمك ورقم للتواصل؟" },
+      ],
+      null, "فهد، +966 50 123 4567", "شكراً فهد! فريقنا راح يتواصل معك قريباً."
+    ),
+  },
+  {
+    key: "stated-ru", lang: "Russian", name: "Ольга", digits: "77012345678", visitorCode: "ru",
+    stated: { country: { English: ["Kazakhstan"], Turkish: ["Kazakistan"] }, priority: /fast|quick|speed|hız|çabuk|kısa/i },
+    turns: extractionTurns(
+      [
+        { role: "assistant", content: "Здравствуйте! Чем можем помочь?" },
+        { role: "user", content: "Здравствуйте, интересует имплантация. Я из Казахстана, из Алматы." },
+        { role: "assistant", content: "Отлично! Сколько зубов нужно восстановить?" },
+        { role: "user", content: "Два нижних. Для меня главное — сделать всё быстро, у меня всего десять дней отпуска." },
+        { role: "assistant", content: "Понятно. Подскажите ваше имя и номер для связи?" },
+      ],
+      null, "Ольга, +7 701 234 5678", "Спасибо, Ольга! Команда скоро свяжется с вами."
+    ),
+  },
+];
 type Score = {
   calls: number; failed: number;
   name: number; digitsOk: number; asciiOnly: number; visitorLang: number; ageNull: number;
@@ -284,7 +339,8 @@ async function main() {
   console.log(`${items.length} stored conversations + 1 constructed, ${MODELS.length} models, ${TEAM_LANGUAGES.length} team languages, ${RUNS} runs`);
   const results = new Map<string, Result>(); // `${model}|${item}|${team}|${run}`
   for (let run = 1; run <= (REPLAY_ONLY ? 0 : RUNS); run++) {
-    for (const item of [...items, constructed]) {
+    for (const item of [...items, constructed, ...STATED]) {
+      if (item.stated && run > 1) continue;
       for (const team of TEAM_LANGUAGES) {
         for (const m of MODELS) {
           const key = `${m}|${item.key}|${team}|${run}`;
@@ -303,8 +359,9 @@ async function main() {
   // ── Score ────────────────────────────────────────────────────────────
   const byModelLang = new Map<string, Score>();
   const failures: string[] = [];
+  const stated: string[] = [];
   for (const m of MODELS) {
-    for (const item of [...items, constructed]) {
+    for (const item of [...items, constructed, ...STATED]) {
       for (const team of TEAM_LANGUAGES) {
         const sonnetScores = [1, 2].map((r) => results.get(`sonnet|${item.key}|${team}|${r}`)?.extracted?.qualification_score).filter((x): x is number => typeof x === "number");
         const refRun = results.get(`sonnet|${item.key}|${team}|1`)?.extracted ? 1 : 2;
@@ -313,7 +370,7 @@ async function main() {
           const r = results.get(`${m}|${item.key}|${team}|${run}`);
           // A call that never connected is listed under API errors, not scored.
           if (!r || failedToConnect(r)) continue;
-          const key = `${m}|${item.key === "constructed" ? "Arabic-Indic" : item.lang}`;
+          const key = `${m}|${item.key === "constructed" ? "Arabic-Indic" : item.stated ? "Stated-facts" : item.lang}`;
           const sc = byModelLang.get(key) ?? byModelLang.set(key, blank()).get(key)!;
           sc.calls++;
           sc.cost += r.cost;
@@ -324,6 +381,12 @@ async function main() {
           if (typeof e.contact_info === "string" && !/[٠-٩۰-۹]/.test(e.contact_info)) sc.asciiOnly++;
           if (resolveLanguageCode(e.visitor_language ?? "") === item.visitorCode) sc.visitorLang++; else failures.push(`${m} ${item.lang} ${item.key} ${team} r${run}: visitor_language ${JSON.stringify(e.visitor_language)}`);
           if (e.age === null || e.age === undefined) sc.ageNull++;
+          if (item.stated) {
+            const country = String(e.travel_country ?? "");
+            const countryOk = item.stated.country[team].some((c) => country.toLowerCase().includes(c.toLowerCase()));
+            const priorityOk = item.stated.priority.test(String(e.priority ?? ""));
+            stated.push(`| ${m} | ${item.lang} ${item.key} | ${team} | ${countryOk ? "yes" : "**NO**"}: ${JSON.stringify(e.travel_country)} | ${priorityOk ? "yes" : "**NO**"}: ${JSON.stringify(e.priority)} |`);
+          }
           const keep = [item.name, "Implant Swiss", "Straumann", "TEST — Prof Clinic", "WhatsApp"];
           if (present(e.ai_summary)) {
             sc.summaries++;
@@ -384,10 +447,10 @@ async function main() {
 
   // ── Report ───────────────────────────────────────────────────────────
   const pct = (n: number, d: number) => (d ? `${n}/${d}` : "—");
-  const order = ["English", "Arabic", "Russian", "Chinese", "Turkish", "Spanish", "Arabic-Indic"];
+  const order = ["English", "Arabic", "Russian", "Chinese", "Turkish", "Spanish", "Arabic-Indic", "Stated-facts"];
   const date = new Date().toISOString().slice(0, 10);
-  const out: string[] = [`# Lead extraction: Sonnet vs gpt-6.1-terra vs gpt-6-luna, ${date}`, "",
-    `Offline, stored test-clinic transcripts: ${items.length} conversations (final turn) + the constructed Arabic-Indic turn, team languages English and Turkish, ${RUNS} runs. Output limit ${LEAD_EXTRACTION_MAX_TOKENS} tokens on every model.`, "",
+  const out: string[] = [`# Lead extraction: ${MODELS.join(" vs ")}, ${date}`, "",
+    `Offline, stored test-clinic transcripts: ${items.length} conversations (final turn) + the constructed Arabic-Indic turn, team languages English and Turkish, ${RUNS} runs; ${STATED.length} constructed stated-facts transcripts, once. Output limit ${LEAD_EXTRACTION_MAX_TOKENS} tokens on every model.`, "",
     `Conversations (stored after the 2026-11-04 timestamp fix, no tied rows): ${items.map((i) => `${i.lang} \`${i.sessionId}\``).join(", ")}.`, ""];
   out.push("| Model | Visitor language | Calls | Name | Contact digits | ASCII digits | Visitor language | Age null | Summary in team language | Fields in team language | Invented figures | Score within 15 of Sonnet | Fields filled as Sonnet | Cost per call |");
   out.push("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
@@ -406,6 +469,7 @@ async function main() {
     const ok = t.calls - t.failed;
     out.push(`| **${m}** | **all** | ${t.calls} | ${pct(t.name, ok)} | ${pct(t.digitsOk, ok)} | ${pct(t.asciiOnly, ok)} | ${pct(t.visitorLang, ok)} | ${pct(t.ageNull, ok)} | ${pct(t.summaryTeam, t.summaries)} | ${pct(t.fieldsTeam, t.fieldsWritten)} | ${t.invented} | ${m === "sonnet" ? "—" : pct(t.scoreWithin, t.scoreCompared)} | ${pct(t.fieldAgree, t.fieldCompared)} | $${(t.cost / t.calls).toFixed(5)} |`);
   }
+  if (stated.length) out.push("", "## Stated facts: does the country and the priority the visitor said come through?", "", "| Model | Transcript | Team | Country | Priority |", "|---|---|---|---|---|", ...stated);
   out.push("", "## Per conversation: every turn replayed, as production extracts", "",
     "| Model | Conversation | Turns | Cost | Per call | Input read from cache | Per turn |", "|---|---|---|---|---|---|---|", ...replay, "");
   out.push("## Parse failures (hard: a lost lead)", "", "| Model | Calls | No usable JSON or a missing field | API errors |", "|---|---|---|---|");
