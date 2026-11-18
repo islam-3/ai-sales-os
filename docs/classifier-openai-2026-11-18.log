@@ -1,0 +1,80 @@
+Haiku latency, 20 calls from here: p50 733 ms, p95 1286 ms ($0.0153)
+gpt-6-luna run 1: ............................................................................................................................................................
+gpt-6-luna run 2: ............................................................................................................................................................
+
+── gpt-6-luna, 2 runs: precision / recall against Haiku (five keys on the same 120 cases; price on all 156)
+key                      Haiku          gpt-6-luna     within bar?
+accepts_offer             92% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+direct_request           100% / 100%     81% / 100%    NO   tp=48 fp=11 fn=0
+hesitation               100% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+impatience               100% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+asking_for_information   100% /  31%     87% /  99%    NO   tp=85 fp=13 fn=1
+asks_about_price         100% / 100%    100% / 100%    yes   tp=60 fp=0 fn=0
+  price English   100% / 100%  fp=0 fn=0
+  price Arabic    100% / 100%  fp=0 fn=0
+  price Russian   100% / 100%  fp=0 fn=0
+  price Chinese   100% / 100%  fp=0 fn=0
+  price Turkish   100% / 100%  fp=0 fn=0
+  price Spanish   100% / 100%  fp=0 fn=0
+latency p50 1091 ms, p95 1685 ms (Haiku here p95 1286 ms; bar 1586) NO
+failed calls 0   cost $0.0203 ($0.000065 a call)   FAIL
+disagreements (check the LABEL first):
+   run 1 [English] asking_for_information: labelled false, got true: "you still haven't answered my question"
+   run 1 [Arabic] direct_request: labelled false, got true: "نعم من فضلك"
+   run 1 [Arabic] asking_for_information: labelled false, got true: "نعم من فضلك"
+   run 1 [Arabic] direct_request: labelled false, got true: "أكيد، أرني"
+   run 1 [Arabic] asking_for_information: labelled false, got true: "أكيد، أرني"
+   run 1 [Russian] direct_request: labelled false, got true: "да, покажите"
+   run 1 [Russian] asking_for_information: labelled false, got true: "да, покажите"
+   run 1 [Chinese] direct_request: labelled false, got true: "想看"
+   run 1 [Chinese] asking_for_information: labelled false, got true: "想看"
+   run 1 [Spanish] direct_request: labelled false, got true: "vale, enséñamelas"
+   run 1 [Spanish] asking_for_information: labelled false, got true: "vale, enséñamelas"
+   run 2 [English] direct_request: labelled false, got true: "yes please"
+   run 2 [English] asking_for_information: labelled false, got true: "yes please"
+   run 2 [English] asking_for_information: labelled true, got false: "should I send you a photo of my teeth?"
+   run 2 [Arabic] direct_request: labelled false, got true: "نعم من فضلك"
+   run 2 [Arabic] asking_for_information: labelled false, got true: "نعم من فضلك"
+   run 2 [Arabic] direct_request: labelled false, got true: "أكيد، أرني"
+   run 2 [Arabic] asking_for_information: labelled false, got true: "أكيد، أرني"
+   run 2 [Russian] direct_request: labelled false, got true: "да, покажите"
+   run 2 [Russian] asking_for_information: labelled false, got true: "да, покажите"
+   run 2 [Russian] asking_for_information: labelled false, got true: "вы так и не ответили на мой вопрос"
+   run 2 [Turkish] direct_request: labelled false, got true: "evet, lütfen"
+   run 2 [Turkish] asking_for_information: labelled false, got true: "evet, lütfen"
+   run 2 [Spanish] direct_request: labelled false, got true: "vale, enséñamelas"
+   run 2 [Spanish] asking_for_information: labelled false, got true: "vale, enséñamelas"
+gpt-6.1-terra run 1: ............................................................................................................................................................
+gpt-6.1-terra run 2: ............................................................................................................................................................
+
+── gpt-6.1-terra, 2 runs: precision / recall against Haiku (five keys on the same 120 cases; price on all 156)
+key                      Haiku          gpt-6.1-terra  within bar?
+accepts_offer             92% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+direct_request           100% / 100%     89% / 100%    NO   tp=48 fp=6 fn=0
+hesitation               100% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+impatience               100% / 100%    100% / 100%    yes   tp=24 fp=0 fn=0
+asking_for_information   100% /  31%     95% /  98%    yes   tp=84 fp=4 fn=2
+asks_about_price         100% / 100%    100% / 100%    yes   tp=60 fp=0 fn=0
+  price English   100% / 100%  fp=0 fn=0
+  price Arabic    100% / 100%  fp=0 fn=0
+  price Russian   100% / 100%  fp=0 fn=0
+  price Chinese   100% / 100%  fp=0 fn=0
+  price Turkish   100% / 100%  fp=0 fn=0
+  price Spanish   100% / 100%  fp=0 fn=0
+latency p50 1769 ms, p95 2850 ms (Haiku here p95 1286 ms; bar 1586) NO
+failed calls 0   cost $0.2031 ($0.000651 a call)   FAIL
+disagreements (check the LABEL first):
+   run 1 [English] asking_for_information: labelled true, got false: "should I send you a photo of my teeth?"
+   run 1 [Arabic] direct_request: labelled false, got true: "أكيد، أرني"
+   run 1 [Arabic] asking_for_information: labelled false, got true: "أكيد، أرني"
+   run 1 [Russian] direct_request: labelled false, got true: "да, покажите"
+   run 1 [Spanish] direct_request: labelled false, got true: "vale, enséñamelas"
+   run 1 [Spanish] asking_for_information: labelled false, got true: "vale, enséñamelas"
+   run 2 [English] asking_for_information: labelled true, got false: "should I send you a photo of my teeth?"
+   run 2 [Arabic] direct_request: labelled false, got true: "أكيد، أرني"
+   run 2 [Arabic] asking_for_information: labelled false, got true: "أكيد، أرني"
+   run 2 [Russian] direct_request: labelled false, got true: "да, покажите"
+   run 2 [Spanish] direct_request: labelled false, got true: "vale, enséñamelas"
+   run 2 [Spanish] asking_for_information: labelled false, got true: "vale, enséñamelas"
+
+total cost $0.2387   NOT every model passed
