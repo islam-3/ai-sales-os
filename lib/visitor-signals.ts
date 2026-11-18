@@ -27,6 +27,9 @@
 
 import { anthropic } from "./anthropic";
 import { recordUsage } from "./usage";
+import type OpenAI from "openai";
+import type { TokenCounts } from "./ai-pricing";
+import { openAIUsageToTokens } from "./reply-openai";
 
 export type VisitorSignals = {
   /**
@@ -393,4 +396,33 @@ export async function readVisitorSignals(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ── The same classifier on OpenAI ────────────────────────────────────
+// MEASUREMENT ONLY for now: nothing on the reply path calls this.
+// Same prompt and same input as the Haiku call above; no JSON mode, as
+// Haiku has none. Reasoning effort "none": it sits on the critical path.
+
+/** One classification on OpenAI. Throws on any failure, like a parse error. */
+export async function classifySignalsOpenAI(
+  client: OpenAI,
+  model: string,
+  input: string,
+  prompt: string = SIGNAL_PROMPT,
+  signal?: AbortSignal
+): Promise<{ parsed: Record<string, boolean>; tokens: TokenCounts | null }> {
+  const res = await client.responses.create(
+    {
+      model,
+      instructions: prompt,
+      input: [{ role: "user", content: input }],
+      max_output_tokens: 150,
+      reasoning: { effort: "none" },
+      store: false,
+    },
+    { signal }
+  );
+  const tokens = res.usage ? openAIUsageToTokens(res.usage) : null;
+  const parsed = JSON.parse(firstJsonObject(res.output_text ?? "")) as Record<string, unknown>;
+  return { parsed: Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, v === true])), tokens };
 }
