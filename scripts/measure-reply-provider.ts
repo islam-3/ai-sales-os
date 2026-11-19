@@ -35,7 +35,15 @@ import { TEST_REPLY_MODELS } from "../lib/test-tenant";
 /** OpenAI arms, comma-separated. Sonnet is always the first arm. */
 const MODELS = (process.env.REPLY_MODELS ?? process.env.REPLY_MODEL ?? "gpt-6.1-terra").split(",").map((m) => m.trim()).filter(Boolean);
 const RUNS = Number(process.env.RUNS ?? 2);
-const ARMS: { label: string; model?: string }[] = [{ label: "sonnet" }, ...MODELS.map((m) => ({ label: m, model: m }))];
+// SKIP_SONNET=1 runs only the OpenAI arm(s), when Sonnet's side comes
+// from stored production conversations instead (measure-reply-specifics).
+// EXTRACTION_MODEL puts lead extraction on that model too: it runs after
+// the reply, so it does not change the reply, and it saves the Sonnet
+// extraction calls. MEASURE_ONE=1 makes one turn on the first OpenAI arm
+// and prints what it cost, from usage_events.
+const SKIP_SONNET = process.env.SKIP_SONNET === "1";
+const EXTRACTION_MODEL = process.env.EXTRACTION_MODEL;
+const ARMS: { label: string; model?: string }[] = [...(SKIP_SONNET ? [] : [{ label: "sonnet" }]), ...MODELS.map((m) => ({ label: m, model: m }))];
 const HESITATION_MAX_RATIO = 0.6;
 const PAUSE_MS = 1500;
 
@@ -73,7 +81,7 @@ async function main() {
       `(skipped: ${CASES.length * ARMS.length * RUNS} conversations and a dialect judgement of every reply — ` +
         `set LIVE=1 to run it, after stating the cost)`
     );
-    process.exit(0);
+    return;
   }
   for (const m of MODELS) if (!(TEST_REPLY_MODELS as readonly string[]).includes(m)) throw new Error(`${m} is not allowlisted`);
   const { openai } = await import("../lib/openai");
@@ -81,6 +89,19 @@ async function main() {
   const { judgeDialectOpenAI } = await import("../lib/dialect-judge");
   const { supabaseServer: s } = await import("../lib/supabase-server");
 
+  if (process.env.MEASURE_ONE === "1") {
+    const arm = ARMS.find((a) => a.model)!;
+    const sid = crypto.randomUUID();
+    const r = await say(sid, CASES[0].turns[0], SLUG, {
+      skipCapture: true, includeSignals: true, replyModel: arm.model,
+      ...(EXTRACTION_MODEL && { extractionModel: EXTRACTION_MODEL }),
+    });
+    await pause(12000);
+    const { data } = await s.from("usage_events").select("call_type, model, cost_usd").eq("session_id", sid);
+    const total = (data ?? []).reduce((a, x) => a + Number(x.cost_usd), 0);
+    console.log(`one turn (${arm.model}): ${total.toFixed(5)}  ${JSON.stringify(data)}\n  reply: ${r.reply.replace(/\s+/g, " ").slice(0, 160)}`);
+    return;
+  }
   const conversations: Conversation[] = [];
   const switchVerified = new Set<string>();
 
@@ -100,6 +121,7 @@ async function main() {
               skipCapture: true,
               includeSignals: true,
               ...(arm.model && { replyModel: arm.model }),
+              ...(arm.model && EXTRACTION_MODEL && { extractionModel: EXTRACTION_MODEL }),
             });
           } catch (error) {
             conv.turns.push({ visitor: c.turns[i], reply: "", failed: String((error as Error).message).slice(0, 120) });
@@ -170,6 +192,10 @@ async function main() {
   }
 
   writeReport(conversations);
+  // The session ids, for scripts/measure-reply-specifics.ts.
+  const sessionsPath = join(__dirname, "..", "docs", `reply-provider-${new Date().toISOString().slice(0, 10)}.sessions.json`);
+  writeFileSync(sessionsPath, JSON.stringify(conversations.map((c) => ({ arm: c.arm, run: c.run, label: c.case.label, sessionId: c.sessionId })), null, 2));
+  console.log(`wrote ${sessionsPath}`);
 }
 
 // ── Metrics ────────────────────────────────────────────────────────────
