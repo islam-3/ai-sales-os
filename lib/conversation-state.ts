@@ -243,6 +243,21 @@ export type HesitationSignal = {
   occurrences: number;
 };
 
+/**
+ * Whether a hesitation reading counts this turn.
+ *
+ * Not on the visitor's FIRST message: there is nothing yet to step back
+ * from. "مرحبا، أفكر في زراعة الأسنان" (I'm thinking about implants) and
+ * "Hola, estoy considerando implantes" were read as hesitation by the
+ * classifier, and the hesitation branch below then asked for a photo and
+ * a WhatsApp number in the very first reply (gpt-6.1-terra, 4 of 12
+ * conversations, docs/reply-specifics-2026-11-19.md). Decided in code,
+ * not by prompt wording; the raw classifier result is left untouched.
+ */
+export function hesitationApplies(hesitating: boolean, turns: ChatTurn[]): boolean {
+  return hesitating && turns.filter((t) => t.role === "user").length > 1;
+}
+
 export function detectHesitation(history: ChatTurn[]): HesitationSignal {
   const userMessages = history.filter((t) => t.role === "user").map((t) => t.content);
   const occurrences = userMessages.filter((m) => HESITATION_CUES.some((c) => c.test(m))).length;
@@ -697,7 +712,7 @@ export function detectEngagement(history: ChatTurn[]): EngagementSignal {
   const userMessages = history.filter((t) => t.role === "user").map((t) => t.content);
   if (userMessages.length === 0) return { engaged: false, reasons: [] };
 
-  if (detectImpatience(history).impatient || detectHesitation(history).hesitating) {
+  if (detectImpatience(history).impatient || hesitationApplies(detectHesitation(history).hesitating, history)) {
     return { engaged: false, reasons: [] };
   }
 
@@ -956,13 +971,20 @@ export function buildConversationStateBlock(
    * decidePriceStep (lib/price-next-step.ts) so this block and the check
    * after the reply agree.
    */
-  priceStep: PriceStep = { kind: "none" }
+  priceStep: PriceStep = { kind: "none" },
+  /**
+   * Facts from the business's own material that bear on what the visitor
+   * just asked, chosen by code (selectBusinessFacts, lib/business-facts.ts).
+   * Empty on most turns: the route asks only when the visitor asked
+   * something, is not stepping back, and has not given contact details.
+   */
+  businessFacts: string[] = []
 ): string | null {
   const offers = extractPriorOffers(history);
   const impatience = signals
     ? { impatient: signals.impatience, reasons: signals.impatience ? ["they sound frustrated"] : [] }
     : detectImpatience(history);
-  const hesitation = signals
+  const read = signals
     ? {
         hesitating: signals.hesitation,
         // The count still comes from the transcript: how MANY times they
@@ -971,6 +993,7 @@ export function buildConversationStateBlock(
         occurrences: signals.hesitation ? detectHesitation(history).occurrences || 1 : 0,
       }
     : detectHesitation(history);
+  const hesitation = hesitationApplies(read.hesitating, history) ? read : { hesitating: false, occurrences: 0 };
   const engagement = detectEngagement(history);
   const contactKnown = hasContactDetails(history);
   const alreadyClosed = hasAlreadyClosed(history);
@@ -1036,7 +1059,8 @@ export function buildConversationStateBlock(
     logisticsRun < 2 &&
     breakShape.length === 0 &&
     !overloaded &&
-    priceStep.kind === "none"
+    priceStep.kind === "none" &&
+    (businessFacts.length === 0 || hesitation.hesitating)
   ) {
     return null;
   }
@@ -1115,6 +1139,22 @@ export function buildConversationStateBlock(
       "",
       `The visitor appears impatient or frustrated: ${impatience.reasons.join("; ")}.`,
       "For this reply: answer what they actually asked, directly and first. Do not ask a new question, do not introduce a new topic, do not mention any other service, and do not make an offer. If you genuinely cannot answer, say so plainly and tell them you will have the team confirm it — do not deflect into something else."
+    );
+  }
+
+  // What this business can say about the question just asked, chosen by
+  // meaning from its own material rather than left to the model, which on
+  // gpt-6.1-terra drew on it in 0.6 distinct facts per conversation
+  // against Sonnet's 3.5. Stated as material to use, not an order: the
+  // section it replaces in spirit ("Share one of these now") fired on 8
+  // turns in 12, listed SEO titles, and made replies uniform. These are
+  // the entries' own sentences, on a fraction of turns, at most two.
+  if (businessFacts.length > 0 && !hesitation.hesitating) {
+    lines.push(
+      "",
+      "From this business's own material, bearing on what they just asked:",
+      ...businessFacts.map((f) => `- ${f}`),
+      "If one of these answers their question or makes your reply more concrete, use it in your own words and in their language. One is usually enough, two at most. Never list them, and never add a fact that is not in the material."
     );
   }
 

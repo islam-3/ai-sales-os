@@ -161,7 +161,7 @@ for (const k of ["none", "case_only", "quote_follows"] as const) {
 // ── 6. Wiring ────────────────────────────────────────────────────────
 console.log("\n--- wiring ---");
 const route = readFileSync(join(__dirname, "..", "app", "api", "chat", "route.ts"), "utf8").replace(/\r\n/g, "\n");
-check("the route decides once and hands the same decision to the state block", /const priceStep = decidePriceStep\(/.test(route) && /answeredFor,\n\s+priceStep\n\s+\);/.test(route));
+check("the route decides once and hands the same decision to the state block", /const priceStep = decidePriceStep\(/.test(route) && /answeredFor,\n\s+priceStep,?\n(\s+businessFacts\n)?\s+\);/.test(route));
 check("the photo variant comes from this business's own coverage, not an industry", /seeingTheCaseApplies: relevantFor\.has\("photos"\)/.test(route));
 const ensureAt = route.indexOf("ensurePriceStep(shaped");
 const leakAt = route.indexOf("const leaked = containsInternalState(candidate, injected);");

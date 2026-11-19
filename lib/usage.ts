@@ -14,6 +14,10 @@ export type UsageCallType =
   | "chat_reply"
   | "lead_extraction"
   | "rag_embedding"
+  // Embedding the visitor's last two messages, to choose which of the
+  // business's own facts the reply is offered (lib/business-facts.ts).
+  // Every turn with text.
+  | "facts_query_embedding"
   | "knowledge_embedding"
   // Is this visitor hesitating or impatient? Haiku, every turn with text.
   | "visitor_signals"

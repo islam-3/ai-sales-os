@@ -10,7 +10,9 @@ import { recordUsage } from "@/lib/usage";
 import { recordConversationStart } from "@/lib/conversation-metering";
 import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
-import { buildConversationStateBlock, hasContactDetails, isNearingClose } from "@/lib/conversation-state";
+import { buildConversationStateBlock, hasContactDetails, hesitationApplies, isNearingClose } from "@/lib/conversation-state";
+import { selectBusinessFacts } from "@/lib/business-facts";
+import { generateEmbedding } from "@/lib/embeddings";
 import { decidePriceStep, ensurePriceStep } from "@/lib/price-next-step";
 import {
   GENERATED_LEAD_FIELDS,
@@ -759,6 +761,20 @@ async function handleChat(body: Record<string, unknown>) {
     { role: "user", content: userContent },
   ];
 
+  // The visitor's last two messages, embedded to choose which of the
+  // business's own facts this reply is offered (lib/business-facts.ts).
+  // Two, so "how much does it cost?" keeps the topic of the message
+  // before it. Started now, while the classifier is still running, so it
+  // adds no wait of its own. A failure means no facts this turn.
+  const factsQuery =
+    trimmedMessage && knowledgeEntries.some((e) => e.embedding)
+      ? generateEmbedding(
+          turnsWithLatest.filter((t) => t.role === "user").slice(-2).map((t) => t.content).join("\n"),
+          tenantId,
+          { callType: "facts_query_embedding", sessionId }
+        ).catch(() => null)
+      : Promise.resolve(null);
+
   const entriesForState = knowledgeEntries.map((e) => ({
     title: e.title,
     content: e.content,
@@ -786,7 +802,10 @@ async function handleChat(body: Record<string, unknown>) {
   // close and they are not hesitating - the same condition under which
   // coverage is assessed at all - so this is a small fraction of turns
   // rather than a cost on every reply.
-  const coverageWillBeChecked = isNearingClose(turnsWithLatest) && !signals.hesitation;
+  // Hesitation counts only once there is something to step back from:
+  // never on the visitor's first message (hesitationApplies).
+  const hesitating = hesitationApplies(signals.hesitation, turnsWithLatest);
+  const coverageWillBeChecked = isNearingClose(turnsWithLatest) && !hesitating;
   const answeredFor = coverageWillBeChecked
     ? (await readAnsweredDimensions(
         turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content),
@@ -807,11 +826,23 @@ async function handleChat(body: Record<string, unknown>) {
   // an industry.
   const priceStep = decidePriceStep({
     asksAboutPrice: signals.asks_about_price,
-    hesitating: signals.hesitation,
+    hesitating,
     contactKnown: hasContactDetails(turnsWithLatest),
     caseSeen: turnsWithLatest.some((t) => t.role === "user" && t.content.includes("[Photo attached:")),
     seeingTheCaseApplies: relevantFor.has("photos"),
   });
+
+  // The business's own facts for this turn: only when the visitor asked
+  // something (the capture gate's reading), is not stepping back, and has
+  // not yet given contact details. Most turns get none.
+  const businessFacts =
+    shouldJudge(signals) && !hesitating && !hasContactDetails(turnsWithLatest)
+      ? selectBusinessFacts(
+          await factsQuery,
+          knowledgeEntries.map((e) => ({ content: e.content, embedding: e.embedding })),
+          (history ?? []).filter((t) => t.role === "assistant").map((t) => t.content).join("\n")
+        )
+      : [];
 
   const stateBlock = buildConversationStateBlock(
     turnsWithLatest,
@@ -819,7 +850,8 @@ async function handleChat(body: Record<string, unknown>) {
     signals,
     relevantFor,
     answeredFor,
-    priceStep
+    priceStep,
+    businessFacts
   );
   if (stateBlock) {
     // Fenced so a verbatim echo is detectable exactly rather than by
@@ -1158,7 +1190,7 @@ async function handleChat(body: Record<string, unknown>) {
   // nothing whatever the request asks for.
   return NextResponse.json({
     reply,
-    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed" }),
+    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed", businessFacts }),
   });
 }
 

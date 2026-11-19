@@ -1,36 +1,16 @@
-// Does the answer-gap judge see the same business facts the reply sees?
+// The business's own facts for a turn, and hesitation on a first message.
 //
 //   npx tsx scripts/test-business-facts.ts
 //
-// ── The bug this exists to prevent ──────────────────────────────────
-// The judge was handed knowledge_base rows and nothing else, while the
-// reply's system prompt also carried the business's location, opening
-// hours, languages, service area, currency and contact details from
-// settings.
-//
-// So a business that filled in "Opening hours: 24/7" — which test-clinic
-// has — would see "customers asked about opening hours, no answer yet"
-// on its own dashboard, for a question the assistant had just answered
-// correctly from that very field. Being told to write down something you
-// already wrote down is precisely what made the previous design
-// unusable, and this was the same failure arriving through a door nobody
-// had looked at.
-//
-// The fix is structural: both call sites read businessFactLines(). What
-// follows checks that the structure actually holds, because "they share
-// a function" is only true until someone adds a line to the identity
-// block instead.
-//
-// No network, no model, no database.
+// FREE. Fake vectors stand in for embeddings; no model, no database.
+// The knowledge entries are written in Turkish and Arabic on purpose:
+// the selector must work on material in any language, and must never
+// depend on letter case (Arabic has none; Turkish casing is a trap).
 
-import {
-  BUSINESS_FACTS_TITLE,
-  businessFactLines,
-  businessFactsForJudge,
-  buildSystemPrompt,
-  type BusinessIdentity,
-} from "../lib/business-prompt";
-import { parseTenantSettings } from "../lib/tenant-settings";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { asciiDigits, MIN_SIMILARITY, selectBusinessFacts, snippetOf, splitSentences, type FactEntry } from "../lib/business-facts";
+import { buildConversationStateBlock, hesitationApplies } from "../lib/conversation-state";
 
 let bad = 0;
 const check = (name: string, pass: boolean, detail?: string) => {
@@ -42,156 +22,134 @@ const check = (name: string, pass: boolean, detail?: string) => {
   }
 };
 
-/**
- * Every settings field the prompt can mention, with a sentinel value.
- *
- * Sentinels rather than realistic values so a match cannot be a
- * coincidence of ordinary English, and so a missing one is obvious in
- * the failure output.
- *
- * ── Add a field here when you add one to the prompt ─────────────────
- * This fixture is the only part of the check that a new settings field
- * can slip past. If you add `settings.parking` to businessFactLines,
- * add it here too, or the sentinel sweep below has nothing to sweep.
- */
-const SENTINELS = {
-  businessName: "ZQBUSINESSNAME",
-  industry: "ZQINDUSTRY",
-  description: "ZQDESCRIPTION",
-  address: "ZQADDRESS",
-  city: "ZQCITY",
-  country: "ZQCOUNTRY",
-  opening_hours: "ZQHOURS",
-  service_area: "ZQSERVICEAREA",
-  currency: "ZQCURRENCY",
-  whatsapp: "ZQWHATSAPP",
-  email: "ZQEMAIL",
-  website: "ZQWEBSITE",
-};
+// ── Turkish material ─────────────────────────────────────────────────
+const TR: FactEntry[] = [
+  { content: "Kronlarda 20 yıl garanti, implantlarda ömür boyu garanti veriyoruz.", embedding: [1, 0, 0] },
+  { content: "İsviçre yapımı Implant Swiss implantlar ve Straumann zirkonyum kronlar kullanıyoruz.", embedding: [0.95, 0.3, 0] },
+  { content: "Paketlerimiz VIP havalimanı transferi ve 5 yıldızlı otel konaklaması içerir.", embedding: [0, 1, 0] },
+  {
+    content:
+      "Kliniğimiz şehrin merkezindedir ve modern bir binada hizmet verir. Ekibimiz hastalarla birebir ilgilenir ve her aşamada yanlarında olur. " +
+      "Tedavi iki ziyarette tamamlanır: ilk ziyaret 5 gün, ikinci ziyaret 7 gün sürer. Ziyaretler arasında yaklaşık 4 aylık bir iyileşme dönemi vardır. " +
+      "Danışmanlarımız Türkçe, İngilizce ve Arapça konuşur ve sorularınızı yanıtlamaktan mutluluk duyar. Randevularınızı size en uygun zamana göre planlıyoruz.",
+    embedding: [0, 0, 1],
+  },
+];
 
-/** The private one. Must appear in NEITHER output. */
-const OWNER_PHONE = "ZQOWNERPHONE";
-
-const full: BusinessIdentity = {
-  businessName: SENTINELS.businessName,
-  industry: SENTINELS.industry,
-  description: SENTINELS.description,
-  settings: parseTenantSettings({
-    location: {
-      address: SENTINELS.address,
-      city: SENTINELS.city,
-      country: SENTINELS.country,
-    },
-    opening_hours: SENTINELS.opening_hours,
-    service_area: SENTINELS.service_area,
-    currency: SENTINELS.currency,
-    languages: ["en", "ar"],
-    contact: {
-      whatsapp: SENTINELS.whatsapp,
-      email: SENTINELS.email,
-      website: SENTINELS.website,
-      owner_phone: OWNER_PHONE,
-    },
-  }),
-};
-
-const prompt = buildSystemPrompt(full);
-const judge = businessFactsForJudge(full);
-
-// ── 1. Every sentinel the reply gets, the judge gets ─────────────────
-//
-// This is the whole point. Not "the judge gets something" — the judge
-// gets the SAME things, field by field.
-console.log("--- every fact the reply sees, the judge sees ---");
-for (const [field, sentinel] of Object.entries(SENTINELS)) {
-  const inPrompt = prompt.includes(sentinel);
-  const inJudge = judge.content.includes(sentinel);
+{
+  const facts = selectBusinessFacts([1, 0.1, 0], TR, "");
+  check("Turkish: picks the two entries closest in meaning, most relevant first", facts.length === 2 && facts[0].includes("20 yıl") && facts[1].includes("Straumann"), JSON.stringify(facts));
+  check("Turkish: leaves out an entry that is about something else", !facts.some((f) => f.includes("otel")));
+}
+{
+  const facts = selectBusinessFacts([0, 0, 1], TR, "");
   check(
-    `${field}: reply=${inPrompt ? "yes" : "no"} judge=${inJudge ? "yes" : "no"}`,
-    inPrompt === inJudge,
-    inPrompt && !inJudge
-      ? `the reply can answer questions about ${field} and the judge would call it a GAP`
-      : `the judge has ${field} and the reply does not — the judge is judging against material the assistant never had`
+    "Turkish: a long entry is handed over as its sentences with figures, not whole",
+    facts.length === 1 && facts[0].includes("5 gün") && facts[0].includes("4 aylık") && !facts[0].includes("modern bir binada"),
+    JSON.stringify(facts)
   );
 }
-
-// ── 2. Language names, which are rendered not echoed ─────────────────
-//
-// `languages` is stored as codes and printed as names, so there is no
-// sentinel for it. Checked by its rendered form instead.
-check(
-  "languages reach both, as names",
-  prompt.includes("Languages spoken: English, Arabic") &&
-    judge.content.includes("Languages spoken: English, Arabic"),
-  judge.content
-);
-
-// ── 3. The owner's private number reaches neither ────────────────────
-check("owner_phone is in neither the prompt nor the judge's material", !prompt.includes(OWNER_PHONE) && !judge.content.includes(OWNER_PHONE));
-
-// ── 4. The structural guarantee ──────────────────────────────────────
-//
-// Every fact line appears verbatim in both. If someone adds a settings
-// line directly to buildIdentityBlock instead of to businessFactLines,
-// the sentinel sweep above catches it; this catches the reverse, a fact
-// line that stops reaching the prompt.
-console.log("\n--- the shared list is actually shared ---");
-const lines = businessFactLines(full);
-check(`${lines.length} fact lines produced`, lines.length > 0);
-check(
-  "every fact line is in the system prompt",
-  lines.every((l) => prompt.includes(l)),
-  lines.filter((l) => !prompt.includes(l)).join(" | ")
-);
-check(
-  "every fact line is in the judge's material",
-  lines.every((l) => judge.content.includes(l)),
-  lines.filter((l) => !judge.content.includes(l)).join(" | ")
-);
-check("the judge's entry has a title", judge.title === BUSINESS_FACTS_TITLE);
-
-// ── 5. A business that has filled in nothing ─────────────────────────
-//
-// The judge's entry must not become a list of blanks a model could read
-// as real values, and it must not be empty in a way that breaks the
-// numbered listing.
-console.log("\n--- a business with only a name ---");
-const bare: BusinessIdentity = {
-  businessName: "ZQBARE",
-  industry: null,
-  description: null,
-  settings: parseTenantSettings({}),
-};
-const bareJudge = businessFactsForJudge(bare);
-check("content is non-empty, so the entry is usable", bareJudge.content.trim().length > 0);
-check("it carries the name", bareJudge.content.includes("ZQBARE"));
-check(
-  "and nothing else",
-  bareJudge.content.split(/\r?\n/).length === 1,
-  JSON.stringify(bareJudge.content)
-);
-check(
-  "no empty labels that could read as real values",
-  !/:\s*$/m.test(bareJudge.content) && !bareJudge.content.includes("undefined"),
-  bareJudge.content
-);
-
-// ── 6. The questions this actually fixes ─────────────────────────────
-//
-// Named, so the next person can see what was broken rather than
-// inferring it from a diff.
-console.log("\n--- the questions that would have been false gaps ---");
-const fixed: [string, string][] = [
-  ["what are your opening hours?", SENTINELS.opening_hours],
-  ["where are you based?", SENTINELS.city],
-  ["do you serve my area?", SENTINELS.service_area],
-  ["what currency are prices in?", SENTINELS.currency],
-  ["how can I reach you on WhatsApp?", SENTINELS.whatsapp],
-  ["what languages do you speak?", "Arabic"],
-];
-for (const [question, needed] of fixed) {
-  check(`"${question}" is answerable from the judge's material`, judge.content.includes(needed));
+{
+  const facts = selectBusinessFacts([1, 0.1, 0], TR, "Size Straumann kronlar öneriyoruz.");
+  check("Turkish: an entry whose rare word was already said is skipped", facts.length === 1 && facts[0].includes("20 yıl"), JSON.stringify(facts));
+}
+{
+  // Turkish casing: the reply writes "implant swiss" and "STRAUMANN", the material "Implant Swiss" and "Straumann".
+  const facts = selectBusinessFacts([1, 0.1, 0], TR, "STRAUMANN kronlar");
+  check("Turkish: 'already said' does not depend on case", facts.length === 1 && !facts[0].includes("Straumann"), JSON.stringify(facts));
 }
 
-console.log(bad === 0 ? "\nAll checks passed." : `\n${bad} FAILED`);
-process.exit(bad === 0 ? 0 : 1);
+// ── Arabic material, with Arabic-Indic digits ────────────────────────
+const AR: FactEntry[] = [
+  { content: "نقدم ضماناً لمدة ٢٠ عاماً على التيجان وضماناً مدى الحياة على الزرعات.", embedding: [1, 0, 0] },
+  {
+    content:
+      "عيادتنا في قلب المدينة وتستقبل المرضى من مختلف البلدان طوال العام. نحرص على راحة كل مريض منذ وصوله وحتى مغادرته. " +
+      "يتم العلاج على زيارتين: الزيارة الأولى ٥ أيام والثانية ٧ أيام بعد فترة شفاء. فريقنا يتحدث العربية والإنجليزية والتركية ويجيب عن كل أسئلتك. " +
+      "نرتب لك المواعيد بحسب ما يناسبك ونتابع حالتك بعد عودتك إلى بلدك.",
+    embedding: [0.2, 0.98, 0],
+  },
+  { content: "يشمل البرنامج نقلاً من المطار وإقامة في فندق.", embedding: [0, 0, 1] },
+];
+
+{
+  const facts = selectBusinessFacts([1, 0, 0], AR, "");
+  check("Arabic: picks the entry closest in meaning", facts.length === 1 && facts[0].includes("٢٠"), JSON.stringify(facts));
+}
+{
+  const facts = selectBusinessFacts([0.2, 0.98, 0], AR, "");
+  check(
+    "Arabic: a long entry is handed over as its sentence with figures (Arabic-Indic digits count as figures)",
+    facts.length === 1 && facts[0].includes("٥ أيام") && !facts[0].includes("قلب المدينة"),
+    JSON.stringify(facts)
+  );
+}
+{
+  const facts = selectBusinessFacts([1, 0, 0], AR, "We give a 20-year warranty on crowns.");
+  check("Arabic: a figure already said in ASCII digits counts as said (٢٠ = 20)", facts.length === 0, JSON.stringify(facts));
+}
+check("Arabic sentences split on ؟ and the full stop", splitSentences("هل تريد؟ نعم. شكراً").length === 3);
+check("every digit system becomes ASCII", asciiDigits("٢٠ ۵ ７") === "20 5 7");
+
+// ── Nothing, when nothing fits ───────────────────────────────────────
+check("nothing when the best match is below the floor", selectBusinessFacts([0, 0, 0.1].map((x, i) => (i === 0 ? MIN_SIMILARITY / 10 : x)), [{ content: "x 12", embedding: [1, 0, 0] }], "").length === 0);
+check("nothing without a query vector", selectBusinessFacts(null, TR, "").length === 0);
+check("an entry without an embedding is never chosen", selectBusinessFacts([1, 0, 0], [{ content: "20 yıl garanti", embedding: null }], "").length === 0);
+check("a short entry is handed over whole", snippetOf(TR[1].content) === TR[1].content);
+
+// ── No letter case anywhere in the decision ─────────────────────────
+{
+  const flip = (entries: FactEntry[], f: (s: string) => string) => entries.map((e) => ({ ...e, content: f(e.content) }));
+  const a = selectBusinessFacts([1, 0.1, 0], TR, "").length;
+  const b = selectBusinessFacts([1, 0.1, 0], flip(TR, (s) => s.toLocaleUpperCase("tr")), "").length;
+  const c = selectBusinessFacts([1, 0.1, 0], flip(TR, (s) => s.toLocaleLowerCase("tr")), "").length;
+  check("the same entries are chosen whether the material is upper case, lower case or as written", a === b && b === c && a === 2, `${a} ${b} ${c}`);
+}
+const src = readFileSync(join(__dirname, "..", "lib", "business-facts.ts"), "utf8");
+check("the selector has no case-based pattern (no A-Z class, no upper-case test)", !/A-Z|toUpperCase|\\p\{Lu\}/.test(src.replace(/^\s*\/\/.*$/gm, "")));
+check("the selector names no industry", !/dental|tooth|teeth|implant|clinic|patient|treatment|hair|surgery/i.test(src.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")));
+
+// ── Hesitation needs something to step back from ─────────────────────
+const first = [{ role: "user", content: "Hola, estoy considerando implantes dentales" }];
+const later = [
+  { role: "user", content: "Hola, estoy considerando implantes dentales" },
+  { role: "assistant", content: "Encantados. ¿Qué te gustaría saber?" },
+  { role: "user", content: "sinceramente necesito pensarlo" },
+];
+check("hesitation does not apply on the visitor's first message", hesitationApplies(true, first) === false);
+check("it does from the second message on", hesitationApplies(true, later) === true);
+check("and never when the classifier did not read it", hesitationApplies(false, later) === false);
+const sig = { hesitation: true, impatience: false, direct_request: false };
+const blockFirst = buildConversationStateBlock(first, [], sig) ?? "";
+const blockLater = buildConversationStateBlock(later, [], sig) ?? "";
+check("the state block's hesitation branch does not fire on a first message", !/hesitating/i.test(blockFirst), blockFirst.slice(0, 200));
+check("it still fires on a later one", /hesitating/i.test(blockLater));
+
+// ── The facts line in the state block ───────────────────────────────
+{
+  const ask = { hesitation: false, impatience: false, direct_request: false };
+  const withFacts = buildConversationStateBlock(later.slice(0, 2).concat([{ role: "user", content: "¿cuánto cuesta?" }]), [], ask, undefined, undefined, undefined, ["Kronlarda 20 yıl garanti."]) ?? "";
+  check("the facts are stated verbatim when given", withFacts.includes("- Kronlarda 20 yıl garanti."));
+  const hesitatingWithFacts = buildConversationStateBlock(later, [], sig, undefined, undefined, undefined, ["Kronlarda 20 yıl garanti."]) ?? "";
+  check("and never alongside hesitation", !hesitatingWithFacts.includes("Kronlarda 20 yıl garanti."));
+}
+
+// ── Wiring, read from the route ─────────────────────────────────────
+const route = readFileSync(join(__dirname, "..", "app", "api", "chat", "route.ts"), "utf8").replace(/\r\n/g, "\n");
+check("the route corrects hesitation with hesitationApplies", /const hesitating = hesitationApplies\(signals\.hesitation, turnsWithLatest\);/.test(route));
+check("coverage and the price step read the corrected value", /isNearingClose\(turnsWithLatest\) && !hesitating;/.test(route) && /\n\s+hesitating,\n\s+contactKnown:/.test(route));
+check(
+  "facts are offered only when the visitor asked, is not stepping back, and has not given contact",
+  /shouldJudge\(signals\) && !hesitating && !hasContactDetails\(turnsWithLatest\)\s*\?\s*selectBusinessFacts\(/.test(route)
+);
+check(
+  "the facts embedding starts before the classifier is awaited",
+  route.indexOf("const factsQuery =") > 0 && route.indexOf("const factsQuery =") < route.indexOf("const signals = await signalsPromise;")
+);
+
+if (bad > 0) {
+  console.log(`\n${bad} failed`);
+  process.exitCode = 1;
+} else {
+  console.log("\nthe business's own facts, chosen by meaning and figures, in any language");
+}

@@ -114,9 +114,11 @@ export function testOnlyResponseFields(
   /**
    * What else the run needs to see about this turn, behind the same gate.
    * priceStep: what ensurePriceStep did (lib/price-next-step.ts).
+   * businessFacts: the facts this turn's state block offered the reply
+   * (lib/business-facts.ts).
    */
-  extras: { priceStep?: string } = {}
-): { signals?: VisitorSignals & { available: boolean }; priceStep?: string } {
+  extras: { priceStep?: string; businessFacts?: string[] } = {}
+): { signals?: VisitorSignals & { available: boolean }; priceStep?: string; businessFacts?: string[] } {
   if (requested !== true || !isTestTenant(settings)) return {};
   return { signals: { ...signals, available }, ...extras };
 }
