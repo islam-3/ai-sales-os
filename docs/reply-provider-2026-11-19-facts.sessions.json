@@ -1,0 +1,233 @@
+[
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "English (Latin baseline)",
+    "sessionId": "63c4bb9f-50f4-4575-b450-4676232904e5",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "811e932c-0ffc-4827-a66d-9f3481b3b974",
+    "offered": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "62afcc8e-cac9-472b-b97c-3de6bd0437d6",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients."
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "bb5a9484-051e-46e8-bdfd-a4a6b4b9523a",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients."
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "ffa1e99d-6437-4667-97b2-6cab3e9bcc36",
+    "offered": [
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "259dbcae-a445-4ddd-918c-263e5b16f2a6",
+    "offered": [
+      [],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "English (Latin baseline)",
+    "sessionId": "0006026f-31d3-4958-bee9-6a5e8613c8e4",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "649182e7-2275-4417-ba32-a630e49a376d",
+    "offered": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "198d5768-e28a-423f-94ee-8ecb7040db79",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients."
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "d843ebec-3ceb-4234-8acd-7956702a64a8",
+    "offered": [
+      [
+        "Before and after ( dental implants )",
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients."
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "0c35209e-2e2d-41e1-99af-063af363961b",
+    "offered": [
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "5b22f3e6-701f-4753-a790-cc6c1d3a7d04",
+    "offered": [
+      [],
+      [],
+      [
+        "Best Dental Implants in Istanbul Turkey",
+        "Before and after ( dental implants )"
+      ],
+      [],
+      [],
+      [],
+      []
+    ]
+  }
+]
