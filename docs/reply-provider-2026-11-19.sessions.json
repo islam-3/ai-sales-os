@@ -1,0 +1,74 @@
+[
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "English (Latin baseline)",
+    "sessionId": "67f8d225-221e-4220-9a71-1a7bfbdebf7d"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "d7b8e467-6388-4642-9c7d-443e62338d2a"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "ea1c0688-6580-4eff-b3b8-f9542486d792"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "3fb1cbcf-7824-4f46-9ecf-86e21377cc53"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "7a4921c5-ca1d-455b-8f12-8d25ddd5c04a"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "7157307a-f98a-406d-87ed-1964bef3f32c"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "English (Latin baseline)",
+    "sessionId": "ce40021f-de13-4460-bb6d-b76c2651ded6"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "629ad481-8150-42b6-932b-5ec7a7e23d21"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "a05f5953-46b6-4acf-837b-772ddabcafe4"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "7ba5ae5a-feb4-419a-96b5-8b1c914ecee8"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "eca4b68d-15ec-4337-849f-817a11ffaecf"
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "0f448feb-8288-4a6d-bcdf-ab8ff4179548"
+  }
+]
