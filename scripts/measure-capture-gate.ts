@@ -21,6 +21,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { CASES, PRICE_CASES, type Case } from "./classify-cases";
 
 const RUNS = Number(process.env.RUNS ?? 2);
+// CLASSIFIER_PROVIDER=openai scores the gate on classifySignalsOpenAI
+// (CLASSIFIER_MODEL, default gpt-6-luna) with the same prompt and input.
+// Bar for that arm, set before its first run (2026-11-19): gate precision
+// and recall each within 5 points of Haiku's gate (100% / 100% on 156,
+// docs/capture-gate-2026-11-12.log), and no failed call.
+const OPENAI = process.env.CLASSIFIER_PROVIDER === "openai";
+const OPENAI_MODEL = process.env.CLASSIFIER_MODEL ?? "gpt-6-luna";
 
 function firstJsonObject(text: string): string {
   const start = text.indexOf("{");
@@ -65,7 +72,27 @@ async function main() {
     process.exit(0);
   }
   const { anthropic } = await import("../lib/anthropic");
-  const { SIGNAL_MODEL, SIGNAL_PROMPT } = await import("../lib/visitor-signals");
+  const { SIGNAL_MODEL, SIGNAL_PROMPT, classifySignalsOpenAI } = await import("../lib/visitor-signals");
+  const { openai } = await import("../lib/openai");
+  const { calculateCostUsd } = await import("../lib/ai-pricing");
+  const classifyAny = async (c: Case): Promise<Record<string, boolean>> => {
+    if (!OPENAI) return classify(anthropic, SIGNAL_MODEL, SIGNAL_PROMPT, c);
+    const user = c.prior ? `Assistant's previous message: ${c.prior}\n\nVisitor's message: ${c.text}` : `Visitor's message: ${c.text}`;
+    try {
+      const r = await classifySignalsOpenAI(openai, OPENAI_MODEL, user);
+      if (r.tokens) cost += calculateCostUsd(OPENAI_MODEL, r.tokens);
+      return r.parsed;
+    } catch {
+      failures++;
+      return {};
+    }
+  };
+  if (process.env.MEASURE_ONE === "1") {
+    await classifyAny(CASES[0]);
+    console.log(`one call on ${OPENAI ? OPENAI_MODEL : SIGNAL_MODEL}: ${cost.toFixed(6)}, failures ${failures}`);
+    return;
+  }
+  console.log(`classifier: ${OPENAI ? `${OPENAI_MODEL} (OpenAI)` : `${SIGNAL_MODEL} (Anthropic)`}`);
   const existing = new Set(CASES.filter((c) => !PRICE_CASES.includes(c)));
 
   const gate = { all: t0(), existing: t0() };
@@ -75,7 +102,7 @@ async function main() {
   for (let run = 1; run <= RUNS; run++) {
     process.stdout.write(`run ${run}: `);
     for (const c of CASES) {
-      const got = await classify(anthropic, SIGNAL_MODEL, SIGNAL_PROMPT, c);
+      const got = await classifyAny(c);
       const full = got.asking_for_information === true || got.direct_request === true || got.asks_about_price === true;
       const old = got.asking_for_information === true || got.direct_request === true;
       const label = c.asking_for_information;
@@ -104,7 +131,14 @@ async function main() {
     console.log(`\n  disagreements (check the LABEL first):`);
     for (const m of misses) console.log(`   ${m}`);
   }
-  console.log(`\ncall failures: ${failures}   cost: $${cost.toFixed(4)}`);
+  console.log(`\ncall failures: ${failures}   cost: ${cost.toFixed(4)}`);
+  if (OPENAI) {
+    const p = gate.all.tp + gate.all.fp ? (100 * gate.all.tp) / (gate.all.tp + gate.all.fp) : 100;
+    const r = gate.all.tp + gate.all.fn ? (100 * gate.all.tp) / (gate.all.tp + gate.all.fn) : 100;
+    const pass = p >= 95 && r >= 95 && failures === 0;
+    console.log(pass ? "PASS: gate within 5 points of Haiku's, no failed call" : `FAIL: gate precision ${p.toFixed(1)}%, recall ${r.toFixed(1)}%, ${failures} failed call(s)`);
+    process.exitCode = pass ? 0 : 1;
+  }
 }
 
 main().catch((e) => {
