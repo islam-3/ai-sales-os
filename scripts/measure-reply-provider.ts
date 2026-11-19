@@ -58,7 +58,7 @@ const VARIETY: Record<string, string> = {
 };
 const varietyOf = (c: Case) => VARIETY[c.label.split(" ")[0]];
 
-type Turn = { visitor: string; reply: string; signals?: Reply["signals"]; failed?: string };
+type Turn = { visitor: string; reply: string; signals?: Reply["signals"]; businessFacts?: string[]; failed?: string };
 type Conversation = {
   arm: string;
   run: number;
@@ -130,7 +130,7 @@ async function main() {
           }
           await pause(PAUSE_MS);
           const flat = result.reply.replace(/\s+/g, " ").trim();
-          conv.turns.push({ visitor: c.turns[i], reply: result.reply, signals: result.signals });
+          conv.turns.push({ visitor: c.turns[i], reply: result.reply, signals: result.signals, businessFacts: result.businessFacts });
 
           // Before spending anything more: did the server actually switch?
           if (arm.model && !switchVerified.has(arm.model)) {
@@ -193,8 +193,8 @@ async function main() {
 
   writeReport(conversations);
   // The session ids, for scripts/measure-reply-specifics.ts.
-  const sessionsPath = join(__dirname, "..", "docs", `reply-provider-${new Date().toISOString().slice(0, 10)}.sessions.json`);
-  writeFileSync(sessionsPath, JSON.stringify(conversations.map((c) => ({ arm: c.arm, run: c.run, label: c.case.label, sessionId: c.sessionId })), null, 2));
+  const sessionsPath = join(__dirname, "..", "docs", process.env.SESSIONS_FILE ?? `reply-provider-${new Date().toISOString().slice(0, 10)}.sessions.json`);
+  writeFileSync(sessionsPath, JSON.stringify(conversations.map((c) => ({ arm: c.arm, run: c.run, label: c.case.label, sessionId: c.sessionId, offered: c.turns.map((t) => t.businessFacts ?? []) })), null, 2));
   console.log(`wrote ${sessionsPath}`);
 }
 
@@ -319,7 +319,7 @@ function writeReport(conversations: Conversation[]) {
     }
   }
 
-  const path = join(__dirname, "..", "docs", `reply-provider-${date}.md`);
+  const path = join(__dirname, "..", "docs", process.env.REPORT ?? `reply-provider-${date}.md`);
   writeFileSync(path, lines.join("\n"));
   console.log(`\nwrote ${path}`);
   console.log(lines.slice(0, 4 + rows.length + 2).join("\n"));

@@ -29,6 +29,8 @@ export type Reply = {
   };
   /** What the price next step did this turn (lib/price-next-step.ts). Test tenants only. */
   priceStep?: string;
+  /** The business's facts the state block offered this turn (lib/business-facts.ts). Test tenants only. */
+  businessFacts?: string[];
 };
 
 // Checked once per process, then remembered: the guard protects against a

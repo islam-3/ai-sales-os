@@ -35,18 +35,31 @@
 //       overall AND in English; distinct facts per conversation >= 80%
 //       of Sonnet's;
 //   (b) early handoffs: OpenAI <= Sonnet, overall AND in English.
+//
+// BARS=facts: the bars for the run after the facts fix (set 2026-11-19,
+// before it ran). Not Sonnet's 3.5, which overloads:
+//   - at least 2.0 distinct business facts per conversation;
+//   - a fact in the price reply (reply 3) in at least 10 of 12, and in
+//     the process reply (reply 4) in at least 10 of 12;
+//   - early handoffs in replies 1-2: none (Sonnet: none).
+// Overloaded replies are measured by measure-reply-provider's density
+// check and compared with its own report.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const SONNET_SESSIONS: { label: string; sessionId: string }[] = [
+const BARS = process.env.BARS ?? "relative";
+const PRICE_REPLY = 2;
+const PROCESS_REPLY = 3;
+
+const SONNET_SESSIONS: { label: string; sessionId: string; run: number }[] = [
   ["Spanish", "92985564-d415-43ab-9cee-8940d5c02956"], ["Turkish", "d398a0e1-8ebb-4587-9d60-ca7feba70da7"],
   ["Chinese", "cce0512c-caf0-44f1-9010-4eedea2021d0"], ["Russian", "dcb0905e-74fa-4b66-b4cb-63558f478cea"],
   ["Arabic", "06209320-92d7-4df9-a588-6037d4b48690"], ["English", "eee97d63-ed4c-4f8d-8150-6a779e02cf8d"],
   ["Spanish", "b52142fb-cf89-4c80-8eef-4da9763063af"], ["Turkish", "7282dc78-f5b0-4d3c-ad5a-1835dbf9214a"],
   ["Chinese", "9eb4c463-f391-4be7-bd28-8d32478846f4"], ["Russian", "6286a163-62b1-4e50-b841-38d5f04aee00"],
   ["Arabic", "150170b3-9c23-4e44-ac85-241dbd494dd7"], ["English", "f882b2bc-d955-4397-92bc-6b1ae09f2a56"],
-].map(([label, sessionId]) => ({ label, sessionId }));
+].map(([label, sessionId], i) => ({ label, sessionId, run: i < 6 ? 1 : 2 }));
 
 const LANGS = ["English", "Arabic", "Russian", "Chinese", "Turkish", "Spanish"];
 
@@ -59,7 +72,7 @@ const ASKS: Record<string, RegExp> = {
 const ARABIC_INDIC = "٠١٢٣٤٥٦٧٨٩";
 const asciiDigits = (s: string) => s.replace(/[٠-٩]/g, (d) => String(ARABIC_INDIC.indexOf(d)));
 
-type Conv = { arm: string; label: string; sessionId: string; visitor: string[]; replies: string[] };
+type Conv = { arm: string; label: string; run: number; sessionId: string; visitor: string[]; replies: string[]; offered: string[][] };
 
 function factVocabulary(material: string, exclude: string[]): { numbers: Set<string>; names: Set<string> } {
   const numbers = new Set<string>();
@@ -95,7 +108,7 @@ function factsIn(reply: string, vocab: { numbers: Set<string>; names: Set<string
 async function main() {
   const sessionsFile = process.argv[2];
   if (!sessionsFile) throw new Error("usage: measure-reply-specifics.ts <reply-provider-<date>.sessions.json>");
-  const openaiSessions = JSON.parse(readFileSync(sessionsFile, "utf8")) as { arm: string; label: string; sessionId: string }[];
+  const openaiSessions = JSON.parse(readFileSync(sessionsFile, "utf8")) as { arm: string; label: string; run: number; sessionId: string; offered?: string[][] }[];
   const { supabaseServer: s } = await import("../lib/supabase-server");
 
   const { data: tenant } = await s.from("tenants").select("id, business_name, description, settings").eq("slug", "test-clinic").single();
@@ -111,10 +124,10 @@ async function main() {
   const vocab = factVocabulary(material, exclude);
   const whatsappDigits = asciiDigits(st.contact?.whatsapp ?? "").replace(/\D/g, "");
 
-  const load = async (arm: string, label: string, sessionId: string): Promise<Conv> => {
+  const load = async (arm: string, label: string, run: number, sessionId: string, offered: string[][] = []): Promise<Conv> => {
     const { data } = await s.from("conversations").select("role, content, created_at").eq("session_id", sessionId).order("created_at");
     return {
-      arm, label: label.split(" ")[0], sessionId,
+      arm, label: label.split(" ")[0], run, sessionId, offered,
       visitor: (data ?? []).filter((r) => r.role === "user").map((r) => r.content),
       // The greeting is stored as the first assistant row only when the
       // visitor opened from it; the smoke runs send no greeting, so every
@@ -123,11 +136,11 @@ async function main() {
     };
   };
   const convs: Conv[] = [];
-  for (const x of SONNET_SESSIONS) convs.push(await load("sonnet", x.label, x.sessionId));
-  for (const x of openaiSessions) convs.push(await load(x.arm, x.label, x.sessionId));
+  for (const x of SONNET_SESSIONS) convs.push(await load("sonnet", x.label, x.run, x.sessionId));
+  for (const x of openaiSessions) convs.push(await load(x.arm, x.label, x.run, x.sessionId, x.offered));
   const arms = Array.from(new Set(convs.map((c) => c.arm)));
 
-  type Row = { convs: number; firstWithFact: number; distinct: number; handoffs: number };
+  type Row = { convs: number; firstWithFact: number; distinct: number; handoffs: number; priceFact: number; processFact: number };
   const table = new Map<string, Row>();
   const handoffQuotes: string[] = [];
   const firstReplies: string[] = [];
@@ -151,7 +164,9 @@ async function main() {
       firstReplies.push(`- **${c.arm}** · ${c.label} · facts [${first.join(", ") || "none"}] · ${(c.replies[0] ?? "").replace(/\s+/g, " ").slice(0, 300)}`);
     }
     for (const key of [`${c.arm}|${c.label}`, `${c.arm}|all`]) {
-      const r = table.get(key) ?? table.set(key, { convs: 0, firstWithFact: 0, distinct: 0, handoffs: 0 }).get(key)!;
+      const r = table.get(key) ?? table.set(key, { convs: 0, firstWithFact: 0, distinct: 0, handoffs: 0, priceFact: 0, processFact: 0 }).get(key)!;
+      if (factsIn(c.replies[PRICE_REPLY] ?? "", vocab, c.visitor.slice(0, PRICE_REPLY + 1).join(" ")).length) r.priceFact++;
+      if (factsIn(c.replies[PROCESS_REPLY] ?? "", vocab, c.visitor.slice(0, PROCESS_REPLY + 1).join(" ")).length) r.processFact++;
       r.convs++;
       if (first.length) r.firstWithFact++;
       r.distinct += all.size;
@@ -164,19 +179,34 @@ async function main() {
     `# Reply specifics and early handoff, ${new Date().toISOString().slice(0, 10)}`, "",
     `Sonnet: the 12 production smoke conversations of 2026-11-17 and 2026-11-18. ${arms.filter((a) => a !== "sonnet").join(", ")}: ${sessionsFile}.`, "",
     `Fact vocabulary from test-clinic's own material: ${vocab.numbers.size} numbers (${Array.from(vocab.numbers).join(", ")}), ${vocab.names.size} names (${Array.from(vocab.names).join(", ")}).`, "",
-    "| Arm | Visitor language | Conversations | First reply carries a fact | Distinct facts per conversation | Early handoffs (replies 1-2) |",
-    "|---|---|---|---|---|---|",
+    "| Arm | Visitor language | Conversations | First reply carries a fact | Price reply carries a fact | Process reply carries a fact | Distinct facts per conversation | Early handoffs (replies 1-2) |",
+    "|---|---|---|---|---|---|---|---|",
   ];
   for (const arm of arms) for (const lang of [...LANGS, "all"]) {
     const r = table.get(`${arm}|${lang}`);
     if (!r) continue;
-    out.push(`| ${lang === "all" ? `**${arm}**` : arm} | ${lang === "all" ? "**all**" : lang} | ${r.convs} | ${r.firstWithFact}/${r.convs} (${pct(r.firstWithFact, r.convs)}%) | ${(r.distinct / r.convs).toFixed(1)} | ${r.handoffs} |`);
+    out.push(`| ${lang === "all" ? `**${arm}**` : arm} | ${lang === "all" ? "**all**" : lang} | ${r.convs} | ${r.firstWithFact}/${r.convs} (${pct(r.firstWithFact, r.convs)}%) | ${r.priceFact}/${r.convs} | ${r.processFact}/${r.convs} | ${(r.distinct / r.convs).toFixed(1)} | ${r.handoffs} |`);
   }
 
   // The bars.
   const verdicts: string[] = [];
   const sonnet = (lang: string) => table.get(`sonnet|${lang}`)!;
-  for (const arm of arms.filter((a) => a !== "sonnet")) {
+  if (BARS === "facts") {
+    for (const arm of arms.filter((a) => a !== "sonnet")) {
+      const o = table.get(`${arm}|all`)!;
+      const rows: [string, boolean][] = [
+        [`distinct business facts per conversation ${(o.distinct / o.convs).toFixed(1)} (bar 2.0)`, o.distinct / o.convs >= 2.0],
+        [`price reply carries a fact ${o.priceFact}/${o.convs} (bar 10/12)`, o.priceFact >= Math.ceil((10 / 12) * o.convs)],
+        [`process reply carries a fact ${o.processFact}/${o.convs} (bar 10/12)`, o.processFact >= Math.ceil((10 / 12) * o.convs)],
+        [`early handoffs in replies 1-2: ${o.handoffs} (bar 0)`, o.handoffs === 0],
+      ];
+      for (const [label, ok] of rows) verdicts.push(`- ${arm}: ${label} → ${ok ? "ok" : "**FAIL**"}`);
+      const pass = rows.every(([, ok]) => ok);
+      verdicts.push(`- **${arm}: ${pass ? "PASS" : "FAIL"}** (overloaded replies: see measure-reply-provider's report)`);
+      if (!pass) process.exitCode = 1;
+    }
+  }
+  for (const arm of BARS === "facts" ? [] : arms.filter((a) => a !== "sonnet")) {
     let pass = true;
     for (const lang of ["all", "English"]) {
       const o = table.get(`${arm}|${lang}`), b = sonnet(lang);
@@ -193,11 +223,25 @@ async function main() {
     verdicts.push(`- **${arm}: ${pass ? "PASS" : "FAIL"}**`);
     if (!pass) process.exitCode = 1;
   }
-  out.push("", "## Against the bars", "", ...verdicts, "", "## Early handoffs, quoted", "", ...(handoffQuotes.length ? handoffQuotes : ["None."]), "",
+  // Every price and process reply, side by side with Sonnet's, English first.
+  const cell = (s: string) => s.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+  const sideBySide: string[] = ["## Price and process replies, side by side", "", "Sonnet: production smoke runs of 2026-11-17 (run 1) and 2026-11-18 (run 2). Facts offered: what the state block handed the OpenAI reply that turn.", ""];
+  for (const lang of LANGS) {
+    sideBySide.push(`### ${lang}`, "", `| Run | Reply | Sonnet | ${arms.filter((a) => a !== "sonnet").join(" / ")} | Facts offered |`, "|---|---|---|---|---|");
+    for (const run of [1, 2]) {
+      const s = convs.find((c) => c.arm === "sonnet" && c.label === lang && c.run === run);
+      const o = convs.find((c) => c.arm !== "sonnet" && c.label === lang && c.run === run);
+      for (const [name, idx] of [["price", PRICE_REPLY], ["process", PROCESS_REPLY]] as const) {
+        sideBySide.push(`| ${run} | ${name} | ${cell(s?.replies[idx] ?? "")} | ${cell(o?.replies[idx] ?? "")} | ${cell((o?.offered[idx] ?? []).join(" ◆ ") || "none")} |`);
+      }
+    }
+    sideBySide.push("");
+  }
+  out.push("", "## Against the bars", "", ...verdicts, "", ...sideBySide, "## Early handoffs, quoted", "", ...(handoffQuotes.length ? handoffQuotes : ["None."]), "",
     "## First replies: every English one, and every one with no fact", "", ...firstReplies, "");
-  const path = join(__dirname, "..", "docs", `reply-specifics-${new Date().toISOString().slice(0, 10)}.md`);
+  const path = join(__dirname, "..", "docs", process.env.REPORT ?? `reply-specifics-${new Date().toISOString().slice(0, 10)}.md`);
   writeFileSync(path, out.join("\n"));
-  console.log(out.slice(0, out.indexOf("## Early handoffs, quoted")).join("\n"));
+  console.log(out.slice(0, out.indexOf("## Price and process replies, side by side")).join("\n"));
   console.log(`wrote ${path}`);
 }
 
