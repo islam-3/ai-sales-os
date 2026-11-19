@@ -35,7 +35,8 @@ import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
 import { shouldSkipCapture, testExtractionModel, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
-import { openAIReply, toOpenAIReplyRequest } from "@/lib/reply-openai";
+import { openAIReply, replyModelChain, toOpenAIReplyRequest } from "@/lib/reply-openai";
+import { withOpenAIFallback } from "@/lib/openai-fallback";
 import {
   LEAD_EXTRACTION_MAX_TOKENS,
   LEAD_EXTRACTION_MODEL,
@@ -846,19 +847,23 @@ async function handleChat(body: Record<string, unknown>) {
   const experimentModel = testReplyModel(replyModel, tenant.settings);
   let rawReply: string;
   if (experimentModel) {
-    const reply = await openAIReply(
-      openai,
-      experimentModel,
-      toOpenAIReplyRequest(systemBlocks, replyMessages),
-      tenantId
+    // Retry, then the other OpenAI model, then the safe fallback: an
+    // error thrown from here reaches handleChat's catch, which serves it.
+    const request = toOpenAIReplyRequest(systemBlocks, replyMessages);
+    const { value: reply, model: answeredBy, attempts } = await withOpenAIFallback(
+      replyModelChain(experimentModel),
+      (model) => openAIReply(openai, model, request, tenantId)
     );
+    if (attempts.length > 1) {
+      console.warn("[chat] reply needed more than one attempt", { sessionId, answeredBy, attempts });
+    }
     if (reply.tokens) {
       void recordUsage({
         tenantId,
         sessionId,
         callType: "chat_reply",
         provider: "openai",
-        model: experimentModel,
+        model: answeredBy,
         tokens: reply.tokens,
       });
     }

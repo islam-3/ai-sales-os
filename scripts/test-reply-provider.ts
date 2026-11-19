@@ -54,7 +54,9 @@ check(
 );
 check(
   "and calls OpenAI for the reply only on that branch",
-  (route.match(/openAIReply\(/g) ?? []).length === 1 && /if \(experimentModel\) \{\n\s+const reply = await openAIReply\(/.test(route)
+  // Through the OpenAI-only fallback since 2026-11-19 (lib/openai-fallback.ts).
+  (route.match(/openAIReply\(/g) ?? []).length === 1 &&
+    /if \(experimentModel\) \{[\s\S]{0,700}withOpenAIFallback\([\s\S]{0,200}openAIReply\(/.test(route)
 );
 check("Sonnet stays the default", /const CHAT_MODEL = "claude-sonnet-4-6";/.test(route));
 

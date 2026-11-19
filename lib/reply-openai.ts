@@ -86,6 +86,15 @@ export function openAIUsageToTokens(usage: {
 
 export type OpenAIReply = { text: string; refused: boolean; tokens: TokenCounts | null };
 
+/**
+ * The reply models in the order they are tried: the chosen one, then the
+ * other. OpenAI only, by decision: no Claude model is ever a fallback.
+ */
+export const REPLY_MODELS = ["gpt-6.1-terra", "gpt-6-luna"] as const;
+export function replyModelChain(primary: (typeof REPLY_MODELS)[number]): string[] {
+  return [primary, ...REPLY_MODELS.filter((m) => m !== primary)];
+}
+
 /** One reply. The client is passed in so this file loads no SDK client. */
 export async function openAIReply(
   client: OpenAI,
@@ -93,15 +102,21 @@ export async function openAIReply(
   request: OpenAIReplyRequest,
   cacheKey: string
 ): Promise<OpenAIReply> {
-  const response = await client.responses.create({
-    model,
-    instructions: request.instructions,
-    input: request.input,
-    max_output_tokens: 1024,
-    reasoning: { effort: "none" },
-    prompt_cache_key: cacheKey,
-    store: false,
-  });
+  // maxRetries 0: retrying is withOpenAIFallback's job (lib/openai-fallback.ts),
+  // so the policy is one visible thing rather than the SDK's two silent
+  // retries plus ours.
+  const response = await client.responses.create(
+    {
+      model,
+      instructions: request.instructions,
+      input: request.input,
+      max_output_tokens: 1024,
+      reasoning: { effort: "none" },
+      prompt_cache_key: cacheKey,
+      store: false,
+    },
+    { maxRetries: 0 }
+  );
 
   let refused = false;
   for (const item of response.output ?? []) {
