@@ -1,0 +1,45 @@
+classifier: gpt-6-luna (OpenAI)
+run 1: ............................................................................................................................................................
+run 2: ............................................................................................................................................................
+
+── capture gate, six-key classifier, 2 runs, against the asking_for_information label
+  figure of record, five-key gate (2026-10-11): precision 100%  recall 97.7%  (120 cases)
+  six-key gate, same 120 cases:                precision 85.9%  recall 98.8%  (tp=85 fp=14 fn=1)
+  six-key gate, all 156 cases:               precision 91.2%  recall 99.3%  (tp=145 fp=14 fn=1)
+  same run WITHOUT asks_about_price, 120:       precision 85.9%  recall 98.8%  (tp=85 fp=14 fn=1)
+  same run WITHOUT asks_about_price, 156:       precision 91.2%  recall 99.3%  (tp=145 fp=14 fn=1)
+  CURRENT gate (skips an accepted offer unless it asks the price), 120: precision 97.7%  recall 98.8%  (tp=85 fp=2 fn=1)
+  CURRENT gate, all 156:                precision 98.6%  recall 99.3%  (tp=145 fp=2 fn=1)
+
+  current gate disagreements:
+   run 1 [Spanish] labelled false, current gate true: "todavía no has respondido a mi pregunta"
+   run 2 [English] labelled true, current gate false: "should I send you a photo of my teeth?"
+   run 2 [Chinese] labelled false, current gate true: "你还没有回答我的问题"
+
+  per class (six-key gate, all cases):
+    English   precision 100.0%  recall 96.2%  (tp=25 fp=0 fn=1)
+    Arabic    precision 85.7%  recall 100.0%  (tp=24 fp=4 fn=0)
+    Russian   precision 92.3%  recall 100.0%  (tp=24 fp=2 fn=0)
+    Chinese   precision 88.9%  recall 100.0%  (tp=24 fp=3 fn=0)
+    Turkish   precision 96.0%  recall 100.0%  (tp=24 fp=1 fn=0)
+    Spanish   precision 85.7%  recall 100.0%  (tp=24 fp=4 fn=0)
+
+  disagreements (check the LABEL first):
+   run 1 [Arabic] labelled false, gate true: "نعم من فضلك"
+   run 1 [Arabic] labelled false, gate true: "أكيد، أرني"
+   run 1 [Russian] labelled false, gate true: "да, покажите"
+   run 1 [Chinese] labelled false, gate true: "想看"
+   run 1 [Spanish] labelled false, gate true: "vale, enséñamelas"
+   run 1 [Spanish] labelled false, gate true: "todavía no has respondido a mi pregunta"
+   run 2 [English] labelled true, gate false: "should I send you a photo of my teeth?"
+   run 2 [Arabic] labelled false, gate true: "نعم من فضلك"
+   run 2 [Arabic] labelled false, gate true: "أكيد، أرني"
+   run 2 [Russian] labelled false, gate true: "да, покажите"
+   run 2 [Chinese] labelled false, gate true: "好的，麻烦您"
+   run 2 [Chinese] labelled false, gate true: "你还没有回答我的问题"
+   run 2 [Turkish] labelled false, gate true: "olur, görmek isterim"
+   run 2 [Spanish] labelled false, gate true: "sí, por favor"
+   run 2 [Spanish] labelled false, gate true: "vale, enséñamelas"
+
+call failures: 0   cost: 0.0203
+PASS: the current gate is within 5 points of Haiku's, no failed call
