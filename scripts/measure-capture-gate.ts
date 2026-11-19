@@ -19,13 +19,17 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { CASES, PRICE_CASES, type Case } from "./classify-cases";
+import { shouldJudge } from "../lib/capture-gate";
 
 const RUNS = Number(process.env.RUNS ?? 2);
 // CLASSIFIER_PROVIDER=openai scores the gate on classifySignalsOpenAI
 // (CLASSIFIER_MODEL, default gpt-6-luna) with the same prompt and input.
 // Bar for that arm, set before its first run (2026-11-19): gate precision
 // and recall each within 5 points of Haiku's gate (100% / 100% on 156,
-// docs/capture-gate-2026-11-12.log), and no failed call.
+// docs/capture-gate-2026-11-12.log), and no failed call. From 2026-11-19 the
+// bar applies to the CURRENT gate (shouldJudge, which skips an accepted
+// offer unless it asks the price); the gate before that is scored in the
+// same run, side by side.
 const OPENAI = process.env.CLASSIFIER_PROVIDER === "openai";
 const OPENAI_MODEL = process.env.CLASSIFIER_MODEL ?? "gpt-6-luna";
 
@@ -97,6 +101,8 @@ async function main() {
 
   const gate = { all: t0(), existing: t0() };
   const withoutPrice = { all: t0(), existing: t0() };
+  const current = { all: t0(), existing: t0() };
+  const currentMisses: string[] = [];
   const byClass = new Map<string, Tally>();
   const misses: string[] = [];
   for (let run = 1; run <= RUNS; run++) {
@@ -106,6 +112,15 @@ async function main() {
       const full = got.asking_for_information === true || got.direct_request === true || got.asks_about_price === true;
       const old = got.asking_for_information === true || got.direct_request === true;
       const label = c.asking_for_information;
+      const now = shouldJudge({
+        asking_for_information: got.asking_for_information === true,
+        direct_request: got.direct_request === true,
+        asks_about_price: got.asks_about_price === true,
+        accepts_offer: got.accepts_offer === true,
+      });
+      add(current.all, label, now);
+      if (existing.has(c)) add(current.existing, label, now);
+      if (label !== now) currentMisses.push(`run ${run} [${c.klass}] labelled ${label}, current gate ${now}: ${JSON.stringify(c.text)}`);
       add(gate.all, label, full);
       add(withoutPrice.all, label, old);
       if (existing.has(c)) {
@@ -125,6 +140,12 @@ async function main() {
   console.log(`  six-key gate, all ${CASES.length} cases:               ${fmt(gate.all)}`);
   console.log(`  same run WITHOUT asks_about_price, 120:       ${fmt(withoutPrice.existing)}`);
   console.log(`  same run WITHOUT asks_about_price, ${CASES.length}:       ${fmt(withoutPrice.all)}`);
+  console.log(`  CURRENT gate (skips an accepted offer unless it asks the price), 120: ${fmt(current.existing)}`);
+  console.log(`  CURRENT gate, all ${CASES.length}:                ${fmt(current.all)}`);
+  if (currentMisses.length) {
+    console.log(`\n  current gate disagreements:`);
+    for (const m of currentMisses) console.log(`   ${m}`);
+  }
   console.log(`\n  per class (six-key gate, all cases):`);
   for (const [k, t] of Array.from(byClass)) console.log(`    ${k.padEnd(9)} ${fmt(t)}`);
   if (misses.length) {
@@ -133,10 +154,10 @@ async function main() {
   }
   console.log(`\ncall failures: ${failures}   cost: ${cost.toFixed(4)}`);
   if (OPENAI) {
-    const p = gate.all.tp + gate.all.fp ? (100 * gate.all.tp) / (gate.all.tp + gate.all.fp) : 100;
-    const r = gate.all.tp + gate.all.fn ? (100 * gate.all.tp) / (gate.all.tp + gate.all.fn) : 100;
+    const p = current.all.tp + current.all.fp ? (100 * current.all.tp) / (current.all.tp + current.all.fp) : 100;
+    const r = current.all.tp + current.all.fn ? (100 * current.all.tp) / (current.all.tp + current.all.fn) : 100;
     const pass = p >= 95 && r >= 95 && failures === 0;
-    console.log(pass ? "PASS: gate within 5 points of Haiku's, no failed call" : `FAIL: gate precision ${p.toFixed(1)}%, recall ${r.toFixed(1)}%, ${failures} failed call(s)`);
+    console.log(pass ? "PASS: the current gate is within 5 points of Haiku's, no failed call" : `FAIL: gate precision ${p.toFixed(1)}%, recall ${r.toFixed(1)}%, ${failures} failed call(s)`);
     process.exitCode = pass ? 0 : 1;
   }
 }

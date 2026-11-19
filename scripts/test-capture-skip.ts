@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { shouldSkipCapture, testOnlyResponseFields } from "../lib/test-tenant";
+import { shouldJudge } from "../lib/capture-gate";
 
 let bad = 0;
 const check = (name: string, pass: boolean) => {
@@ -38,7 +39,7 @@ check(
 // not as a falsy value — `signals: undefined` would still be a field a
 // later change could fill.
 {
-  const verdict = { direct_request: false, hesitation: true, impatience: false, asking_for_information: false, asks_about_price: false };
+  const verdict = { direct_request: false, accepts_offer: false, hesitation: true, impatience: false, asking_for_information: false, asks_about_price: false };
   const realTenants: unknown[] = [{}, null, undefined, { is_test: false }, { is_test: "true" }, { is_test: 1 }];
   const requests: unknown[] = [true, "true", 1, {}, undefined];
   let leaked = 0;
@@ -75,6 +76,23 @@ check(
     /\.\.\.testOnlyResponseFields\(includeSignals, tenant\.settings,/.test(route)
   );
   check("the chat route never writes a signals key itself", !/\bsignals\s*:/.test(route));
+}
+
+// The capture gate: an acceptance is not a question, unless it asks the price.
+{
+  const none = { asking_for_information: false, direct_request: false, asks_about_price: false, accepts_offer: false };
+  check("a question is captured", shouldJudge({ ...none, asking_for_information: true }));
+  check("a request to be shown is captured", shouldJudge({ ...none, direct_request: true }));
+  check("a price question is captured", shouldJudge({ ...none, asks_about_price: true }));
+  check(
+    "accepting an offer is not captured, even with the request keys set (\"yes please\")",
+    !shouldJudge({ ...none, accepts_offer: true, direct_request: true, asking_for_information: true })
+  );
+  check(
+    "accepting an offer AND asking the price is captured (\"yes, and how much is it?\")",
+    shouldJudge({ ...none, accepts_offer: true, asks_about_price: true })
+  );
+  check("nothing set is not captured", !shouldJudge(none));
 }
 
 if (bad > 0) {

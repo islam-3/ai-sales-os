@@ -49,6 +49,13 @@ export type VisitorSignals = {
    * nobody reads.
    */
   direct_request: boolean;
+  /**
+   * Taking up something the assistant just offered: "yes please", "sure,
+   * show me". Read by the capture gate (shouldJudge), which must not
+   * treat an acceptance as a new question. Added to the result
+   * 2026-11-19; it was always asked for.
+   */
+  accepts_offer: boolean;
   /** Stepping back: needs to think, wants to consult someone. */
   hesitation: boolean;
   /** Frustrated: repeating a question, or saying they were not answered. */
@@ -94,6 +101,7 @@ export type VisitorSignals = {
  */
 export const NO_SIGNALS: VisitorSignals = Object.freeze({
   direct_request: false,
+  accepts_offer: false,
   hesitation: false,
   impatience: false,
   asking_for_information: false,
@@ -379,6 +387,7 @@ export async function readVisitorSignals(
     ) as Record<string, unknown>;
     return {
       direct_request: parsed.direct_request === true,
+      accepts_offer: parsed.accepts_offer === true,
       hesitation: parsed.hesitation === true,
       impatience: parsed.impatience === true,
       asking_for_information: parsed.asking_for_information === true,
