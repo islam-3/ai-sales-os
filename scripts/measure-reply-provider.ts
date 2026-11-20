@@ -30,7 +30,7 @@ import { REALTY_CASES } from "./_realty-cases";
 const CASES: Case[] = process.env.CASE_SET === "realty" ? REALTY_CASES : CLINIC_CASES;
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { countWords } from "../lib/punctuation";
-import { detectScript } from "../lib/visitor-language";
+import { replyScript } from "../lib/visitor-language";
 import { replyDensity, isOverloaded } from "../lib/reply-density";
 import { shapeOf } from "../lib/conversation-state";
 import { TEST_REPLY_MODELS } from "../lib/test-tenant";
@@ -81,6 +81,19 @@ type Conversation = {
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FALLBACKS = allSafeFallbacks();
 
+
+/**
+ * The tenant's own name and material, so the script check does not count
+ * them (replyScript, lib/visitor-language.ts). Loaded once per run.
+ */
+async function loadBusinessForScript(slug: string): Promise<{ name?: string; material?: string }> {
+  const { supabaseServer } = await import("../lib/supabase-server");
+  const { data: t } = await supabaseServer.from("tenants").select("id, business_name, description").eq("slug", slug).single();
+  if (!t) return {};
+  const { data: kb } = await supabaseServer.from("knowledge_base").select("title, content").eq("tenant_id", t.id);
+  return { name: t.business_name, material: [t.description ?? "", ...(kb ?? []).map((k) => `${k.title ?? ""} ${k.content ?? ""}`)].join(" ") };
+}
+
 async function main() {
   if (process.env.LIVE !== "1") {
     console.log(
@@ -94,6 +107,7 @@ async function main() {
   // The judge runs on OpenAI (gpt-6.1-terra), validated 48/48 on 2026-11-18.
   const { judgeDialectOpenAI } = await import("../lib/dialect-judge");
   const { supabaseServer: s } = await import("../lib/supabase-server");
+  const businessForScript = await loadBusinessForScript(SLUG);
 
   if (process.env.MEASURE_ONE === "1") {
     const arm = ARMS.find((a) => a.model)!;
@@ -154,7 +168,7 @@ async function main() {
 
           // The smoke test's hard checks.
           if (FALLBACKS.some((f) => flat.startsWith(f.slice(0, 25)))) conv.hard.push(`turn ${i + 1}: safe fallback`);
-          const script = detectScript([flat]);
+          const script = replyScript(flat, businessForScript);
           if (script && script !== c.script) conv.hard.push(`turn ${i + 1}: replied in ${script}`);
           if (i === HESITATION_TURN && result.signals?.available && !result.signals.hesitation) {
             conv.hard.push(`turn ${i + 1}: hesitation not detected`);

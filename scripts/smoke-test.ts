@@ -38,10 +38,12 @@
 // known-bad deployment is decoration.
 
 import { appendFileSync } from "node:fs";
-import { say, type Reply } from "./_chat-client";
+import { say, SLUG, type Reply } from "./_chat-client";
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { countWords } from "../lib/punctuation";
-import { detectScript } from "../lib/visitor-language";
+import { replyScript } from "../lib/visitor-language";
+
+let businessForScript: { name?: string; material?: string } = {};
 import { runDashboardChecks } from "./smoke-dashboard";
 import { CASES, HESITATION_TURN, type Case } from "./_smoke-cases";
 
@@ -196,10 +198,13 @@ async function runCase(c: Case): Promise<CaseResult> {
     //    separate English from Turkish from Spanish, so for those this
     //    asserts only that it did not switch script entirely — which is
     //    the failure that actually happened.
-    const replyScript = detectScript([flat]);
-    if (replyScript && replyScript !== c.script) {
-      hard(`turn ${i + 1}: replied in ${replyScript}, visitor wrote ${c.script}`, flat.slice(0, 90));
-      console.log(`   turn ${i + 1}: ✗ wrong script (${replyScript})`);
+    //    The business's own name and the Latin names its material uses
+    //    are not counted (replyScript): a Chinese reply naming "Implant
+    //    Swiss" is still a Chinese reply.
+    const script = replyScript(flat, businessForScript);
+    if (script && script !== c.script) {
+      hard(`turn ${i + 1}: replied in ${script}, visitor wrote ${c.script}`, flat.slice(0, 90));
+      console.log(`   turn ${i + 1}: ✗ wrong script (${script})`);
       continue;
     }
 
@@ -317,8 +322,22 @@ function preflight(): void {
   }
 }
 
+
+/**
+ * The tenant's own name and material, so the script check does not count
+ * them (replyScript, lib/visitor-language.ts). Loaded once per run.
+ */
+async function loadBusinessForScript(slug: string): Promise<{ name?: string; material?: string }> {
+  const { supabaseServer } = await import("../lib/supabase-server");
+  const { data: t } = await supabaseServer.from("tenants").select("id, business_name, description").eq("slug", slug).single();
+  if (!t) return {};
+  const { data: kb } = await supabaseServer.from("knowledge_base").select("title, content").eq("tenant_id", t.id);
+  return { name: t.business_name, material: [t.description ?? "", ...(kb ?? []).map((k) => `${k.title ?? ""} ${k.content ?? ""}`)].join(" ") };
+}
+
 async function main() {
   preflight();
+  businessForScript = await loadBusinessForScript(SLUG);
   console.log(`smoke test against ${process.env.BASE_URL}`);
   // ONLY lets a single class be re-run while chasing one problem.
   const only = (process.env.ONLY ?? "").trim().toLowerCase();

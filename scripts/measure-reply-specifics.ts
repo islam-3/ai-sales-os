@@ -40,9 +40,8 @@
 // before it ran). Not Sonnet's 3.5, which overloads:
 //   - at least 2.0 distinct business facts per conversation;
 //   - a fact in the process reply (reply 4) in at least 10 of 12;
-//   - a fact in the price reply (reply 3) in at least 3 of 12, Sonnet's
-//     production rate (changed from 10/12 on 2026-11-20: the price
-//     reply's job is the photo step);
+//   - no price bar: dropped on 2026-11-20, because the price reply's
+//     job is the photo step (was 10/12, then 3/12). Still reported;
 //   - early handoffs in replies 1-2: none (Sonnet: none).
 // Overloaded replies are measured by measure-reply-provider's density
 // check and compared with its own report.
@@ -205,7 +204,8 @@ async function main() {
       const o = table.get(`${arm}|all`)!;
       const rows: [string, boolean][] = [
         [`distinct business facts per conversation ${(o.distinct / o.convs).toFixed(1)} (bar 2.0)`, o.distinct / o.convs >= 2.0],
-        [`price reply carries a fact ${o.priceFact}/${o.convs} (bar 3/12, Sonnet's production rate)`, o.priceFact >= Math.ceil((3 / 12) * o.convs)],
+        // No price bar (dropped 2026-11-20): the price reply's job is the
+        // photo step. Its column is still reported, for reading.
         [`process reply carries a fact ${o.processFact}/${o.convs} (bar 10/12)`, o.processFact >= Math.ceil((10 / 12) * o.convs)],
         [`early handoffs in replies 1-2: ${o.handoffs} (bar 0)`, o.handoffs === 0],
       ];

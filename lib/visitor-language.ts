@@ -150,3 +150,40 @@ export function resolveVisitorLanguage(
 
   return { language: name, vetoed: false };
 }
+
+const LATIN_WORD = /[A-Za-zÀ-ɏ]+/g;
+const NON_LATIN_LETTER = /[؀-ۿЀ-ӿ֐-׿Ͱ-Ͽ぀-ヿ一-鿿가-힯]/;
+
+/**
+ * The script a REPLY is written in, not counting the business's own name
+ * or the Latin names its material uses.
+ *
+ * detectScript judges the dominant script. A Chinese reply that names
+ * "TEST — Prof Clinic (automated runs)" and "Implant Swiss" was judged
+ * Latin (2026-11-20). Those words are the business's, written as it
+ * writes them, and say nothing about the language of the reply.
+ *
+ * Narrow on purpose, so a reply really in the wrong language still
+ * fails. The business name is removed first. Latin words are then set
+ * aside ONLY when the reply also contains another script, every Latin
+ * word left is one the business's own material uses, and there are at
+ * most `maxIgnored` of them: a brand or two inside Chinese text, not an
+ * English sentence. A reply with no other script is judged exactly as
+ * before, so a full English reply to a Chinese visitor is still Latin.
+ */
+export function replyScript(
+  reply: string,
+  business: { name?: string; material?: string },
+  maxIgnored = 6
+): VisitorScript | null {
+  let text = reply;
+  const name = business.name?.trim();
+  if (name) text = text.split(name).join(" ");
+  if (!NON_LATIN_LETTER.test(text)) return detectScript([text]);
+  const known = new Set(((business.material ?? "") + " " + (name ?? "")).match(LATIN_WORD)?.map((w) => w.toLowerCase()) ?? []);
+  const latin = text.match(LATIN_WORD) ?? [];
+  if (latin.length > 0 && latin.length <= maxIgnored && latin.every((w) => known.has(w.toLowerCase()))) {
+    text = text.replace(LATIN_WORD, " ");
+  }
+  return detectScript([text]);
+}

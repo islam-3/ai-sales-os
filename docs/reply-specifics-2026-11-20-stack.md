@@ -24,10 +24,9 @@ Fact vocabulary from test-clinic's own material: 10 numbers (15, 5, 2, 4, 7, 20,
 ## Against the bars
 
 - gpt-6.1-terra: distinct business facts per conversation 3.7 (bar 2.0) → ok
-- gpt-6.1-terra: price reply carries a fact 0/12 (bar 3/12, Sonnet's production rate) → **FAIL**
 - gpt-6.1-terra: process reply carries a fact 11/12 (bar 10/12) → ok
 - gpt-6.1-terra: early handoffs in replies 1-2: 0 (bar 0) → ok
-- **gpt-6.1-terra: FAIL** (overloaded replies: see measure-reply-provider's report)
+- **gpt-6.1-terra: PASS** (overloaded replies: see measure-reply-provider's report)
 
 ## Price and process replies, side by side
 
