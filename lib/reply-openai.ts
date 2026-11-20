@@ -100,7 +100,9 @@ export async function openAIReply(
   client: OpenAI,
   model: string,
   request: OpenAIReplyRequest,
-  cacheKey: string
+  cacheKey: string,
+  /** A per-request timeout. Only the fallback drill sets it (1 ms). */
+  timeoutMs?: number
 ): Promise<OpenAIReply> {
   // maxRetries 0: retrying is withOpenAIFallback's job (lib/openai-fallback.ts),
   // so the policy is one visible thing rather than the SDK's two silent
@@ -115,7 +117,7 @@ export async function openAIReply(
       prompt_cache_key: cacheKey,
       store: false,
     },
-    { maxRetries: 0 }
+    { maxRetries: 0, ...(timeoutMs !== undefined && { timeout: timeoutMs }) }
   );
 
   let refused = false;

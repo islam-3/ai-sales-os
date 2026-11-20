@@ -56,9 +56,10 @@ check(
   "and calls OpenAI for the reply only on that branch",
   // Through the OpenAI-only fallback since 2026-11-19 (lib/openai-fallback.ts).
   (route.match(/openAIReply\(/g) ?? []).length === 1 &&
-    /if \(experimentModel\) \{[\s\S]{0,700}withOpenAIFallback\([\s\S]{0,200}openAIReply\(/.test(route)
+    /if \(experimentModel\) \{[\s\S]{0,1500}withOpenAIFallback\([\s\S]{0,200}openAIReply\(/.test(route)
 );
-check("Sonnet stays the default", /const CHAT_MODEL = "claude-sonnet-4-6";/.test(route));
+// Since 2026-11-20 Sonnet is the rollback (MODEL_PROVIDER=anthropic), not the default.
+check("Sonnet stays available for the rollback", /const CHAT_MODEL = "claude-sonnet-4-6";/.test(route));
 
 // ── 2. The mapping ───────────────────────────────────────────────────
 console.log("\n--- the OpenAI request carries exactly what Sonnet is sent ---");

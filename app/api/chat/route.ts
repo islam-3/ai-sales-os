@@ -36,7 +36,8 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
-import { OPENAI_STACK, shouldSkipCapture, testExtractionModel, testOpenAIStack, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
+import { OPENAI_STACK, shouldSkipCapture, testExtractionModel, testFallbackDrill, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
+import { useOpenAIStack } from "@/lib/model-provider";
 import { openAIReply, replyModelChain, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import { withOpenAIFallback } from "@/lib/openai-fallback";
 import {
@@ -589,7 +590,7 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel, extractionModel, openaiStack } =
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel, extractionModel, openaiStack, fallbackDrill } =
     body as {
       message?: unknown;
       photoPath?: unknown;
@@ -604,8 +605,10 @@ async function handleChat(body: Record<string, unknown>) {
       replyModel?: unknown;
       /** Extraction experiment only. Ignored unless the tenant is a test tenant. */
       extractionModel?: unknown;
-      /** Every call on OpenAI (testOpenAIStack). Ignored unless the tenant is a test tenant. */
+      /** Every call on OpenAI (testOpenAIStack). Matters only under the rollback, and only on a test tenant. */
       openaiStack?: unknown;
+      /** A live drill of the reply's fallback chain (testFallbackDrill). Test tenants only. */
+      fallbackDrill?: unknown;
     };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
@@ -653,9 +656,9 @@ async function handleChat(body: Record<string, unknown>) {
   // counted from this moment, so a slow call is abandoned rather than
   // added to what the visitor waits.
   const turnStartedAt = Date.now();
-  // Every model call on OpenAI, for the migration's final check: honoured
-  // only on a test tenant (testOpenAIStack). Production is unchanged.
-  const stack = testOpenAIStack(openaiStack, tenant.settings);
+  // Every model call on OpenAI, for every tenant (lib/model-provider.ts),
+  // unless the rollback MODEL_PROVIDER=anthropic is set.
+  const stack = useOpenAIStack(openaiStack, tenant.settings);
   // How long the classifier took, counted from the start of the turn as
   // its budget is. Reported to test tenants only (testOnlyResponseFields).
   let classifierMs: number | undefined;
@@ -903,14 +906,24 @@ async function handleChat(body: Record<string, unknown>) {
   // is the same either way.
   const experimentModel = stack ? OPENAI_STACK.reply : testReplyModel(replyModel, tenant.settings);
   let rawReply: string;
+  // The reply's attempts through the fallback chain, for test tenants.
+  let replyAttempts: unknown[] | undefined;
   if (experimentModel) {
     // Retry, then the other OpenAI model, then the safe fallback: an
     // error thrown from here reaches handleChat's catch, which serves it.
     const request = toOpenAIReplyRequest(systemBlocks, replyMessages);
-    const { value: reply, model: answeredBy, attempts } = await withOpenAIFallback(
-      replyModelChain(experimentModel),
-      (model) => openAIReply(openai, model, request, tenantId)
+    // The live drill (test tenants only): a 1 ms timeout on the first
+    // attempt, or models that do not exist, so the chain can be watched
+    // doing its job on the deployed route.
+    const drill = testFallbackDrill(fallbackDrill, tenant.settings);
+    const chain = replyModelChain(experimentModel).map((m, i) =>
+      drill === "fallback" || (drill === "second" && i === 0) ? "gpt-drill-no-such-model" : m
     );
+    let attemptNo = 0;
+    const { value: reply, model: answeredBy, attempts } = await withOpenAIFallback(chain, (model) =>
+      openAIReply(openai, model, request, tenantId, drill === "retry" && attemptNo++ === 0 ? 1 : undefined)
+    );
+    replyAttempts = attempts;
     if (attempts.length > 1) {
       console.warn("[chat] reply needed more than one attempt", { sessionId, answeredBy, attempts });
     }
@@ -1219,7 +1232,7 @@ async function handleChat(body: Record<string, unknown>) {
   // nothing whatever the request asks for.
   return NextResponse.json({
     reply,
-    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed", businessFacts, classifierMs }),
+    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed", businessFacts, classifierMs, replyAttempts }),
   });
 }
 

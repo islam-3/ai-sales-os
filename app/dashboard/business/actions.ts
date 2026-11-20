@@ -7,6 +7,11 @@ import { parseTenantSettings, type TenantSettings } from "@/lib/tenant-settings"
 import { supabaseServer } from "@/lib/supabase-server";
 import { isValidBrandColor } from "@/lib/branding";
 import { anthropic } from "@/lib/anthropic";
+import { openai } from "@/lib/openai";
+import { openAIActive } from "@/lib/model-provider";
+import { OPENAI_STACK } from "@/lib/test-tenant";
+import { suggestGreetingOpenAI, translateGreetingOpenAI } from "@/lib/greeting-openai";
+import type { GreetingDraftInput, GreetingTranslationInput } from "@/lib/greeting-prompts";
 import { recordUsage } from "@/lib/usage";
 import { SOURCE_LANGUAGE_CODE, translationSourceFor } from "@/lib/chat-intro-i18n";
 import { languageName, resolveLanguageCode } from "@/lib/languages";
@@ -266,6 +271,64 @@ async function tenantCategories(
 }
 
 /**
+ * The greeting suggestion's text, cleaned, on whichever provider serves
+ * every tenant (lib/model-provider.ts): Terra since 2026-11-20, Sonnet
+ * under the rollback. Metered either way.
+ */
+async function draftGreeting(tenantId: string, input: GreetingDraftInput): Promise<string> {
+  if (openAIActive()) {
+    const r = await suggestGreetingOpenAI(openai, OPENAI_STACK.greeting, input);
+    if (r.tokens) {
+      void recordUsage({ tenantId, callType: "greeting_suggestion", provider: "openai", model: OPENAI_STACK.greeting, tokens: r.tokens });
+    }
+    return r.text;
+  }
+  const response = await anthropic.messages.create({
+    model: TRANSLATION_MODEL,
+    max_tokens: 500,
+    system: buildGreetingSuggestionPrompt(input),
+    messages: [{ role: "user", content: "Write it." }],
+  });
+  void recordUsage({
+    tenantId,
+    callType: "greeting_suggestion",
+    provider: "anthropic",
+    model: TRANSLATION_MODEL,
+    tokens: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+  });
+  const block = response.content.find((b) => b.type === "text");
+  // Stripped of the quotes a model sometimes wraps prose in, because
+  // the owner would otherwise have to delete them by hand every time.
+  return (block?.type === "text" ? block.text : "").trim().replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
+}
+
+/** The translation's raw answer (JSON as text), on whichever provider serves every tenant. Metered. */
+async function greetingTranslationText(tenantId: string, input: GreetingTranslationInput): Promise<string> {
+  if (openAIActive()) {
+    const r = await translateGreetingOpenAI(openai, OPENAI_STACK.greeting, input);
+    if (r.tokens) {
+      void recordUsage({ tenantId, callType: "greeting_translation", provider: "openai", model: OPENAI_STACK.greeting, tokens: r.tokens });
+    }
+    return r.raw;
+  }
+  const response = await anthropic.messages.create({
+    model: TRANSLATION_MODEL,
+    max_tokens: 900,
+    system: buildGreetingTranslationPrompt(input),
+    messages: [{ role: "user", content: JSON.stringify({ text: input.text, chips: input.chips }) }],
+  });
+  void recordUsage({
+    tenantId,
+    callType: "greeting_translation",
+    provider: "anthropic",
+    model: TRANSLATION_MODEL,
+    tokens: { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+  });
+  const block = response.content.find((b) => b.type === "text");
+  return block?.type === "text" ? block.text : "";
+}
+
+/**
  * Drafts a welcome message from the business's own details.
  *
  * Returns the text for the owner to edit. Deliberately does NOT save:
@@ -297,39 +360,16 @@ export async function suggestGreeting(): Promise<
   const language = settings.chat_language?.trim() || SOURCE_LANGUAGE_CODE;
 
   try {
-    const response = await anthropic.messages.create({
-      model: TRANSLATION_MODEL,
-      max_tokens: 500,
-      system: buildGreetingSuggestionPrompt({
-        businessName: tenant.business_name,
-        industry: tenant.industry,
-        description: tenant.description,
-        city: settings.location?.city ?? null,
-        country: settings.location?.country ?? null,
-        categories: await tenantCategories(supabase, tenantId),
-        language: languageName(language) || language,
-      }),
-      messages: [{ role: "user", content: "Write it." }],
+    const cleaned = await draftGreeting(tenantId, {
+      businessName: tenant.business_name,
+      industry: tenant.industry,
+      description: tenant.description,
+      city: settings.location?.city ?? null,
+      country: settings.location?.country ?? null,
+      categories: await tenantCategories(supabase, tenantId),
+      language: languageName(language) || language,
     });
-
-    void recordUsage({
-      tenantId,
-      callType: "greeting_suggestion",
-      provider: "anthropic",
-      model: TRANSLATION_MODEL,
-      tokens: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
-    });
-
-    const block = response.content.find((b) => b.type === "text");
-    const text = (block?.type === "text" ? block.text : "").trim();
-    if (!text) return { ok: false, error: "Nothing came back. Nothing was changed. Try again." };
-
-    // Stripped of the quotes a model sometimes wraps prose in, because
-    // the owner would otherwise have to delete them by hand every time.
-    const cleaned = text.replace(/^["'“”]+/, "").replace(/["'“”]+$/, "").trim();
+    if (!cleaned) return { ok: false, error: "Nothing came back. Nothing was changed. Try again." };
     return { ok: true, text: cleaned };
   } catch (err) {
     const failure = classifyModelError(err);
@@ -397,31 +437,7 @@ export async function translateGreeting(): Promise<{ ok: true } | { ok: false; e
   const chips = source.greeting.chips ?? [];
 
   try {
-    const response = await anthropic.messages.create({
-      model: TRANSLATION_MODEL,
-      max_tokens: 900,
-      system: buildGreetingTranslationPrompt({ text: trimmed, chips, language: languageForModel }),
-      messages: [
-        {
-          role: "user",
-          content: JSON.stringify({ text: trimmed, chips }),
-        },
-      ],
-    });
-
-    void recordUsage({
-      tenantId,
-      callType: "greeting_translation",
-      provider: "anthropic",
-      model: TRANSLATION_MODEL,
-      tokens: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      },
-    });
-
-    const block = response.content.find((b) => b.type === "text");
-    const raw = (block?.type === "text" ? block.text : "")
+    const raw = (await greetingTranslationText(tenantId, { text: trimmed, chips, language: languageForModel }))
       .trim()
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/```\s*$/i, "")

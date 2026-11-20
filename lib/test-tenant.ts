@@ -119,8 +119,8 @@ export function testOnlyResponseFields(
    * classifierMs: how long the classifier took, from the start of the turn
    * (the 2,000 ms budget is counted from there).
    */
-  extras: { priceStep?: string; businessFacts?: string[]; classifierMs?: number } = {}
-): { signals?: VisitorSignals & { available: boolean }; priceStep?: string; businessFacts?: string[]; classifierMs?: number } {
+  extras: { priceStep?: string; businessFacts?: string[]; classifierMs?: number; replyAttempts?: unknown[] } = {}
+): { signals?: VisitorSignals & { available: boolean }; priceStep?: string; businessFacts?: string[]; classifierMs?: number; replyAttempts?: unknown[] } {
   if (requested !== true || !isTestTenant(settings)) return {};
   return { signals: { ...signals, available }, ...extras };
 }
@@ -162,15 +162,16 @@ export function testReplyModel(
  * for a real customer. scripts/test-reply-provider.ts checks it.
  */
 /**
- * Every model call on OpenAI at once, for the final check of the
- * migration (step 8): the classifier and coverage on Luna, the reply,
- * extraction, the answer-gap judge and the shortener on Terra. It also
- * switches on what has been measured only on this stack: the business
- * facts in the state block, and the capture gate that skips an accepted
- * offer.
+ * The models every call uses: the classifier and coverage on Luna; the
+ * reply, extraction, the answer-gap judge, the shortener and the greeting
+ * on Terra. Since 2026-11-20 the default for every tenant
+ * (lib/model-provider.ts). The stack also carries what was measured only
+ * on it: the business facts in the state block, and the capture gate
+ * that skips an accepted offer.
  *
- * Honoured ONLY on a test tenant, and only for the literal true.
- * Production keeps its models and behaviour until the flip is decided.
+ * testOpenAIStack below is the request-level switch, which now matters
+ * only under the rollback (MODEL_PROVIDER=anthropic): honoured only on a
+ * test tenant, and only for the literal true.
  */
 export const OPENAI_STACK = {
   classifier: "gpt-6-luna",
@@ -179,7 +180,24 @@ export const OPENAI_STACK = {
   extraction: "gpt-6.1-terra",
   judge: "gpt-6.1-terra",
   shorten: "gpt-6.1-terra",
+  greeting: "gpt-6.1-terra",
 } as const;
+
+/**
+ * A live drill of the reply's fallback chain (lib/openai-fallback.ts), on
+ * a test tenant only:
+ *   "retry"    the first attempt times out after 1 ms: the same model is
+ *              retried and answers;
+ *   "second"   the first model does not exist: the second model answers;
+ *   "fallback" no model exists: the safe fallback sentence is served.
+ * Null for anything else, and always on a real tenant.
+ */
+export const FALLBACK_DRILLS = ["retry", "second", "fallback"] as const;
+export type FallbackDrill = (typeof FALLBACK_DRILLS)[number];
+export function testFallbackDrill(requested: unknown, settings: { is_test?: boolean } | null | undefined): FallbackDrill | null {
+  if (!isTestTenant(settings)) return null;
+  return (FALLBACK_DRILLS as readonly unknown[]).includes(requested) ? (requested as FallbackDrill) : null;
+}
 
 export function testOpenAIStack(requested: unknown, settings: { is_test?: boolean } | null | undefined): boolean {
   return requested === true && isTestTenant(settings);

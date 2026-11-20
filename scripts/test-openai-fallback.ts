@@ -93,9 +93,14 @@ async function main() {
   // Wiring, read from the source.
   const route = readFileSync(join(__dirname, "..", "app", "api", "chat", "route.ts"), "utf8");
   const replySrc = readFileSync(join(__dirname, "..", "lib", "reply-openai.ts"), "utf8");
-  check("the route's OpenAI reply goes through withOpenAIFallback over replyModelChain", /withOpenAIFallback\(\s*replyModelChain\(experimentModel\)/.test(route));
+  // The chain is built first, so the test-only drill can bend it
+  // (testFallbackDrill); on a real tenant it is replyModelChain unchanged.
+  check(
+    "the route's OpenAI reply goes through withOpenAIFallback over replyModelChain",
+    /const chain = replyModelChain\(experimentModel\)\.map\(/.test(route) && /withOpenAIFallback\(chain,/.test(route)
+  );
   check("usage is recorded against the model that actually answered", /model: answeredBy,/.test(route));
-  check("the SDK's own silent retries are off on the reply call", /\{ maxRetries: 0 \}/.test(replySrc));
+  check("the SDK's own silent retries are off on the reply call", /\{ maxRetries: 0[ ,]/.test(replySrc));
   check("a final failure still reaches the safe fallback (handleChat's catch serves degradedReply)", /catch \(error\) \{[\s\S]{0,900}degradedReply\(body\)/.test(route));
 
   if (bad > 0) {
