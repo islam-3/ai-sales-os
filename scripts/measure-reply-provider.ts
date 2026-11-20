@@ -24,7 +24,10 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { say, SLUG, type Reply } from "./_chat-client";
-import { CASES, HESITATION_TURN, type Case } from "./_smoke-cases";
+import { CASES as CLINIC_CASES, HESITATION_TURN, type Case } from "./_smoke-cases";
+import { REALTY_CASES } from "./_realty-cases";
+// CASE_SET=realty runs test-realty's conversations (set SLUG=test-realty too).
+const CASES: Case[] = process.env.CASE_SET === "realty" ? REALTY_CASES : CLINIC_CASES;
 import { allSafeFallbacks } from "../lib/safe-fallback";
 import { countWords } from "../lib/punctuation";
 import { detectScript } from "../lib/visitor-language";

@@ -115,7 +115,11 @@ async function main() {
   const openaiSessions = JSON.parse(readFileSync(sessionsFile, "utf8")) as { arm: string; label: string; run: number; sessionId: string; offered?: string[][] }[];
   const { supabaseServer: s } = await import("../lib/supabase-server");
 
-  const { data: tenant } = await s.from("tenants").select("id, business_name, description, settings").eq("slug", "test-clinic").single();
+  // TENANT names the tenant whose material the facts come from. Sonnet's
+  // baseline exists only for test-clinic; elsewhere only the OpenAI arm is
+  // read and the bars are absolute (BARS=facts).
+  const tenantSlug = process.env.TENANT ?? "test-clinic";
+  const { data: tenant } = await s.from("tenants").select("id, business_name, description, settings").eq("slug", tenantSlug).single();
   const st = tenant!.settings as { location?: { city?: string; country?: string }; contact?: { whatsapp?: string } };
   const { data: kb } = await s.from("knowledge_base").select("title, content").eq("tenant_id", tenant!.id);
   // Entry text, not titles: titles are title-cased, which reads as names.
@@ -140,7 +144,7 @@ async function main() {
     };
   };
   const convs: Conv[] = [];
-  for (const x of SONNET_SESSIONS) convs.push(await load("sonnet", x.label, x.run, x.sessionId));
+  if (tenantSlug === "test-clinic") for (const x of SONNET_SESSIONS) convs.push(await load("sonnet", x.label, x.run, x.sessionId));
   for (const x of openaiSessions) convs.push(await load(x.arm, x.label, x.run, x.sessionId, x.offered));
   const arms = Array.from(new Set(convs.map((c) => c.arm)));
 
@@ -195,7 +199,7 @@ async function main() {
 
   // The bars.
   const verdicts: string[] = [];
-  const sonnet = (lang: string) => table.get(`sonnet|${lang}`)!;
+  const sonnet = (lang: string) => table.get(`sonnet|${lang}`) ?? { convs: 1, firstWithFact: 0, distinct: 0, handoffs: 0, priceFact: 0, processFact: 0, named: 0 };
   if (BARS === "facts") {
     for (const arm of arms.filter((a) => a !== "sonnet")) {
       const o = table.get(`${arm}|all`)!;

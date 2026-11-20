@@ -1,0 +1,367 @@
+[
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "English (Latin baseline)",
+    "sessionId": "5bb923a4-b8ee-4120-a930-4628bba7757c",
+    "offered": [
+      [
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results.",
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1139,
+      1642,
+      1624,
+      1845,
+      1557,
+      1643,
+      1190
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "b8e52f5f-7809-4096-a940-3fb7589fe34d",
+    "offered": [
+      [],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1437,
+      2009,
+      1604,
+      1239,
+      1738,
+      1436,
+      1846
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "72d0df4b-b82d-4965-82d2-871897587d25",
+    "offered": [
+      [
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results.",
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1239,
+      2007,
+      1043,
+      1447,
+      1411,
+      1536,
+      2013
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "438ba513-1b2e-4681-ad3d-a2cf5ea35e9e",
+    "offered": [
+      [
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients.",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1540,
+      1954,
+      1626,
+      1434,
+      1334,
+      1440,
+      1844
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "f83cf831-e099-475b-9f8a-780a7e192c48",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1140,
+      1637,
+      2009,
+      1642,
+      1768,
+      1442,
+      1710
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "0c181e05-785b-44cb-9794-753fdc7dbb64",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1233,
+      2013,
+      2009,
+      1746,
+      1675,
+      1748,
+      1171
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "English (Latin baseline)",
+    "sessionId": "0a928e8d-20c4-49bc-b2aa-2e3c70df8aea",
+    "offered": [
+      [
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results.",
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1228,
+      1527,
+      1651,
+      1397,
+      1505,
+      1740,
+      1278
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "116f1410-3224-488b-9864-8a0841f64546",
+    "offered": [
+      [],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1432,
+      1429,
+      1612,
+      1542,
+      1331,
+      1131,
+      1103
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "b7f594a1-9b1a-46b9-9f62-9b7bb4e3e4a0",
+    "offered": [
+      [
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results.",
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1068,
+      1533,
+      968,
+      2006,
+      1209,
+      1015,
+      990
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "4ee52aa0-92e5-476a-876a-3e4132af16ef",
+    "offered": [
+      [
+        "We use premium Straumann zirconia crowns, known worldwide for their exceptional strength, natural appearance, and long-term durability. This ensures the highest quality, comfort, and aesthetic results for our patients.",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1501,
+      1332,
+      1817,
+      2015,
+      1129,
+      1414,
+      1267
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "7cf99cec-bf2e-4d03-8953-b80dd0ba3d8f",
+    "offered": [
+      [],
+      [],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We provide 20 years warranty on the crowns and lifetime warranty on the implants"
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1524,
+      1203,
+      958,
+      1535,
+      1434,
+      1638,
+      1810
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "65350e49-9313-4479-9ef1-7369135b4da7",
+    "offered": [
+      [],
+      [],
+      [
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results.",
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit"
+      ],
+      [
+        "For dental implants 2 visits: first 5 days we do the implants and we provide temporary dentures then healing period for 4 months then second visit for 7 days where we do the crowns. Hollywood smile without implants 7 days one visit",
+        "We use Implant Swiss dental implants for their exceptional quality, Swiss precision, and proven clinical performance. They provide excellent stability, reliable healing, and long-term durability, ensuring safe and natural-looking results."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1729,
+      2001,
+      962,
+      1749,
+      1097,
+      1156,
+      1272
+    ]
+  }
+]
