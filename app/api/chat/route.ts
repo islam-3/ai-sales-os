@@ -779,7 +779,10 @@ async function handleChat(body: Record<string, unknown>) {
   // given earlier. Started now, while the classifier is still running,
   // so it adds no wait of its own. A failure means no facts this turn.
   const factsQuery =
-    trimmedMessage && knowledgeEntries.some((e) => e.embedding)
+    // Only where the facts can be used: under the OpenAI stack. Elsewhere
+    // the embedding was a call made on every turn for nothing (seen in the
+    // production smoke run of 2026-11-20, 7d8989c).
+    stack && trimmedMessage && knowledgeEntries.some((e) => e.embedding)
       ? generateEmbedding(
           factsQueryText(turnsWithLatest.filter((t) => t.role === "user").map((t) => t.content)),
           tenantId,

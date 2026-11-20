@@ -1,0 +1,345 @@
+[
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "English (Latin baseline)",
+    "sessionId": "2ad7508e-14ce-45d3-846e-7505fbc7af59",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      864,
+      1223,
+      869,
+      1859,
+      1110,
+      732,
+      802
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "8a927ed6-ca6f-4879-a610-1d54935fd0ef",
+    "offered": [
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation."
+      ],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      896,
+      894,
+      781,
+      833,
+      1065,
+      925,
+      841
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "e7df47fd-3468-41a8-9c5c-e76ffddc81e4",
+    "offered": [
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1346,
+      799,
+      1014,
+      856,
+      1005,
+      767,
+      764
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "77a144dc-85af-43e6-b6d7-9172a13c23a4",
+    "offered": [
+      [
+        "A home worth at least USD 200,000 in Istanbul qualifies the buyer for a short-term residence permit, renewed every 1–2 years."
+      ],
+      [],
+      [
+        "A home worth at least USD 200,000 in Istanbul qualifies the buyer for a short-term residence permit, renewed every 1–2 years."
+      ],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      766,
+      828,
+      746,
+      1247,
+      1574,
+      934,
+      811
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "38b375b4-0e77-47c5-97c0-d677914e7a8a",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      893,
+      906,
+      945,
+      959,
+      861,
+      738,
+      912
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 1,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "b626ba47-9f31-44a5-a26b-e2754d7d8b10",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      813,
+      897,
+      938,
+      859,
+      735,
+      766,
+      1045
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "English (Latin baseline)",
+    "sessionId": "146d6a61-cdbc-45cb-9ec3-4e74963c97e8",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1337,
+      770,
+      962,
+      802,
+      754,
+      827,
+      1225
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Arabic (right-to-left, ؟)",
+    "sessionId": "6de85bfc-61ac-4cfe-857b-46ed506e24ff",
+    "offered": [
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation."
+      ],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      756,
+      825,
+      988,
+      843,
+      729,
+      664,
+      1325
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Russian (Cyrillic)",
+    "sessionId": "92932f18-73de-4171-b8cb-3c810bceb161",
+    "offered": [
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1061,
+      1046,
+      779,
+      737,
+      843,
+      793,
+      732
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Chinese (no spaces between words)",
+    "sessionId": "827acbf9-0221-4c49-b7d9-1ff0ba74d9fa",
+    "offered": [
+      [
+        "A home worth at least USD 200,000 in Istanbul qualifies the buyer for a short-term residence permit, renewed every 1–2 years."
+      ],
+      [],
+      [
+        "A home worth at least USD 200,000 in Istanbul qualifies the buyer for a short-term residence permit, renewed every 1–2 years."
+      ],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      1145,
+      774,
+      755,
+      780,
+      861,
+      934,
+      731
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Turkish (dotted/dotless i)",
+    "sessionId": "c99705f0-bc11-41f1-89b3-a56985e088ed",
+    "offered": [
+      [],
+      [],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      969,
+      937,
+      732,
+      1240,
+      947,
+      760,
+      863
+    ]
+  },
+  {
+    "arm": "gpt-6.1-terra",
+    "run": 2,
+    "label": "Spanish (¿ inverted punctuation)",
+    "sessionId": "d01e67c8-ce4b-4d64-baae-9b0e391f6bbc",
+    "offered": [
+      [
+        "A home worth at least USD 200,000 in Istanbul qualifies the buyer for a short-term residence permit, renewed every 1–2 years."
+      ],
+      [],
+      [],
+      [
+        "Sign a reservation agreement with a 5% deposit. The title deed (tapu) is transferred at the Land Registry, usually 2–4 weeks from reservation.",
+        "Turkish banks lend to foreigners only up to about 50% of the value and at high rates, so most of our foreign buyers pay in full."
+      ],
+      [],
+      [],
+      []
+    ],
+    "classifierMs": [
+      732,
+      692,
+      763,
+      748,
+      1137,
+      782,
+      742
+    ]
+  }
+]

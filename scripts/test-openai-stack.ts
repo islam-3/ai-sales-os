@@ -41,6 +41,7 @@ check("reply: Terra under the stack, through the OpenAI fallback", /const experi
 check("extraction: Terra under the stack", /stack \? OPENAI_STACK\.extraction : testExtractionModel\(extractionModel, tenant\.settings\)/.test(route));
 check("capture: the judge and shortener on Terra under the stack", /\.\.\.\(stack && \{ openai: \{ client: openai, judgeModel: OPENAI_STACK\.judge, shortenModel: OPENAI_STACK\.shorten \} \}\)/.test(route));
 check("outside the stack the capture gate ignores accepts_offer (ships with the Luna switch)", /shouldJudge\(\{ \.\.\.signals, accepts_offer: stack && signals\.accepts_offer \}\)/.test(route));
+check("the facts query is embedded only under the stack (no new call per production turn)", /stack && trimmedMessage && knowledgeEntries\.some\(\(e\) => e\.embedding\)/.test(route));
 check("the business facts are offered only under the stack", /stack && shouldJudge\(signals\) && !hesitating && !hasContactDetails\(turnsWithLatest\)/.test(route));
 const usageCalls = (route.match(/recordUsage\(/g) ?? []).length;
 check("coverage on OpenAI is metered", /callType: "coverage_answered", provider: "openai", model: OPENAI_STACK\.coverage/.test(route), String(usageCalls));

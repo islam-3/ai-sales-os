@@ -50,7 +50,9 @@ const api = (path: string) => getJson(`https://api.github.com/repos/${REPO}${pat
 const log = (s: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${s}`);
 
 async function main() {
-  const sha = process.argv[2] ?? execSync("git rev-parse HEAD").toString().trim();
+  // Always the full hash: GitHub's head_sha filter matches 40 characters
+  // only, so a short one would wait out the whole timeout on nothing.
+  const sha = execSync(`git rev-parse ${process.argv[2] ?? "HEAD"}`).toString().trim();
   log(`watching ${sha.slice(0, 7)} on ${REPO}, serving at ${PROD_URL}`);
   const deadline = Date.now() + TIMEOUT_MIN * 60_000;
 

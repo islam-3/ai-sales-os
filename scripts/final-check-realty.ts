@@ -50,10 +50,22 @@ async function main() {
     verdicts.push([`classifier p95 ${p95} ms (p50 ${p50} ms, ${ms.length} turns, budget 2,000 ms)`, ms.length > 0 && p95 < 2000]);
 
     // 2. No clinic wording.
-    const { data: clinicKb } = await s.from("knowledge_base").select("content").eq("tenant_id", clinic!.id);
-    const { data: realtyKb } = await s.from("knowledge_base").select("content").eq("tenant_id", realty!.id);
-    const realtyWords = new Set(wordsOf((realtyKb ?? []).map((k) => k.content).join(" ") + " " + REALTY_CASES.flatMap((c) => c.turns).join(" ")));
-    const clinicOnly = new Set(wordsOf((clinicKb ?? []).map((k) => k.content).join(" ")).filter((w) => !realtyWords.has(w)));
+    // The clinic's TOPIC words: from its entries' titles and categories,
+    // which name what it does ("Dental", "Implants", "Hair transplant"),
+    // not from their full text. The first version took every word of the
+    // full text, and flagged "helps", "reach" and "later" in realty
+    // replies: ordinary English that realty's short material happens not
+    // to contain (docs/final-check-realty-2026-11-20.md, first run).
+    // Plus the clinic's brand names, which its text writes the same way
+    // in every language. Anything either side's visitors or realty's own
+    // material uses is never a leak.
+    const { data: clinicKb } = await s.from("knowledge_base").select("title, category, content").eq("tenant_id", clinic!.id);
+    const { data: realtyKb } = await s.from("knowledge_base").select("title, content").eq("tenant_id", realty!.id);
+    const realtyWords = new Set(wordsOf((realtyKb ?? []).map((k) => `${k.title} ${k.content}`).join(" ") + " " + REALTY_CASES.flatMap((c) => c.turns).join(" ")));
+    const clinicTopics = wordsOf((clinicKb ?? []).map((k) => `${k.title ?? ""} ${k.category ?? ""}`).join(" "));
+    const clinicBrands = wordsOf("Straumann Implant Swiss Hollywood Sapphire DHI FUE FUT");
+    const clinicOnly = new Set([...clinicTopics, ...clinicBrands].filter((w) => !realtyWords.has(w)));
+    out.push(`Clinic topic words checked: ${Array.from(clinicOnly).join(", ")}`, "");
     const { data: rows } = await s.from("conversations").select("session_id, role, content").in("session_id", ids).order("created_at");
     const replies = (rows ?? []).filter((r) => r.role === "assistant");
     const leaks: string[] = [];
