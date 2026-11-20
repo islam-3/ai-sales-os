@@ -11,7 +11,7 @@ import { recordConversationStart } from "@/lib/conversation-metering";
 import { keepAlive } from "@/lib/keep-alive";
 import { formatEntryForPrompt } from "@/lib/knowledge-base";
 import { buildConversationStateBlock, hasContactDetails, hesitationApplies, isNearingClose } from "@/lib/conversation-state";
-import { selectBusinessFacts } from "@/lib/business-facts";
+import { factsQueryText, selectBusinessFacts } from "@/lib/business-facts";
 import { generateEmbedding } from "@/lib/embeddings";
 import { decidePriceStep, ensurePriceStep } from "@/lib/price-next-step";
 import {
@@ -23,10 +23,10 @@ import { enforceSingleQuestion, stripMarkup } from "@/lib/strip-markup";
 import { untracedFigures } from "@/lib/reply-accuracy";
 import { detectScript, resolveVisitorLanguage } from "@/lib/visitor-language";
 import { resolveLanguageCode } from "@/lib/languages";
-import { NO_SIGNALS, readVisitorSignals, signalsAvailable } from "@/lib/visitor-signals";
+import { NO_SIGNALS, readVisitorSignals, readVisitorSignalsOpenAI, signalsAvailable } from "@/lib/visitor-signals";
 import { parseEmbedding } from "@/lib/vectors";
 import { coverageProbes, relevantDimensions, type ProbeVectors } from "@/lib/coverage-relevance";
-import { readAnsweredDimensions } from "@/lib/coverage-answered";
+import { readAnsweredDimensions, readAnsweredDimensionsOpenAI } from "@/lib/coverage-answered";
 import {
   INTERNAL_STATE_CLOSE,
   INTERNAL_STATE_OPEN,
@@ -36,7 +36,7 @@ import {
 import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
-import { shouldSkipCapture, testExtractionModel, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
+import { OPENAI_STACK, shouldSkipCapture, testExtractionModel, testOpenAIStack, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
 import { openAIReply, replyModelChain, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import { withOpenAIFallback } from "@/lib/openai-fallback";
 import {
@@ -589,7 +589,7 @@ async function degradedReply(body: Record<string, unknown>): Promise<string> {
 }
 
 async function handleChat(body: Record<string, unknown>) {
-  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel, extractionModel } =
+  const { message, photoPath, sessionId, slug, openingMessage, skipCapture, includeSignals, replyModel, extractionModel, openaiStack } =
     body as {
       message?: unknown;
       photoPath?: unknown;
@@ -604,6 +604,8 @@ async function handleChat(body: Record<string, unknown>) {
       replyModel?: unknown;
       /** Extraction experiment only. Ignored unless the tenant is a test tenant. */
       extractionModel?: unknown;
+      /** Every call on OpenAI (testOpenAIStack). Ignored unless the tenant is a test tenant. */
+      openaiStack?: unknown;
     };
 
   if (typeof slug !== "string" || slug.trim().length === 0) {
@@ -651,12 +653,22 @@ async function handleChat(body: Record<string, unknown>) {
   // counted from this moment, so a slow call is abandoned rather than
   // added to what the visitor waits.
   const turnStartedAt = Date.now();
-  const signalsPromise = trimmedMessage
-    ? readVisitorSignals(trimmedMessage, {
-        startedAt: turnStartedAt,
-        meter: { tenantId, sessionId },
-      })
-    : Promise.resolve(NO_SIGNALS);
+  // Every model call on OpenAI, for the migration's final check: honoured
+  // only on a test tenant (testOpenAIStack). Production is unchanged.
+  const stack = testOpenAIStack(openaiStack, tenant.settings);
+  // How long the classifier took, counted from the start of the turn as
+  // its budget is. Reported to test tenants only (testOnlyResponseFields).
+  let classifierMs: number | undefined;
+  const signalsPromise = (
+    trimmedMessage
+      ? stack
+        ? readVisitorSignalsOpenAI(openai, OPENAI_STACK.classifier, trimmedMessage, { startedAt: turnStartedAt, meter: { tenantId, sessionId } })
+        : readVisitorSignals(trimmedMessage, { startedAt: turnStartedAt, meter: { tenantId, sessionId } })
+      : Promise.resolve(NO_SIGNALS)
+  ).then((result) => {
+    classifierMs = Date.now() - turnStartedAt;
+    return result;
+  });
 
   const [{ data: history, error: historyError }, relevantContext, knowledgeEntries] =
     await Promise.all([
@@ -761,15 +773,15 @@ async function handleChat(body: Record<string, unknown>) {
     { role: "user", content: userContent },
   ];
 
-  // The visitor's last two messages, embedded to choose which of the
-  // business's own facts this reply is offered (lib/business-facts.ts).
-  // Two, so "how much does it cost?" keeps the topic of the message
-  // before it. Started now, while the classifier is still running, so it
-  // adds no wait of its own. A failure means no facts this turn.
+  // Every visitor message so far (factsQueryText), embedded to choose
+  // which of the business's own facts this reply is offered
+  // (lib/business-facts.ts), so "how much does it cost?" keeps the topic
+  // given earlier. Started now, while the classifier is still running,
+  // so it adds no wait of its own. A failure means no facts this turn.
   const factsQuery =
     trimmedMessage && knowledgeEntries.some((e) => e.embedding)
       ? generateEmbedding(
-          turnsWithLatest.filter((t) => t.role === "user").slice(-2).map((t) => t.content).join("\n"),
+          factsQueryText(turnsWithLatest.filter((t) => t.role === "user").map((t) => t.content)),
           tenantId,
           { callType: "facts_query_embedding", sessionId }
         ).catch(() => null)
@@ -806,7 +818,16 @@ async function handleChat(body: Record<string, unknown>) {
   // never on the visitor's first message (hesitationApplies).
   const hesitating = hesitationApplies(signals.hesitation, turnsWithLatest);
   const coverageWillBeChecked = isNearingClose(turnsWithLatest) && !hesitating;
-  const answeredFor = coverageWillBeChecked
+  const answeredFor = coverageWillBeChecked && stack
+    ? (await readAnsweredDimensionsOpenAI(
+        openai,
+        OPENAI_STACK.coverage,
+        turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content),
+        turnsWithLatest.filter((x) => x.role === "assistant").map((x) => x.content),
+        (tokens) =>
+          void recordUsage({ tenantId, sessionId, callType: "coverage_answered", provider: "openai", model: OPENAI_STACK.coverage, tokens })
+      )) ?? undefined
+    : coverageWillBeChecked
     ? (await readAnsweredDimensions(
         turnsWithLatest.filter((x) => x.role === "user").map((x) => x.content),
         // The assistant's side too, for one key only: whether it has
@@ -836,10 +857,11 @@ async function handleChat(body: Record<string, unknown>) {
   // something (the capture gate's reading), is not stepping back, and has
   // not yet given contact details. Most turns get none.
   const businessFacts =
-    shouldJudge(signals) && !hesitating && !hasContactDetails(turnsWithLatest)
+    // Measured only on the OpenAI stack so far, so offered only there.
+    stack && shouldJudge(signals) && !hesitating && !hasContactDetails(turnsWithLatest)
       ? selectBusinessFacts(
           await factsQuery,
-          knowledgeEntries.map((e) => ({ content: e.content, embedding: e.embedding })),
+          knowledgeEntries.map((e) => ({ content: e.content, embedding: e.embedding, title: e.title, category: e.category })),
           (history ?? []).filter((t) => t.role === "assistant").map((t) => t.content).join("\n")
         )
       : [];
@@ -876,7 +898,7 @@ async function handleChat(body: Record<string, unknown>) {
   // null for every real tenant whatever the request says. Everything
   // after this point (the guard, storage, extraction) reads rawReply and
   // is the same either way.
-  const experimentModel = testReplyModel(replyModel, tenant.settings);
+  const experimentModel = stack ? OPENAI_STACK.reply : testReplyModel(replyModel, tenant.settings);
   let rawReply: string;
   if (experimentModel) {
     // Retry, then the other OpenAI model, then the safe fallback: an
@@ -1103,9 +1125,12 @@ async function handleChat(body: Record<string, unknown>) {
   //
   // The smoke test asks to skip it, and is listened to only on a test
   // tenant — see shouldSkipCapture for why a real tenant ignores it.
+  // The gate that skips an accepted offer (lib/capture-gate.ts) was
+  // measured on Luna only, and ships with the switch to it: outside the
+  // OpenAI stack the classifier's accepts_offer is not consulted.
   if (
     trimmedMessage &&
-    shouldJudge(signals) &&
+    shouldJudge({ ...signals, accepts_offer: stack && signals.accepts_offer }) &&
     !shouldSkipCapture(skipCapture, tenant.settings)
   ) {
     keepAlive(
@@ -1145,6 +1170,7 @@ async function handleChat(body: Record<string, unknown>) {
         // the dashboard row so an owner can see that the people asking
         // about price are all writing in Arabic.
         script: detectScript([trimmedMessage]),
+        ...(stack && { openai: { client: openai, judgeModel: OPENAI_STACK.judge, shortenModel: OPENAI_STACK.shorten } }),
       }),
       "captureIfUnanswered"
     );
@@ -1180,7 +1206,7 @@ async function handleChat(body: Record<string, unknown>) {
       leadLanguage(tenant.settings),
       visitorMessages,
       // null on every real tenant: see testExtractionModel.
-      testExtractionModel(extractionModel, tenant.settings)
+      stack ? OPENAI_STACK.extraction : testExtractionModel(extractionModel, tenant.settings)
     ),
     "extractAndSaveLead"
   );
@@ -1190,7 +1216,7 @@ async function handleChat(body: Record<string, unknown>) {
   // nothing whatever the request asks for.
   return NextResponse.json({
     reply,
-    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed", businessFacts }),
+    ...testOnlyResponseFields(includeSignals, tenant.settings, signals, signalsAvailable(signals), { priceStep: priced?.outcome ?? "not_needed", businessFacts, classifierMs }),
   });
 }
 

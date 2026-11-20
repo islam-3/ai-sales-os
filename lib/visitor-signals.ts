@@ -407,6 +407,48 @@ export async function readVisitorSignals(
   }
 }
 
+/**
+ * readVisitorSignals on OpenAI: the same prompt, the same budget counted
+ * from the start of the turn, metered, and failing closed to NO_SIGNALS
+ * on a timeout or any error. Used only under the test-only OpenAI stack
+ * (testOpenAIStack, lib/test-tenant.ts).
+ */
+export async function readVisitorSignalsOpenAI(
+  client: OpenAI,
+  model: string,
+  message: string,
+  options: { budgetMs?: number; startedAt?: number; meter?: { tenantId: string; sessionId: string } } = {}
+): Promise<VisitorSignals> {
+  const budget = options.budgetMs ?? SIGNAL_BUDGET_MS;
+  const startedAt = options.startedAt ?? Date.now();
+  const remaining = budget - (Date.now() - startedAt);
+  if (remaining <= 0) return NO_SIGNALS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), remaining);
+  try {
+    const { parsed, tokens } = await classifySignalsOpenAI(client, model, message, SIGNAL_PROMPT, controller.signal);
+    if (options.meter && tokens) {
+      void recordUsage({ tenantId: options.meter.tenantId, sessionId: options.meter.sessionId, callType: "visitor_signals", provider: "openai", model, tokens });
+    }
+    return {
+      direct_request: parsed.direct_request === true,
+      accepts_offer: parsed.accepts_offer === true,
+      hesitation: parsed.hesitation === true,
+      impatience: parsed.impatience === true,
+      asking_for_information: parsed.asking_for_information === true,
+      asks_about_price: parsed.asks_about_price === true,
+    };
+  } catch (error) {
+    if (!warnedAboutFailure) {
+      warnedAboutFailure = true;
+      console.warn("[signals] unavailable (openai), continuing without:", String((error as Error)?.message).slice(0, 120));
+    }
+    return NO_SIGNALS;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── The same classifier on OpenAI ────────────────────────────────────
 // MEASUREMENT ONLY for now: nothing on the reply path calls this.
 // Same prompt and same input as the Haiku call above; no JSON mode, as

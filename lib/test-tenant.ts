@@ -116,9 +116,11 @@ export function testOnlyResponseFields(
    * priceStep: what ensurePriceStep did (lib/price-next-step.ts).
    * businessFacts: the facts this turn's state block offered the reply
    * (lib/business-facts.ts).
+   * classifierMs: how long the classifier took, from the start of the turn
+   * (the 2,000 ms budget is counted from there).
    */
-  extras: { priceStep?: string; businessFacts?: string[] } = {}
-): { signals?: VisitorSignals & { available: boolean }; priceStep?: string; businessFacts?: string[] } {
+  extras: { priceStep?: string; businessFacts?: string[]; classifierMs?: number } = {}
+): { signals?: VisitorSignals & { available: boolean }; priceStep?: string; businessFacts?: string[]; classifierMs?: number } {
   if (requested !== true || !isTestTenant(settings)) return {};
   return { signals: { ...signals, available }, ...extras };
 }
@@ -159,6 +161,30 @@ export function testReplyModel(
  * what the business acts on; an experimental model must never write one
  * for a real customer. scripts/test-reply-provider.ts checks it.
  */
+/**
+ * Every model call on OpenAI at once, for the final check of the
+ * migration (step 8): the classifier and coverage on Luna, the reply,
+ * extraction, the answer-gap judge and the shortener on Terra. It also
+ * switches on what has been measured only on this stack: the business
+ * facts in the state block, and the capture gate that skips an accepted
+ * offer.
+ *
+ * Honoured ONLY on a test tenant, and only for the literal true.
+ * Production keeps its models and behaviour until the flip is decided.
+ */
+export const OPENAI_STACK = {
+  classifier: "gpt-6-luna",
+  coverage: "gpt-6-luna",
+  reply: "gpt-6.1-terra",
+  extraction: "gpt-6.1-terra",
+  judge: "gpt-6.1-terra",
+  shorten: "gpt-6.1-terra",
+} as const;
+
+export function testOpenAIStack(requested: unknown, settings: { is_test?: boolean } | null | undefined): boolean {
+  return requested === true && isTestTenant(settings);
+}
+
 export function testExtractionModel(
   requested: unknown,
   settings: { is_test?: boolean } | null | undefined

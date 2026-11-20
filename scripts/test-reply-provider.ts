@@ -50,7 +50,7 @@ for (const model of TEST_REPLY_MODELS) {
 const route = readFileSync(join(__dirname, "..", "app", "api", "chat", "route.ts"), "utf8").replace(/\r\n/g, "\n");
 check(
   "the route chooses the model through the gate",
-  /const experimentModel = testReplyModel\(replyModel, tenant\.settings\);/.test(route)
+  /const experimentModel = (stack \? OPENAI_STACK\.reply : )?testReplyModel\(replyModel, tenant\.settings\);/.test(route)
 );
 check(
   "and calls OpenAI for the reply only on that branch",

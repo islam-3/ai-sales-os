@@ -92,7 +92,35 @@ check("Arabic sentences split on ؟ and the full stop", splitSentences("هل ت�
 check("every digit system becomes ASCII", asciiDigits("٢٠ ۵ ７") === "20 5 7");
 
 // ── Nothing, when nothing fits ───────────────────────────────────────
-check("nothing when the best match is below the floor", selectBusinessFacts([0, 0, 0.1].map((x, i) => (i === 0 ? MIN_SIMILARITY / 10 : x)), [{ content: "x 12", embedding: [1, 0, 0] }], "").length === 0);
+{
+  // Similarity 0.1, well under the floor, against a perfectly good entry.
+  const below = [0.1, Math.sqrt(1 - 0.01), 0];
+  check("nothing when the best match is below the floor", MIN_SIMILARITY > 0.1 && selectBusinessFacts(below, [{ content: "Kronlarda 20 yıl garanti veriyoruz, her hastaya.", embedding: [1, 0, 0] }], "").length === 0);
+}
+{
+  // A long entry with no figure: its opening is a heading, not a fact.
+  const longNoFigure: FactEntry = {
+    content: "En İyi Hizmet İstanbul'da\n" + "Ekibimiz her hastayla birebir ilgilenir ve süreç boyunca yanında olur. ".repeat(6),
+    embedding: [1, 0, 0],
+  };
+  check("a long entry without figures yields no snippet (its opening is a heading)", snippetOf(longNoFigure.content) === null);
+  const facts = selectBusinessFacts([1, 0, 0], [longNoFigure, { content: "Kronlarda 20 yıl garanti veriyoruz.", embedding: [0.9, 0.43, 0] }], "");
+  check("and the selector offers the next entry instead", facts.length === 1 && facts[0].includes("20 yıl"), JSON.stringify(facts));
+}
+{
+  // The business's own categories keep the topic.
+  const entries: FactEntry[] = [
+    { content: "Kronlarda 20 yıl garanti veriyoruz.", embedding: [1, 0, 0], category: "A" },
+    { content: "FUE saç ekimi seansları 7-8 saat sürer.", embedding: [0.99, 0.14, 0], category: "B" },
+    { content: "İsviçre yapımı Implant Swiss implantlar kullanıyoruz.", embedding: [0.9, 0, 0.43], category: "A" },
+  ];
+  const facts = selectBusinessFacts([1, 0, 0], entries, "");
+  check(
+    "only the best entry's category is offered, however close another category scores",
+    facts.length === 2 && facts.every((f) => !f.includes("FUE")),
+    JSON.stringify(facts)
+  );
+}
 check("nothing without a query vector", selectBusinessFacts(null, TR, "").length === 0);
 check("an entry without an embedding is never chosen", selectBusinessFacts([1, 0, 0], [{ content: "20 yıl garanti", embedding: null }], "").length === 0);
 check("a short entry is handed over whole", snippetOf(TR[1].content) === TR[1].content);

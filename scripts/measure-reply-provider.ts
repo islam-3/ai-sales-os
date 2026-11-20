@@ -43,6 +43,9 @@ const RUNS = Number(process.env.RUNS ?? 2);
 // and prints what it cost, from usage_events.
 const SKIP_SONNET = process.env.SKIP_SONNET === "1";
 const EXTRACTION_MODEL = process.env.EXTRACTION_MODEL;
+// OPENAI_STACK=1 asks the route to put every call on OpenAI (testOpenAIStack,
+// test tenants only), and the report counts any Anthropic call left.
+const OPENAI_STACK = process.env.OPENAI_STACK === "1";
 const ARMS: { label: string; model?: string }[] = [...(SKIP_SONNET ? [] : [{ label: "sonnet" }]), ...MODELS.map((m) => ({ label: m, model: m }))];
 const HESITATION_MAX_RATIO = 0.6;
 const PAUSE_MS = 1500;
@@ -58,7 +61,7 @@ const VARIETY: Record<string, string> = {
 };
 const varietyOf = (c: Case) => VARIETY[c.label.split(" ")[0]];
 
-type Turn = { visitor: string; reply: string; signals?: Reply["signals"]; businessFacts?: string[]; failed?: string };
+type Turn = { visitor: string; reply: string; signals?: Reply["signals"]; businessFacts?: string[]; classifierMs?: number; failed?: string };
 type Conversation = {
   arm: string;
   run: number;
@@ -95,9 +98,10 @@ async function main() {
     const r = await say(sid, CASES[0].turns[0], SLUG, {
       skipCapture: true, includeSignals: true, replyModel: arm.model,
       ...(EXTRACTION_MODEL && { extractionModel: EXTRACTION_MODEL }),
+      ...(OPENAI_STACK && { openaiStack: true }),
     });
     await pause(12000);
-    const { data } = await s.from("usage_events").select("call_type, model, cost_usd").eq("session_id", sid);
+    const { data } = await s.from("usage_events").select("call_type, provider, model, cost_usd").eq("session_id", sid);
     const total = (data ?? []).reduce((a, x) => a + Number(x.cost_usd), 0);
     console.log(`one turn (${arm.model}): ${total.toFixed(5)}  ${JSON.stringify(data)}\n  reply: ${r.reply.replace(/\s+/g, " ").slice(0, 160)}`);
     return;
@@ -122,6 +126,7 @@ async function main() {
               includeSignals: true,
               ...(arm.model && { replyModel: arm.model }),
               ...(arm.model && EXTRACTION_MODEL && { extractionModel: EXTRACTION_MODEL }),
+              ...(arm.model && OPENAI_STACK && { openaiStack: true }),
             });
           } catch (error) {
             conv.turns.push({ visitor: c.turns[i], reply: "", failed: String((error as Error).message).slice(0, 120) });
@@ -130,7 +135,7 @@ async function main() {
           }
           await pause(PAUSE_MS);
           const flat = result.reply.replace(/\s+/g, " ").trim();
-          conv.turns.push({ visitor: c.turns[i], reply: result.reply, signals: result.signals, businessFacts: result.businessFacts });
+          conv.turns.push({ visitor: c.turns[i], reply: result.reply, signals: result.signals, businessFacts: result.businessFacts, classifierMs: result.classifierMs });
 
           // Before spending anything more: did the server actually switch?
           if (arm.model && !switchVerified.has(arm.model)) {
@@ -194,7 +199,17 @@ async function main() {
   writeReport(conversations);
   // The session ids, for scripts/measure-reply-specifics.ts.
   const sessionsPath = join(__dirname, "..", "docs", process.env.SESSIONS_FILE ?? `reply-provider-${new Date().toISOString().slice(0, 10)}.sessions.json`);
-  writeFileSync(sessionsPath, JSON.stringify(conversations.map((c) => ({ arm: c.arm, run: c.run, label: c.case.label, sessionId: c.sessionId, offered: c.turns.map((t) => t.businessFacts ?? []) })), null, 2));
+  // Under the OpenAI stack: no Anthropic call may remain, and the
+  // classifier's time per turn is kept for the latency bar.
+  if (OPENAI_STACK) {
+    const { data: rows } = await s.from("usage_events").select("provider, call_type, model").in("session_id", conversations.map((c) => c.sessionId));
+    const anthropicRows = (rows ?? []).filter((r) => r.provider !== "openai");
+    const ms = conversations.flatMap((c) => c.turns.map((t) => t.classifierMs).filter((x): x is number => typeof x === "number")).sort((a, b) => a - b);
+    const p95 = ms.length ? ms[Math.min(ms.length - 1, Math.floor(ms.length * 0.95))] : NaN;
+    console.log(`usage rows: ${rows?.length ?? 0}, not OpenAI: ${anthropicRows.length}${anthropicRows.length ? " " + JSON.stringify(anthropicRows.slice(0, 5)) : ""}`);
+    console.log(`classifier time from the start of the turn: p50 ${ms[Math.floor(ms.length / 2)]} ms, p95 ${p95} ms over ${ms.length} turns`);
+  }
+  writeFileSync(sessionsPath, JSON.stringify(conversations.map((c) => ({ arm: c.arm, run: c.run, label: c.case.label, sessionId: c.sessionId, offered: c.turns.map((t) => t.businessFacts ?? []), classifierMs: c.turns.map((t) => t.classifierMs ?? null) })), null, 2));
   console.log(`wrote ${sessionsPath}`);
 }
 

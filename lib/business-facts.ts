@@ -27,14 +27,51 @@
 
 import { cosineSimilarity } from "./vectors";
 
-export type FactEntry = { content: string; embedding: number[] | null };
+export type FactEntry = { content: string; embedding: number[] | null; title?: string; category?: string };
 
 /** An entry this short is handed over whole. */
 export const WHOLE_ENTRY_CHARS = 280;
-/** Entries within this share of the best score are candidates. */
-const CUTOFF_RATIO = 0.9;
-/** Below this the best match is not about the question at all. */
-export const MIN_SIMILARITY = Number(process.env.FACTS_MIN_SIMILARITY ?? 0.3);
+/** Entries in the best entry's category within this share of its score are candidates. */
+const CUTOFF_RATIO = 0.75;
+/**
+ * Below this the best match is not about the question at all.
+ * Calibrated, not guessed: see scripts/calibrate-business-facts.ts and
+ * docs/business-facts-calibration-*.txt. The first value, 0.3, was a
+ * guess, and sat above the best match (0.24) for "walk me through the
+ * steps", so the process reply was offered nothing. 0.18 sits below every
+ * on-topic question in six languages (Arabic, against English material,
+ * is lowest at 0.19). The distributions overlap: one off-topic question
+ * ("bugün hava nasıl?", 0.217) passes it. The gate (the visitor asked
+ * something) and the category rule below carry the rest. It applies to
+ * the best match only.
+ */
+export const MIN_SIMILARITY = Number(process.env.FACTS_MIN_SIMILARITY ?? 0.18);
+
+/**
+ * An entry shorter than this, or the same as its own title, is a label
+ * ("Before and after ( dental implants )"), not a fact.
+ */
+export const MIN_FACT_CHARS = 40;
+
+/** Whether an entry has anything to say beyond its own heading. */
+export function isLabel(e: FactEntry): boolean {
+  const text = e.content.replace(/\s+/g, " ").trim();
+  // Short AND without a figure: "we have 15 years of experience" is a
+  // short entry and a real fact.
+  if (hasFigure(text)) return false;
+  return text.length < MIN_FACT_CHARS || (e.title !== undefined && text.toLowerCase() === e.title.replace(/\s+/g, " ").trim().toLowerCase());
+}
+
+/**
+ * The text the entries are ranked against: every visitor message so far,
+ * newest last, capped. All of them, not the last two: "how much does it
+ * cost?" followed by "walk me through the steps" has lost the topic the
+ * visitor gave earlier.
+ */
+export function factsQueryText(visitorMessages: string[], maxChars = 1500): string {
+  const joined = visitorMessages.map((m) => m.trim()).filter(Boolean).join("\n");
+  return joined.length <= maxChars ? joined : joined.slice(joined.length - maxChars);
+}
 
 const DIGITS: Record<string, string> = {};
 "٠١٢٣٤٥٦٧٨٩".split("").forEach((d, i) => (DIGITS[d] = String(i)));
@@ -63,13 +100,18 @@ export function splitSentences(text: string): string[] {
 
 const hasFigure = (s: string) => /\d/.test(asciiDigits(s));
 
-/** What of an entry is handed over: whole if short, else its figures, else its opening. */
-export function snippetOf(content: string): string {
+/**
+ * What of an entry is handed over: the whole entry if it is short, or a
+ * long entry's sentences with figures. Null for a long entry with none:
+ * its opening sentence is usually a heading ("Best Dental Implants in
+ * Istanbul Turkey"), which is not a fact.
+ */
+export function snippetOf(content: string): string | null {
   const text = content.replace(/\s+/g, " ").trim();
   if (text.length <= WHOLE_ENTRY_CHARS) return text;
-  const sentences = splitSentences(content);
-  const withFigures = sentences.filter(hasFigure).slice(0, 2);
-  const chosen = withFigures.length ? withFigures.join(" ") : sentences[0] ?? text;
+  const withFigures = splitSentences(content).filter(hasFigure).slice(0, 2);
+  if (withFigures.length === 0) return null;
+  const chosen = withFigures.join(" ");
   return chosen.length <= WHOLE_ENTRY_CHARS ? chosen : `${chosen.slice(0, WHOLE_ENTRY_CHARS - 1).trimEnd()}…`;
 }
 
@@ -110,17 +152,26 @@ export function selectBusinessFacts(
 ): string[] {
   if (!queryEmbedding || entries.length === 0) return [];
   const scored = entries
-    .map((e, i) => ({ i, score: e.embedding ? cosineSimilarity(queryEmbedding, e.embedding) : -1 }))
-    .filter((x) => x.score >= MIN_SIMILARITY)
+    .map((e, i) => ({ i, score: e.embedding && !isLabel(e) ? cosineSimilarity(queryEmbedding, e.embedding) : -1 }))
+    .filter((x) => x.score > -1)
     .sort((a, b) => b.score - a.score);
-  if (scored.length === 0) return [];
+  // The floor is on the best match: below it, the question is not about
+  // anything the business wrote.
+  if (scored.length === 0 || scored[0].score < MIN_SIMILARITY) return [];
   const best = scored[0].score;
+  // The business's own grouping keeps the topic: candidates come from the
+  // best entry's category. Similarities compress across languages (an
+  // Arabic question against English material scores about 0.2), and
+  // without this a hair-transplant entry with figures sat as close to an
+  // implant question as the implant entries did.
+  const topic = entries[scored[0].i].category;
   const tokens = distinctiveTokens(entries);
   const said = new Set(wordsOf(asciiDigits(assistantSoFar)));
 
   const facts: string[] = [];
   for (const { i, score } of scored) {
     if (score < best * CUTOFF_RATIO || facts.length >= max) break;
+    if (topic !== undefined && entries[i].category !== topic) continue;
     // Already said: one of its identifying tokens is in an earlier reply.
     if (tokens[i].some((t) => said.has(t))) continue;
     const snippet = snippetOf(entries[i].content);

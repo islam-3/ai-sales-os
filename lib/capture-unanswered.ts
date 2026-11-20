@@ -29,12 +29,14 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   judgeAnswerGap,
+  judgeAnswerGapOpenAI,
   ANSWER_GAP_MODEL,
   MAX_CAPTURED_ROWS_PER_CONVERSATION,
   MAX_JUDGE_CALLS_PER_CONVERSATION,
   type KnowledgeForJudge,
 } from "./answer-gap";
-import { shortenAndMatch, SHORTEN_MODEL } from "./question-short";
+import { shortenAndMatch, shortenAndMatchOpenAI, SHORTEN_MODEL } from "./question-short";
+import type OpenAI from "openai";
 import { generateEmbedding } from "./embeddings";
 import { recordUsage } from "./usage";
 import { nearestGroups, MATCH_CANDIDATES } from "./unanswered-questions";
@@ -72,6 +74,7 @@ export { shouldJudge } from "./capture-gate";
 export async function captureIfUnanswered({
   supabase,
   anthropic,
+  openai,
   tenantId,
   sessionId,
   question,
@@ -81,6 +84,11 @@ export async function captureIfUnanswered({
 }: {
   supabase: SupabaseClient;
   anthropic: Anthropic;
+  /**
+   * The judge and the shortener on OpenAI instead, under the test-only
+   * OpenAI stack (lib/test-tenant.ts). Absent everywhere else.
+   */
+  openai?: { client: OpenAI; judgeModel: string; shortenModel: string };
   tenantId: string;
   sessionId: string;
   /** The visitor's message, as they typed it. */
@@ -173,7 +181,9 @@ export async function captureIfUnanswered({
    */
   async function judgeAndRecord(): Promise<CaptureOutcome> {
     // ── The judge ─────────────────────────────────────────────────────
-    const verdict = await judgeAnswerGap(anthropic, question, knowledge);
+    const verdict = openai
+      ? await judgeAnswerGapOpenAI(openai.client, question, knowledge, openai.judgeModel, `answer-gap-${tenantId}`)
+      : await judgeAnswerGap(anthropic, question, knowledge);
 
     // Metered whatever it decided. "Answered" is the common case and
     // the cheapest outcome for the owner, but it is not a free call,
@@ -184,8 +194,8 @@ export async function captureIfUnanswered({
         tenantId,
         sessionId,
         callType: "answer_gap_judge",
-        provider: "anthropic",
-        model: ANSWER_GAP_MODEL,
+        provider: openai ? "openai" : "anthropic",
+        model: openai ? openai.judgeModel : ANSWER_GAP_MODEL,
         tokens: {
           inputTokens: verdict.usage.input,
           outputTokens: verdict.usage.output,
@@ -254,7 +264,9 @@ export async function captureIfUnanswered({
     // One call. The model decides whether the question is one of the
     // candidates; validated at 0 wrong merges in 123 decisions against
     // ten groups (docs/question-match-2026-10-30.txt).
-    const short = await shortenAndMatch(anthropic, question, teamLanguage, candidates);
+    const short = openai
+      ? await shortenAndMatchOpenAI(openai.client, question, teamLanguage, candidates, openai.shortenModel)
+      : await shortenAndMatch(anthropic, question, teamLanguage, candidates);
     const existingGroup = short.groupId;
     if (short.usage) {
       // Awaited, like the judge above: this whole function already runs
@@ -266,8 +278,8 @@ export async function captureIfUnanswered({
         tenantId,
         sessionId,
         callType: "question_shorten",
-        provider: "anthropic",
-        model: SHORTEN_MODEL,
+        provider: openai ? "openai" : "anthropic",
+        model: openai ? openai.shortenModel : SHORTEN_MODEL,
         tokens: { inputTokens: short.usage.input, outputTokens: short.usage.output },
       });
     }

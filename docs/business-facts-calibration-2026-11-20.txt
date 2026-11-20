@@ -1,0 +1,30 @@
+test-clinic: 19 entries with content (labels skipped)
+
+ON-TOPIC (price = turn 3, process = turn 4, every visitor message so far):
+  0.548  English  price    -> Best Dental Implants in Istanbul Turkey
+  0.526  English  process  -> The duration for Hollywood smile and implants
+  0.191  Arabic   price    -> Best Dental Implants in Istanbul Turkey
+  0.198  Arabic   process  -> Best Dental Implants in Istanbul Turkey
+  0.466  Russian  price    -> Best Dental Implants in Istanbul Turkey
+  0.448  Russian  process  -> Best Dental Implants in Istanbul Turkey
+  0.397  Chinese  price    -> Best Dental Implants in Istanbul Turkey
+  0.403  Chinese  process  -> Best Dental Implants in Istanbul Turkey
+  0.546  Turkish  price    -> Best Dental Implants in Istanbul Turkey
+  0.549  Turkish  process  -> Best Dental Implants in Istanbul Turkey
+  0.471  Spanish  price    -> Best Dental Implants in Istanbul Turkey
+  0.476  Spanish  process  -> The duration for Hollywood smile and implants
+
+OFF-TOPIC (a single message, as the first message of a conversation):
+  0.087  "what's the weather like in London today?"     -> Liposuction
+  0.150  "do you sell second-hand cars?"                -> The warranty
+  0.108  "my name is David"                             -> The warranty
+  0.248  "+44 7700 900123"                              -> The package
+  0.135  "ok thanks"                                    -> Crowns brand
+  0.131  "كم الساعة الآن؟"                              -> The duration for Hollywood smile and implants
+  0.082  "Какая сегодня погода?"                        -> Teeth Whitening in Prof clinic Istanbul
+  0.053  "今天天气怎么样？"                                     -> Face-Lift
+  0.217  "bugün hava nasıl?"                            -> Rhinoplasty (nose job)
+  0.139  "¿venden coches usados?"                       -> The package
+
+on-topic minimum 0.191, off-topic maximum 0.248
+OVERLAP: no floor separates them; the gate (the visitor asked something) has to carry it

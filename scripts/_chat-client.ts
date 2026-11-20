@@ -31,6 +31,8 @@ export type Reply = {
   priceStep?: string;
   /** The business's facts the state block offered this turn (lib/business-facts.ts). Test tenants only. */
   businessFacts?: string[];
+  /** How long the classifier took this turn, from the start of the turn. Test tenants only. */
+  classifierMs?: number;
 };
 
 // Checked once per process, then remembered: the guard protects against a
@@ -97,7 +99,7 @@ export async function say(
    * replyModel: an OpenAI model to write the reply, for the provider
    * experiment. Same gate — see testReplyModel.
    */
-  options: { skipCapture?: boolean; includeSignals?: boolean; replyModel?: string; extractionModel?: string } = {}
+  options: { skipCapture?: boolean; includeSignals?: boolean; replyModel?: string; extractionModel?: string; openaiStack?: boolean } = {}
 ): Promise<Reply> {
   await ensureTestTenant(slug);
 
@@ -115,6 +117,7 @@ export async function say(
           ...(options.includeSignals === true && { includeSignals: true }),
           ...(options.replyModel && { replyModel: options.replyModel }),
           ...(options.extractionModel && { extractionModel: options.extractionModel }),
+          ...(options.openaiStack === true && { openaiStack: true }),
         }),
       });
       if (res.ok) return (await res.json()) as Reply;
