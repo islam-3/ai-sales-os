@@ -24,7 +24,7 @@ export function openAIActive(provider: string | undefined = process.env.MODEL_PR
  * Whether THIS request runs on the OpenAI stack: always, unless the
  * rollback is set, and then only for a test tenant that asks for it.
  */
-export function useOpenAIStack(
+export function openAIStackFor(
   requested: unknown,
   settings: { is_test?: boolean } | null | undefined,
   provider: string | undefined = process.env.MODEL_PROVIDER

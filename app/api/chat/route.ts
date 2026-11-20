@@ -37,7 +37,7 @@ import { safeFallbackFor } from "@/lib/safe-fallback";
 import { classifyModelError } from "@/lib/model-errors";
 import { captureIfUnanswered, shouldJudge } from "@/lib/capture-unanswered";
 import { OPENAI_STACK, shouldSkipCapture, testExtractionModel, testFallbackDrill, testOnlyResponseFields, testReplyModel, type TestReplyModel } from "@/lib/test-tenant";
-import { useOpenAIStack } from "@/lib/model-provider";
+import { openAIStackFor } from "@/lib/model-provider";
 import { openAIReply, replyModelChain, toOpenAIReplyRequest } from "@/lib/reply-openai";
 import { withOpenAIFallback } from "@/lib/openai-fallback";
 import {
@@ -658,7 +658,7 @@ async function handleChat(body: Record<string, unknown>) {
   const turnStartedAt = Date.now();
   // Every model call on OpenAI, for every tenant (lib/model-provider.ts),
   // unless the rollback MODEL_PROVIDER=anthropic is set.
-  const stack = useOpenAIStack(openaiStack, tenant.settings);
+  const stack = openAIStackFor(openaiStack, tenant.settings);
   // How long the classifier took, counted from the start of the turn as
   // its budget is. Reported to test tenants only (testOnlyResponseFields).
   let classifierMs: number | undefined;

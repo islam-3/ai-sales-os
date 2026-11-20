@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { OPENAI_STACK, testFallbackDrill, testOpenAIStack, testOnlyResponseFields } from "../lib/test-tenant";
-import { openAIActive, useOpenAIStack } from "../lib/model-provider";
+import { openAIActive, openAIStackFor } from "../lib/model-provider";
 // A literal, not NO_SIGNALS: importing lib/visitor-signals loads the
 // Anthropic client, and test- scripts must not (scripts/test-live-gate.ts).
 const NO_SIGNALS = { direct_request: false, accepts_offer: false, hesitation: false, impatience: false, asking_for_information: false, asks_about_price: false };
@@ -35,7 +35,7 @@ check("the classifier's time reaches a test tenant only", testOnlyResponseFields
 
 // ── Every call follows the switch, read from the route ──────────────
 const route = readFileSync(join(__dirname, "..", "app", "api", "chat", "route.ts"), "utf8").replace(/\r\n/g, "\n");
-check("the switch is decided once, by the provider module", /const stack = useOpenAIStack\(openaiStack, tenant\.settings\);/.test(route));
+check("the switch is decided once, by the provider module", /const stack = openAIStackFor\(openaiStack, tenant\.settings\);/.test(route));
 check("classifier: Luna under the stack, Haiku otherwise", /stack\s*\?\s*readVisitorSignalsOpenAI\(openai, OPENAI_STACK\.classifier,/.test(route) && /:\s*readVisitorSignals\(trimmedMessage,/.test(route));
 check("coverage: Luna under the stack", /coverageWillBeChecked && stack\s*\?\s*\(await readAnsweredDimensionsOpenAI\(\s*openai,\s*OPENAI_STACK\.coverage,/.test(route));
 check("reply: Terra under the stack, through the OpenAI fallback", /const experimentModel = stack \? OPENAI_STACK\.reply : testReplyModel\(replyModel, tenant\.settings\);/.test(route));
@@ -48,9 +48,9 @@ const usageCalls = (route.match(/recordUsage\(/g) ?? []).length;
 check("coverage on OpenAI is metered", /callType: "coverage_answered", provider: "openai", model: OPENAI_STACK\.coverage/.test(route), String(usageCalls));
 
 // ── The default since 2026-11-20, and the rollback ──────────────────
-check("OpenAI serves every tenant by default", openAIActive(undefined) && useOpenAIStack(undefined, { is_test: false }, undefined) && useOpenAIStack(undefined, null, undefined));
-check("MODEL_PROVIDER=anthropic rolls a real tenant back to the previous models", !useOpenAIStack(undefined, { is_test: false }, "anthropic") && !useOpenAIStack(true, { is_test: false }, "anthropic"));
-check("under the rollback a test tenant can still ask for the OpenAI stack", useOpenAIStack(true, { is_test: true }, "anthropic"));
+check("OpenAI serves every tenant by default", openAIActive(undefined) && openAIStackFor(undefined, { is_test: false }, undefined) && openAIStackFor(undefined, null, undefined));
+check("MODEL_PROVIDER=anthropic rolls a real tenant back to the previous models", !openAIStackFor(undefined, { is_test: false }, "anthropic") && !openAIStackFor(true, { is_test: false }, "anthropic"));
+check("under the rollback a test tenant can still ask for the OpenAI stack", openAIStackFor(true, { is_test: true }, "anthropic"));
 
 // ── The fallback drill: test tenants only ───────────────────────────
 let drillLeaks = 0;
